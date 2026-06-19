@@ -77,15 +77,19 @@ Tauri SSH 是一个面向 AI 时代的桌面 SSH 运维工具。它不是只做�
 
 - SSH 服务器分组管理。
 - 服务器连接配置 CRUD。
+- `~/.ssh/config` 导入和解析，至少支持 Host、HostName、Port、User、IdentityFile。
 - 凭据管理：密码、私钥、passphrase 的安全存储抽象。
 - SSH 终端连接。
 - 命令执行和输出流式展示。
-- SFTP 文件浏览、上传、下载、删除、重命名。
+- SFTP 文件浏览、上传、下载、删除、重命名、内置文本编辑器。
 - AI 命令行问答：围绕当前服务器、当前目录、最近命令输出进行问答。
 - AI 命令建议：AI 生成命令但默认不直接执行。
+- AI Provider 首版支持 OpenAI API、DeepSeek、GLM、Kimi、MiniMax，并预留兼容 OpenAI API 的自定义 Provider。
 - AI 权限控制：只读、需确认、禁止、审批队列四类策略。
 - MCP Server 基础能力：暴露服务器列表、只读探测、受控命令执行、SFTP 读写工具。
 - 操作审计日志。
+- 团队/多用户能力 V0.1 先预留字段和审计维度，不实现完整团队协作。
+- macOS 和 Windows 同步作为首发平台。
 
 ### 4.2 V0.2 应做
 
@@ -95,6 +99,7 @@ Tauri SSH 是一个面向 AI 时代的桌面 SSH 运维工具。它不是只做�
 - AI 任务模式：让 AI 分步骤排查，但每步仍受权限控制。
 - MCP Client 管理：添加外部 MCP Server，测试工具，管理 token/header。
 - 文件传输队列、断点续传、冲突处理。
+- Linux 桌面端适配和验证。
 - Host Agent 模式设计与原型。
 
 ### 4.3 V1.0 可选
@@ -126,6 +131,7 @@ Tauri SSH 是一个面向 AI 时代的桌面 SSH 运维工具。它不是只做�
 验收标准：
 
 - 新增服务器后出现在对应分组树中。
+- 用户可以从 `~/.ssh/config` 导入服务器配置，并在导入前预览识别结果。
 - 凭据不出现在前端明文、日志、审计记录。
 - 连接失败时显示可理解的错误原因，例如认证失败、超时、Host key 不匹配。
 
@@ -235,6 +241,8 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
 - `servers`
   - `id`
   - `group_id`
+  - `workspace_id`
+  - `owner_user_id`
   - `alias`
   - `host`
   - `port`
@@ -245,6 +253,7 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
   - `environment`
   - `tags_json`
   - `notes`
+  - `source_type`: `manual` / `ssh_config` / `import`
   - `created_at`
   - `updated_at`
 
@@ -253,7 +262,9 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
 功能：
 
 - 支持密码、私钥、私钥 passphrase。
-- 支持引用本地 `~/.ssh/config` 和 `~/.ssh/id_*`，但导入前提示风险。
+- 必须支持引用和导入本地 `~/.ssh/config`。
+- 导入 `~/.ssh/config` 时展示 Host 解析结果，允许用户逐项选择导入。
+- 支持引用本地 `~/.ssh/id_*`，但导入前提示风险。
 - 支持凭据测试、轮换、删除。
 - 凭据详情默认不可见，必要时只能通过系统授权短时查看。
 
@@ -262,7 +273,8 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
 - 前端不得持久化明文凭据。
 - 后端日志和审计日志不得输出明文凭据。
 - MCP 工具不得返回凭据值。
-- 推荐使用 `tauri-plugin-stronghold` 或系统 Keychain 抽象；V0.1 如果先落 SQLite，必须加密后存储。
+- V0.1 使用 SQLite 存储凭据元数据和加密后的 secret payload。
+- 加密密钥不得硬编码在源码中；macOS/Windows 首发阶段至少要设计系统密钥链或用户主密码派生方案。
 
 ### 6.3 SSH 终端
 
@@ -307,7 +319,8 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
 - 远程目录浏览。
 - 上传、下载、删除、重命名、新建目录。
 - 文件预览：文本文件、日志文件。
-- 文件编辑：V0.1 可只支持下载编辑再上传，V0.2 支持内置编辑器。
+- 内置文本编辑器：V0.1 必须支持远程文本文件打开、编辑、保存回传。
+- 编辑器基础能力：编码检测、换行符保留、未保存提示、保存前差异预览。
 - 传输队列：进度、速度、剩余时间、失败重试。
 
 权限：
@@ -321,6 +334,8 @@ AI 调用工具时，Tauri SSH 后端执行策略检查和审计，必要时弹�
 功能：
 
 - 右侧 AI 面板，围绕当前服务器、当前会话、选中输出对话。
+- Provider 配置：OpenAI API、DeepSeek、GLM、Kimi、MiniMax、自定义 OpenAI-compatible Endpoint。
+- 每个 Provider 支持独立 API Key、Base URL、模型名、温度、超时和启用状态。
 - 支持三类问题：
   - 解释：解释错误日志、命令输出、配置片段。
   - 建议：给出排查步骤和命令。
@@ -336,6 +351,23 @@ AI 输出要求：
 - 命令和解释分区展示。
 - 命令默认不自动执行。
 - 涉及破坏性操作时，必须先解释风险和回滚方案。
+
+Provider 首版要求：
+
+| Provider | V0.1 要求 | 备注 |
+|----------|-----------|------|
+| OpenAI API | 必做 | 支持官方 Chat/Responses 兼容封装，具体 API 形态实现前再确认 |
+| DeepSeek | 必做 | 按 OpenAI-compatible 接口优先适配 |
+| GLM | 必做 | 支持智谱 GLM 模型配置 |
+| Kimi | 必做 | 支持 Moonshot/Kimi 模型配置 |
+| MiniMax | 必做 | 支持 MiniMax 模型配置 |
+| 自定义 Provider | 必做 | 支持用户填写 Base URL、API Key、模型名 |
+
+安全要求：
+
+- AI Provider Key 使用与 SSH 凭据同等级的加密存储策略。
+- Provider Key 不进入审计明文，不传给 MCP 客户端。
+- AI 请求日志默认只记录 provider、model、耗时、token 用量和脱敏后的摘要。
 
 ### 6.7 AI 权限控制
 
@@ -450,11 +482,13 @@ V0.1 可以先只做 MCP Server；MCP Client 放 V0.2。
 - 服务器列表 1000 条内搜索和筛选无明显卡顿。
 - 终端输出使用增量渲染。
 - 文件传输使用分片和后台任务。
+- 内置文本编辑器 V0.1 面向小到中等文本文件；超过阈值时只读预览并提示下载编辑。
 - 审计日志分页查询。
 
 ### 7.4 跨平台
 
-- macOS、Windows、Linux 都支持 SSH/SFTP。
+- macOS 和 Windows 作为 V0.1 首发平台，必须同步验证 SSH/SFTP、凭据加密、终端渲染、SFTP 编辑器和 MCP Server。
+- Linux 桌面端作为 V0.2 适配目标。
 - 系统 Keychain 抽象需要平台适配。
 - 文件路径、换行、权限展示需跨平台处理。
 
@@ -494,6 +528,13 @@ V0.1 可以先只做 MCP Server；MCP Client 放 V0.2。
 ### 8.5 文件页面
 
 左侧服务器和目录树，右侧文件列表，下方传输队列。支持拖拽上传。
+
+内置文本编辑器要求：
+
+- 双击可编辑文本文件。
+- 编辑器支持保存、另存为、重新加载、冲突检测。
+- 保存远程文件前必须走 SFTP 写入权限检查；AI 触发的编辑或写入必须进入审批。
+- 对二进制文件、超大文件、无法识别编码文件给出保护提示。
 
 ### 8.6 MCP 页面
 
@@ -584,6 +625,9 @@ V0.1 建议最少包含：
 - `server_groups`
 - `servers`
 - `credentials`
+- `workspaces`
+- `users`
+- `provider_configs`
 - `ssh_sessions`
 - `command_history`
 - `approval_requests`
@@ -595,7 +639,9 @@ V0.1 建议最少包含：
 
 说明：
 
+- `workspaces`、`users` 在 V0.1 只作为团队/多用户预留字段使用，默认创建本地个人空间和本机用户。
 - `credentials.secret_payload` 必须是加密后的引用或密文，不允许明文。
+- `provider_configs.secret_payload` 保存 AI Provider Key 的加密密文或安全引用，不允许明文。
 - `command_history.command_text` 需要保存，但涉及敏感参数时保存脱敏版本。
 - `audit_logs` 保存输出摘要，不保存完整大输出；完整输出可选存文件并受保留期控制。
 
@@ -607,8 +653,10 @@ V0.1 建议最少包含：
 
 - [ ] 服务器分组 CRUD。
 - [ ] 服务器 CRUD。
+- [ ] `~/.ssh/config` 导入和预览确认。
 - [ ] 凭据保存和连接测试。
 - [ ] SSH 终端打开和断开。
+- [ ] macOS / Windows 基础连接路径同步验证。
 
 ### M2：命令执行与审计
 
@@ -623,11 +671,12 @@ V0.1 建议最少包含：
 - [ ] 目录浏览。
 - [ ] 上传、下载。
 - [ ] 删除、重命名、新建目录。
+- [ ] 内置文本编辑器打开、编辑、保存远程文本文件。
 - [ ] 传输队列。
 
 ### M4：AI 助手
 
-- [ ] AI 配置。
+- [ ] AI Provider 配置：OpenAI API、DeepSeek、GLM、Kimi、MiniMax、自定义 OpenAI-compatible Endpoint。
 - [ ] 终端输出解释。
 - [ ] 命令建议。
 - [ ] AI 申请执行命令。
@@ -658,13 +707,23 @@ V0.1 完成时，必须能完成以下闭环：
 
 ## 13. 待确认问题
 
-1. V0.1 是否必须支持 `~/.ssh/config` 导入？
-2. AI Provider 首版使用哪一种：OpenAI API、兼容 OpenAI API、本地模型，还是先做抽象不接真实模型？
-3. MCP 首版优先做“本应用作为 MCP Server”，还是同时做 MCP Client 管理？
-4. 凭据安全首版是否可以先用加密 SQLite，还是必须直接接系统 Keychain/Stronghold？
-5. 是否需要团队/多用户能力？如果需要，V0.1 是否只预留字段，V1.0 再做。
-6. SFTP 首版是否需要内置文本编辑器，还是只做上传下载和预览？
-7. 是否要兼容 Windows 作为首发平台，还是先 macOS 本机验证？
+当前已确认：
+
+1. V0.1 必须支持 `~/.ssh/config` 导入。
+2. AI Provider 首版必须支持 OpenAI API、DeepSeek、GLM、Kimi、MiniMax，并支持自定义 OpenAI-compatible Endpoint。
+3. MCP 首版优先做“本应用作为 MCP Server”，MCP Client 管理放到 V0.2。
+4. 凭据安全首版使用 SQLite 存储加密后的 secret payload。
+5. 需要团队/多用户能力，V0.1 先预留字段和审计维度。
+6. SFTP 首版必须包含内置文本编辑器。
+7. macOS 和 Windows 同步作为首发平台。
+
+后续仍需细化：
+
+1. `~/.ssh/config` 导入是否需要支持 ProxyJump、ProxyCommand、Include。
+2. SQLite 加密密钥采用系统 Keychain 包装，还是用户主密码派生。
+3. OpenAI API 首版使用 Chat Completions、Responses API，还是内部统一抽象后按 Provider 适配。
+4. 内置文本编辑器首版文件大小上限、编码支持范围和冲突检测策略。
+5. Windows 首发是否必须支持 Pageant / OpenSSH Agent / Windows Credential Manager。
 
 ---
 
@@ -678,3 +737,4 @@ V0.1 完成时，必须能完成以下闭环：
 - AI 默认只能建议命令，执行必须经过策略或用户确认。
 - 凭据不得进入前端明文状态。
 - 生产分组默认最严格，测试分组可放宽只读自动执行。
+- 团队/多用户字段 V0.1 只落库预留，不做登录、云同步和协作审批。
