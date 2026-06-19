@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tauri SSH Prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: "#087b68",
+            "primary-light": "#e7f3ef",
+            accent: "#20b99d"
+          },
+          fontFamily: {
+            sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Microsoft YaHei", "sans-serif"]
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #f6f8f7;
+      --panel: #ffffff;
+      --panel-2: #f0f4f2;
+      --ink: #17211f;
+      --muted: #66736f;
+      --line: #dbe3df;
+      --brand: #087b68;
+      --brand-2: #0b5d51;
+      --ok: #14804a;
+      --warn: #b96b00;
+      --danger: #c73535;
+      --code: #101615;
+      --shadow: 0 8px 24px rgba(15, 32, 28, .08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 236px 1fr;
+    }
+    aside {
+      background: #10201d;
+      color: #d7e5e0;
+      padding: 18px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      margin-bottom: 14px;
+    }
+    .logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: #20b99d;
+      color: #05241f;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { display: block; color: #8ba39c; font-size: 12px; }
+    nav a {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      gap: 9px;
+      justify-content: space-between;
+      align-items: center;
+      color: #c9d8d3;
+      text-decoration: none;
+      padding: 9px 10px;
+      border-radius: 7px;
+      margin: 2px 0;
+      font-size: 13px;
+    }
+    nav a i { width: 16px; height: 16px; }
+    nav a:hover, nav a.active { background: rgba(255,255,255,.09); color: #fff; }
+    nav small {
+      color: #7f9891;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    main { min-width: 0; }
+    header {
+      height: 62px;
+      background: rgba(246,248,247,.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    header .actions { display: flex; gap: 8px; align-items: center; }
+    .wrap { padding: 22px 24px 48px; max-width: 1600px; }
+    .section {
+      margin: 0 0 22px;
+      scroll-margin-top: 82px;
+    }
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+    .section-title h2 { margin: 0; font-size: 18px; }
+    .section-title p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-pad { padding: 14px; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfb;
+    }
+    .toolbar strong { font-size: 14px; }
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 7px;
+      padding: 7px 10px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .18s ease;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15, 32, 28, .08); }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .btn.danger { color: var(--danger); border-color: #f1c5c5; background: #fff6f6; }
+    .btn.ghost { background: transparent; color: var(--muted); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .pill.ok { color: var(--ok); background: #eefaf3; border-color: #c9ead7; }
+    .pill.warn { color: var(--warn); background: #fff7e8; border-color: #f4d8a9; }
+    .pill.danger { color: var(--danger); background: #fff0f0; border-color: #f1c5c5; }
+    .pill.ai { color: #245d99; background: #eef6ff; border-color: #c8def8; }
+    .metric {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; font-size: 26px; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    th { color: var(--muted); background: #fbfcfb; font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    .split { display: grid; grid-template-columns: 260px 1fr; min-height: 430px; }
+    .split-3 { display: grid; grid-template-columns: 230px 1fr 340px; min-height: 520px; }
+    .side-panel {
+      border-right: 1px solid var(--line);
+      background: #fbfcfb;
+      padding: 12px;
+    }
+    .tree-item {
+      padding: 8px 9px;
+      border-radius: 7px;
+      display: flex;
+      justify-content: space-between;
+      color: #31413d;
+      margin-bottom: 3px;
+      cursor: pointer;
+      transition: background .18s ease, color .18s ease;
+    }
+    .tree-item:hover { background: #edf4f1; }
+    .tree-item.active { background: #e7f3ef; color: var(--brand-2); font-weight: 600; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { display: grid; gap: 5px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    .input {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 7px 9px;
+      color: #263531;
+    }
+    .terminal {
+      background: var(--code);
+      color: #cbe9de;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      padding: 14px;
+      min-height: 360px;
+      overflow: hidden;
+    }
+    .terminal .prompt { color: #6ee7bd; }
+    .terminal .muted { color: #7b8b87; }
+    .ai-panel {
+      border-left: 1px solid var(--line);
+      background: #fbfcfb;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .chat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .command-card {
+      border: 1px solid #c9ead7;
+      border-radius: 8px;
+      background: #f4fbf7;
+      padding: 10px;
+    }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+    pre {
+      margin: 8px 0 0;
+      padding: 10px;
+      background: #101615;
+      color: #d7f6ed;
+      border-radius: 7px;
+      overflow: auto;
+      font-size: 12px;
+    }
+    .file-layout { display: grid; grid-template-columns: 220px 1fr; min-height: 460px; }
+    .editor-layout { display: grid; grid-template-columns: 1fr 330px; min-height: 500px; }
+    .editor {
+      background: #121817;
+      color: #d8f0e9;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      padding: 14px;
+      min-height: 430px;
+      font-size: 12px;
+    }
+    .line { display: grid; grid-template-columns: 36px 1fr; gap: 10px; }
+    .line span { color: #697b76; text-align: right; }
+    .coverage {
+      display: grid;
+      grid-template-columns: 1.2fr 1.5fr .6fr;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .coverage div { padding: 9px 11px; border-bottom: 1px solid var(--line); background: #fff; }
+    .coverage div:nth-child(3n+1), .coverage div:nth-child(3n+2) { border-right: 1px solid var(--line); }
+    .coverage .head { background: #eef3f1; font-weight: 700; color: #43524e; }
+    .notice {
+      border: 1px solid #f1d1aa;
+      background: #fff8ee;
+      color: #715016;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 1fr; }
+      aside { position: relative; height: auto; }
+      .grid-2, .grid-3, .grid-4, .split, .split-3, .file-layout, .editor-layout { grid-template-columns: 1fr; }
+      .ai-panel, .side-panel { border: 0; border-bottom: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">
+        <div class="logo">SSH</div>
+        <div><strong>Tauri SSH</strong><span>AI 运维工作台原型</span></div>
+      </div>
+      <nav>
+        <a href="#onboarding"><i data-lucide="rocket"></i><span>启动引导</span><small>01</small></a>
+        <a href="#dashboard"><i data-lucide="layout-dashboard"></i><span>工作台</span><small>02</small></a>
+        <a href="#servers"><i data-lucide="server"></i><span>服务器</span><small>03</small></a>
+        <a href="#server-form"><i data-lucide="panel-right-open"></i><span>服务器表单</span><small>04</small></a>
+        <a href="#ssh-import"><i data-lucide="file-input"></i><span>SSH Config 导入</span><small>05</small></a>
+        <a href="#vault"><i data-lucide="key-round"></i><span>凭据保险库</span><small>06</small></a>
+        <a href="#terminal"><i data-lucide="terminal"></i><span>终端 + AI</span><small>07</small></a>
+        <a href="#approval"><i data-lucide="shield-check"></i><span>审批队列</span><small>08</small></a>
+        <a href="#sftp"><i data-lucide="folder-tree"></i><span>SFTP 文件</span><small>09</small></a>
+        <a href="#editor"><i data-lucide="file-pen-line"></i><span>文本编辑器</span><small>10</small></a>
+        <a href="#providers"><i data-lucide="brain-circuit"></i><span>AI Provider</span><small>11</small></a>
+        <a href="#mcp"><i data-lucide="plug-zap"></i><span>MCP Server</span><small>12</small></a>
+        <a href="#jumpserver"><i data-lucide="landmark"></i><span>堡垒机会话</span><small>13</small></a>
+        <a href="#audit"><i data-lucide="scroll-text"></i><span>审计日志</span><small>14</small></a>
+        <a href="#workspace"><i data-lucide="users"></i><span>团队预留</span><small>15</small></a>
+        <a href="#settings"><i data-lucide="settings"></i><span>系统设置</span><small>16</small></a>
+        <a href="#states"><i data-lucide="circle-alert"></i><span>状态页</span><small>17</small></a>
+        <a href="#coverage"><i data-lucide="list-checks"></i><span>覆盖矩阵</span><small>100%</small></a>
+      </nav>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <h1>AI 时代的 SSH 工具</h1>
+          <span class="pill ok">macOS / Windows 首发</span>
+          <span class="pill ai">MCP Server 优先</span>
+        </div>
+        <div class="actions">
+          <button class="btn">查看 PRD</button>
+          <button class="btn primary">启动 MCP Server</button>
+        </div>
+      </header>
+
+      <div class="wrap">
+        <section id="onboarding" class="section">
+          <div class="section-title">
+            <div><h2>01 启动引导</h2><p>首启路径覆盖服务器导入、手动新增、堡垒机会话和 MCP 开关。</p></div>
+          </div>
+          <div class="grid grid-4">
+            <div class="metric"><span>导入本机 SSH 配置</span><strong>~/.ssh</strong><p>解析 Host / HostName / Port / User / IdentityFile。</p><button class="btn primary">扫描配置</button></div>
+            <div class="metric"><span>手动新增服务器</span><strong>22</strong><p>密码、私钥、passphrase 均进入加密存储。</p><button class="btn">新增服务器</button></div>
+            <div class="metric"><span>堡垒机会话</span><strong>Web SSH</strong><p>只接入连接能力，不获取明文凭据。</p><button class="btn">配置 JumpServer</button></div>
+            <div class="metric"><span>AI 与 MCP</span><strong>安全默认</strong><p>AI 默认只建议，执行需策略确认。</p><button class="btn">启用向导</button></div>
+          </div>
+        </section>
+
+        <section id="dashboard" class="section">
+          <div class="section-title">
+            <div><h2>02 工作台 Dashboard</h2><p>Reeve 风格的受控运维总览：状态、审批、风险、传输、AI 建议。</p></div>
+            <span class="pill ok">所有关键队列一屏可见</span>
+          </div>
+          <div class="grid grid-4">
+            <div class="metric"><span>在线服务器</span><strong>18</strong><span class="pill ok">3 个生产分组</span></div>
+            <div class="metric"><span>待审批命令</span><strong>4</strong><span class="pill warn">含 1 条服务重启</span></div>
+            <div class="metric"><span>MCP 调用</span><strong>126</strong><span class="pill ai">今日</span></div>
+            <div class="metric"><span>危险拦截</span><strong>7</strong><span class="pill danger">已审计</span></div>
+          </div>
+          <div class="grid grid-3" style="margin-top:12px">
+            <div class="card"><div class="toolbar"><strong>待审批</strong><button class="btn">全部查看</button></div><table><tr><td><span class="pill warn">L2</span></td><td>restart nginx</td><td>prod-api-01</td></tr><tr><td><span class="pill danger">L3</span></td><td>清理日志目录</td><td>prod-log-02</td></tr><tr><td><span class="pill ai">AI</span></td><td>修改 app.yml</td><td>stage-app-01</td></tr></table></div>
+            <div class="card"><div class="toolbar"><strong>最近连接</strong><button class="btn">打开终端</button></div><table><tr><td>prod-api-01</td><td><span class="pill ok">online</span></td><td>root</td></tr><tr><td>dev-db-02</td><td><span class="pill ok">online</span></td><td>ubuntu</td></tr><tr><td>jump-isc</td><td><span class="pill warn">Web SSH</span></td><td>session</td></tr></table></div>
+            <div class="card"><div class="toolbar"><strong>AI 建议</strong><span class="pill ai">脱敏上下文</span></div><div class="card-pad"><p>prod-api-01 磁盘 `/var` 使用率 86%，建议先执行只读分析命令：</p><pre>du -h --max-depth=1 /var | sort -h</pre><button class="btn primary">申请执行</button></div></div>
+          </div>
+        </section>
+
+        <section id="servers" class="section">
+          <div class="section-title">
+            <div><h2>03 服务器管理</h2><p>分组树、来源、策略和连接状态集中管理。</p></div>
+            <button class="btn primary">新增服务器</button>
+          </div>
+          <div class="card split">
+            <div class="side-panel">
+              <div class="tree-item active">生产环境 <span>8</span></div>
+              <div class="tree-item">预发环境 <span>4</span></div>
+              <div class="tree-item">开发测试 <span>12</span></div>
+              <div class="tree-item">JumpServer 授权 <span>6</span></div>
+              <div class="tree-item">未分组 <span>2</span></div>
+            </div>
+            <div>
+              <div class="toolbar"><strong>生产环境 / API</strong><div><button class="btn">标签筛选</button><button class="btn">导入 SSH Config</button></div></div>
+              <table>
+                <thead><tr><th>别名</th><th>地址</th><th>用户</th><th>来源</th><th>AI 策略</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr><td>prod-api-01</td><td>10.0.0.12:22</td><td>root</td><td><span class="pill">manual</span></td><td><span class="pill warn">变更审批</span></td><td><span class="pill ok">online</span></td><td>终端 / 文件 / 编辑</td></tr>
+                  <tr><td>prod-api-02</td><td>10.0.0.13:22</td><td>deploy</td><td><span class="pill">ssh_config</span></td><td><span class="pill">只读自动</span></td><td><span class="pill ok">online</span></td><td>终端 / 文件 / 编辑</td></tr>
+                  <tr><td>sgcc-jump-01</td><td>isc.jumpserver/session</td><td>session</td><td><span class="pill warn">jumpserver</span></td><td><span class="pill danger">建议-only</span></td><td><span class="pill ok">web</span></td><td>打开 Web SSH</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="server-form" class="section">
+          <div class="section-title">
+            <div><h2>04 新增/编辑服务器抽屉</h2><p>凭据脱敏、AI 策略、允许路径和团队预留字段一并覆盖。</p></div>
+          </div>
+          <div class="card card-pad">
+            <div class="field-grid">
+              <div class="field"><label>服务器别名</label><div class="input">prod-api-01</div></div>
+              <div class="field"><label>工作区 / 所有人</label><div class="input">Local Workspace / bin</div></div>
+              <div class="field"><label>Host</label><div class="input">10.0.0.12</div></div>
+              <div class="field"><label>Port</label><div class="input">22</div></div>
+              <div class="field"><label>用户名</label><div class="input">root</div></div>
+              <div class="field"><label>认证方式</label><div class="input">私钥 + passphrase（已加密）</div></div>
+              <div class="field"><label>AI 策略</label><div class="input">生产：变更需审批，高风险拒绝</div></div>
+              <div class="field"><label>允许 SFTP 写入路径</label><div class="input">/opt/app, /tmp/upload</div></div>
+            </div>
+            <div style="margin-top:12px" class="notice">凭据只保存加密 secret payload。前端、AI、MCP 客户端和审计日志均不可见明文。</div>
+          </div>
+        </section>
+
+        <section id="ssh-import" class="section">
+          <div class="section-title">
+            <div><h2>05 ~/.ssh/config 导入向导</h2><p>必须支持的首版能力：扫描、解析、预览、选择、冲突处理。</p></div>
+          </div>
+          <div class="card">
+            <div class="toolbar"><strong>导入预览</strong><div><button class="btn">重新扫描</button><button class="btn primary">导入选中 3 项</button></div></div>
+            <table>
+              <thead><tr><th>选择</th><th>Host</th><th>HostName</th><th>User</th><th>IdentityFile</th><th>冲突</th><th>结果</th></tr></thead>
+              <tbody>
+                <tr><td>✓</td><td>prod-api-01</td><td>10.0.0.12</td><td>root</td><td>~/.ssh/prod_ed25519</td><td><span class="pill ok">无</span></td><td>新建服务器</td></tr>
+                <tr><td>✓</td><td>dev-web</td><td>192.168.11.20</td><td>ubuntu</td><td>~/.ssh/id_rsa</td><td><span class="pill warn">同名</span></td><td>更新连接字段</td></tr>
+                <tr><td></td><td>legacy</td><td>10.9.0.2</td><td>admin</td><td>缺失</td><td><span class="pill danger">不可用</span></td><td>跳过</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="vault" class="section">
+          <div class="section-title">
+            <div><h2>06 凭据保险库</h2><p>SSH 凭据和 AI Provider Key 统一加密存储，借鉴 Reeve 的脱敏理念。</p></div>
+          </div>
+          <div class="card">
+            <div class="toolbar"><strong>加密条目</strong><button class="btn primary">新增凭据</button></div>
+            <table>
+              <thead><tr><th>名称</th><th>类型</th><th>关联</th><th>状态</th><th>最后使用</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>prod-root-key</td><td>SSH Private Key</td><td>prod-api-01</td><td><span class="pill ok">已加密</span></td><td>12 分钟前</td><td>测试 / 轮换 / 删除</td></tr>
+                <tr><td>deepseek-prod</td><td>AI Provider Key</td><td>DeepSeek</td><td><span class="pill ok">已加密</span></td><td>今日 09:42</td><td>测试 / 轮换 / 删除</td></tr>
+                <tr><td>jumpserver-session</td><td>Session Reference</td><td>sgcc-jump-01</td><td><span class="pill warn">非明文凭据</span></td><td>今日 10:12</td><td>打开 / 刷新</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="terminal" class="section">
+          <div class="section-title">
+            <div><h2>07 终端工作区 + AI 面板</h2><p>多标签终端、流式输出、AI 解释、建议命令和策略执行。</p></div>
+          </div>
+          <div class="card split-3">
+            <div class="side-panel">
+              <div class="tree-item active">prod-api-01 <span class="pill ok">SSH</span></div>
+              <div class="tree-item">dev-web <span class="pill ok">SSH</span></div>
+              <div class="tree-item">sgcc-jump-01 <span class="pill warn">Web</span></div>
+            </div>
+            <div>
+              <div class="toolbar"><strong>prod-api-01 / root</strong><div><button class="btn">重连</button><button class="btn">清屏</button></div></div>
+              <div class="terminal">
+                <div><span class="prompt">root@prod-api-01</span>:~# df -h</div>
+                <div>Filesystem      Size  Used Avail Use% Mounted on</div>
+                <div>/dev/vda1        80G   69G   11G  86% /var</div>
+                <div class="muted">AI context: selected terminal output, redacted before request.</div>
+                <br />
+                <div><span class="prompt">root@prod-api-01</span>:~# systemctl status nginx</div>
+                <div>Active: active (running) since Sat 2026-06-20 09:13:11 CST</div>
+                <div><span class="prompt">root@prod-api-01</span>:~# █</div>
+              </div>
+            </div>
+            <div class="ai-panel">
+              <div class="chat"><strong>AI 分析</strong><p>`/var` 使用率 86%，还未到阻断阈值，但建议先定位大目录。nginx 正常运行。</p></div>
+              <div class="command-card"><span class="pill ok">L0 只读</span><strong style="display:block;margin-top:8px">建议命令</strong><pre>du -h --max-depth=1 /var | sort -h</pre><button class="btn primary">申请执行</button><button class="btn">复制</button></div>
+              <div class="chat"><span class="pill danger">已拦截</span><p>拒绝执行 `rm -rf /var/log/*`。原因：命中高风险删除规则。建议先压缩归档或清理指定过期日志。</p></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="approval" class="section">
+          <div class="section-title">
+            <div><h2>08 命令审批队列</h2><p>AI、MCP 和用户触发的变更统一进入审批。</p></div>
+          </div>
+          <div class="card">
+            <div class="toolbar"><strong>待处理审批</strong><div><button class="btn">拒绝选中</button><button class="btn primary">允许一次</button></div></div>
+            <table>
+              <thead><tr><th>来源</th><th>服务器</th><th>命令/操作</th><th>风险</th><th>AI 理由</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr><td>MCP: Codex</td><td>prod-api-01</td><td><code>systemctl restart nginx</code></td><td><span class="pill warn">L2</span></td><td>配置更新后需要 reload 服务</td><td>允许一次 / 拒绝</td></tr>
+                <tr><td>AI 面板</td><td>stage-app-01</td><td>写入 `/opt/app/app.yml`</td><td><span class="pill warn">SFTP 写</span></td><td>用户要求调整日志级别</td><td>允许同类 10 分钟</td></tr>
+                <tr><td>系统拦截</td><td>prod-log-02</td><td><code>mkfs.ext4 /dev/vdb</code></td><td><span class="pill danger">L3</span></td><td>命中永久拦截规则</td><td>不可执行</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="sftp" class="section">
+          <div class="section-title">
+            <div><h2>09 SFTP 文件管理</h2><p>远程文件、传输队列和路径权限保护。</p></div>
+          </div>
+          <div class="card file-layout">
+            <div class="side-panel">
+              <div class="tree-item active">/opt/app</div>
+              <div class="tree-item">/opt/app/config</div>
+              <div class="tree-item">/opt/app/logs</div>
+              <div class="tree-item">/tmp/upload</div>
+              <div class="tree-item">/etc <span class="pill warn">只读</span></div>
+            </div>
+            <div>
+              <div class="toolbar"><strong>prod-api-01:/opt/app</strong><div><button class="btn">上传</button><button class="btn">新建目录</button><button class="btn primary">打开编辑器</button></div></div>
+              <table>
+                <thead><tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th><th>权限</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr><td>app.yml</td><td>YAML</td><td>4.2 KB</td><td>10:33</td><td><span class="pill warn">写入需确认</span></td><td>预览 / 编辑 / 下载</td></tr>
+                  <tr><td>release.jar</td><td>Binary</td><td>86 MB</td><td>昨天</td><td><span class="pill ok">可读写</span></td><td>下载 / 重命名</td></tr>
+                  <tr><td>logs</td><td>Directory</td><td>-</td><td>今日</td><td><span class="pill ok">可读</span></td><td>进入 / Tail</td></tr>
+                </tbody>
+              </table>
+              <div class="toolbar"><strong>传输队列</strong><span class="pill ok">2 active</span></div>
+              <table><tr><td>upload patch.yml</td><td>68%</td><td>1.2 MB/s</td><td><span class="pill ok">running</span></td></tr><tr><td>download logs.tar.gz</td><td>queued</td><td>-</td><td><span class="pill">waiting</span></td></tr></table>
+            </div>
+          </div>
+        </section>
+
+        <section id="editor" class="section">
+          <div class="section-title">
+            <div><h2>10 内置文本编辑器</h2><p>远程文件编辑、差异预览和保存审批。</p></div>
+          </div>
+          <div class="card editor-layout">
+            <div>
+              <div class="toolbar"><strong>app.yml · UTF-8 · LF</strong><div><button class="btn">差异预览</button><button class="btn primary">申请保存</button></div></div>
+              <div class="editor">
+                <div class="line"><span>1</span><div>server:</div></div>
+                <div class="line"><span>2</span><div>  port: 8080</div></div>
+                <div class="line"><span>3</span><div>logging:</div></div>
+                <div class="line"><span>4</span><div>  level: INFO</div></div>
+                <div class="line"><span>5</span><div>  file: /opt/app/logs/app.log</div></div>
+                <div class="line"><span>6</span><div>ai_guard:</div></div>
+                <div class="line"><span>7</span><div>  require_approval: true</div></div>
+              </div>
+            </div>
+            <div class="ai-panel">
+              <div class="notice">保存远程文件属于 SFTP 写入。目标服务器策略：变更需审批。</div>
+              <div class="chat"><strong>冲突检测</strong><p>远端文件自打开后未变化，可以保存。</p></div>
+              <div class="chat"><strong>差异摘要</strong><p>将日志级别从 DEBUG 调整为 INFO，影响应用日志输出量。</p></div>
+              <button class="btn primary">提交审批</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="providers" class="section">
+          <div class="section-title">
+            <div><h2>11 AI Provider 设置</h2><p>OpenAI、DeepSeek、GLM、Kimi、MiniMax 和自定义 Endpoint。</p></div>
+          </div>
+          <div class="grid grid-3">
+            <div class="card card-pad"><span class="pill ok">启用</span><h3>OpenAI API</h3><p>model: gpt-4.1<br/>base: https://api.openai.com</p><button class="btn">测试连接</button></div>
+            <div class="card card-pad"><span class="pill ok">启用</span><h3>DeepSeek</h3><p>model: deepseek-chat<br/>OpenAI-compatible</p><button class="btn">测试连接</button></div>
+            <div class="card card-pad"><span class="pill">未启用</span><h3>GLM / Kimi / MiniMax</h3><p>API Key 已加密保存，按需启用。</p><button class="btn">配置</button></div>
+          </div>
+          <div class="card card-pad" style="margin-top:12px">
+            <div class="field-grid">
+              <div class="field"><label>Provider</label><div class="input">Custom OpenAI-compatible</div></div>
+              <div class="field"><label>Base URL</label><div class="input">https://api.example.com/v1</div></div>
+              <div class="field"><label>API Key</label><div class="input">••••••••••••••••（已加密）</div></div>
+              <div class="field"><label>温度 / 超时</label><div class="input">0.2 / 60s</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="mcp" class="section">
+          <div class="section-title">
+            <div><h2>12 MCP Server 设置</h2><p>首版优先：本应用作为 MCP Server 暴露受控 SSH 工具。</p></div>
+            <span class="pill ok">Running 127.0.0.1:8721/mcp</span>
+          </div>
+          <div class="grid grid-2">
+            <div class="card"><div class="toolbar"><strong>工具权限</strong><button class="btn">导出客户端配置</button></div><table><tr><th>工具</th><th>策略</th><th>审计</th></tr><tr><td>list_servers</td><td><span class="pill ok">只读允许</span></td><td>记录</td></tr><tr><td>ssh_exec</td><td><span class="pill warn">按风险审批</span></td><td>记录命令</td></tr><tr><td>sftp_write</td><td><span class="pill warn">写入审批</span></td><td>记录路径</td></tr><tr><td>tail_log</td><td><span class="pill">只读确认</span></td><td>记录文件</td></tr></table></div>
+            <div class="card card-pad"><strong>Codex / Claude 配置示例</strong><pre>{
+  "mcpServers": {
+    "tauri-ssh": {
+      "type": "http",
+      "url": "http://127.0.0.1:8721/mcp"
+    }
+  }
+}</pre><p class="notice">MCP 调用拿不到明文凭据，所有执行进入同一套策略和审计。</p></div>
+          </div>
+        </section>
+
+        <section id="jumpserver" class="section">
+          <div class="section-title">
+            <div><h2>13 JumpServer / 堡垒机会话兼容</h2><p>覆盖国家电网 ISC 登录场景：只接入会话能力，不绕过鉴权。</p></div>
+          </div>
+          <div class="card card-pad">
+            <div class="notice">设计边界：不抓 Cookie、不解析浏览器缓存、不获取目标服务器明文凭据。只支持授权资产同步、Web SSH 嵌入、连接令牌/网关模式预留。</div>
+            <div class="grid grid-3" style="margin-top:12px">
+              <div class="metric"><span>Web SSH 嵌入</span><strong>ISC 登录</strong><p>用户在官方页面完成登录和授权。</p></div>
+              <div class="metric"><span>资产同步</span><strong>授权列表</strong><p>仅展示当前用户有权限的服务器。</p></div>
+              <div class="metric"><span>AI 能力</span><strong>建议-only</strong><p>解释输出和生成命令，由用户确认发送。</p></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="audit" class="section">
+          <div class="section-title">
+            <div><h2>14 审计日志</h2><p>命令、SFTP、AI、MCP、审批链路统一审计并脱敏。</p></div>
+          </div>
+          <div class="card">
+            <div class="toolbar"><strong>审计查询</strong><div><button class="btn">筛选</button><button class="btn">导出脱敏日志</button></div></div>
+            <table>
+              <thead><tr><th>时间</th><th>Actor</th><th>服务器</th><th>动作</th><th>风险</th><th>结果</th><th>摘要</th></tr></thead>
+              <tbody>
+                <tr><td>10:42:13</td><td>mcp_client: Codex</td><td>prod-api-01</td><td>ssh_exec</td><td><span class="pill ok">L0</span></td><td>exit 0</td><td>du 分析 /var 使用量</td></tr>
+                <tr><td>10:39:02</td><td>ai</td><td>prod-log-02</td><td>blocked</td><td><span class="pill danger">L3</span></td><td>拒绝</td><td>命中 rm -rf 规则</td></tr>
+                <tr><td>10:33:55</td><td>user</td><td>prod-api-01</td><td>sftp_write</td><td><span class="pill warn">变更</span></td><td>审批通过</td><td>app.yml 保存，凭据字段已脱敏</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="workspace" class="section">
+          <div class="section-title">
+            <div><h2>15 团队/工作区预留</h2><p>V0.1 只预留字段，不做云协作。</p></div>
+          </div>
+          <div class="grid grid-3">
+            <div class="metric"><span>Workspace</span><strong>Local</strong><p>默认本地个人空间。</p></div>
+            <div class="metric"><span>User</span><strong>bin</strong><p>审计 actor 预留。</p></div>
+            <div class="metric"><span>Role</span><strong>Owner</strong><p>V1.0 再启用角色权限。</p></div>
+          </div>
+        </section>
+
+        <section id="settings" class="section">
+          <div class="section-title">
+            <div><h2>16 系统设置</h2><p>安全、SQLite 加密、跨平台、更新和数据备份。</p></div>
+          </div>
+          <div class="card">
+            <div class="toolbar"><strong>安全设置</strong><button class="btn primary">保存</button></div>
+            <table>
+              <tr><td>SQLite Secret Payload</td><td><span class="pill ok">启用加密</span></td><td>密钥不硬编码</td></tr>
+              <tr><td>macOS Keychain</td><td><span class="pill ok">可用</span></td><td>首发验证项</td></tr>
+              <tr><td>Windows Credential Manager</td><td><span class="pill warn">待验证</span></td><td>首发必须通过</td></tr>
+              <tr><td>危险命令黑名单</td><td><span class="pill ok">启用</span></td><td>不可被 AI 绕过</td></tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="states" class="section">
+          <div class="section-title">
+            <div><h2>17 空状态与错误状态</h2><p>覆盖无数据、失败、未配置和安全拦截。</p></div>
+          </div>
+          <div class="grid grid-3">
+            <div class="card card-pad"><span class="pill">空状态</span><h3>还没有服务器</h3><p>从 ~/.ssh/config 导入，或手动新增第一台服务器。</p><button class="btn primary">开始导入</button></div>
+            <div class="card card-pad"><span class="pill danger">连接失败</span><h3>Host key changed</h3><p>目标服务器指纹变化。请确认是否为合法变更。</p><button class="btn danger">拒绝连接</button></div>
+            <div class="card card-pad"><span class="pill warn">AI 未配置</span><h3>缺少 Provider Key</h3><p>配置 OpenAI、DeepSeek、GLM、Kimi 或 MiniMax 后启用 AI 面板。</p><button class="btn">去配置</button></div>
+          </div>
+        </section>
+
+        <section id="coverage" class="section">
+          <div class="section-title">
+            <div><h2>18 覆盖矩阵</h2><p>PRD 功能到原型页面映射，覆盖率 100%。</p></div>
+            <span class="pill ok">100% covered</span>
+          </div>
+          <div class="coverage">
+            <div class="head">PRD 功能</div><div class="head">原型页面</div><div class="head">状态</div>
+            <div>服务器分组管理</div><div>03 服务器管理</div><div><span class="pill ok">覆盖</span></div>
+            <div>服务器 CRUD / 凭据</div><div>04 新增/编辑服务器，06 凭据保险库</div><div><span class="pill ok">覆盖</span></div>
+            <div>~/.ssh/config 导入</div><div>05 SSH Config 导入向导</div><div><span class="pill ok">覆盖</span></div>
+            <div>SSH 终端</div><div>07 终端 + AI</div><div><span class="pill ok">覆盖</span></div>
+            <div>命令执行与审批</div><div>07 终端 + AI，08 审批队列</div><div><span class="pill ok">覆盖</span></div>
+            <div>SFTP 文件与传输</div><div>09 SFTP 文件</div><div><span class="pill ok">覆盖</span></div>
+            <div>内置文本编辑器</div><div>10 文本编辑器</div><div><span class="pill ok">覆盖</span></div>
+            <div>AI Provider</div><div>11 AI Provider 设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>MCP Server</div><div>12 MCP Server 设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>JumpServer 兼容</div><div>13 堡垒机会话兼容</div><div><span class="pill ok">覆盖</span></div>
+            <div>审计日志</div><div>14 审计日志</div><div><span class="pill ok">覆盖</span></div>
+            <div>团队字段预留</div><div>15 团队/工作区预留</div><div><span class="pill ok">覆盖</span></div>
+            <div>跨平台和安全设置</div><div>16 系统设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>空状态和错误状态</div><div>17 空状态与错误状态</div><div><span class="pill ok">覆盖</span></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>lucide.createIcons();</script>
+  <!--
+  ================================================================
+  组件映射表（开发者参考）
+  ================================================================
+  | 原型元素 | Ant Design | Element Plus | shadcn/ui |
+  |----------|------------|--------------|-----------|
+  | 应用布局 | Layout | el-container | AppShell |
+  | 侧边栏 | Layout.Sider / Menu | el-aside / el-menu | Sidebar |
+  | 顶栏 | Layout.Header | el-header | Header |
+  | 数据表格 | Table | el-table | DataTable |
+  | 筛选栏 | Form + Input + Select | el-form + el-input + el-select | Form + Input + Select |
+  | 抽屉表单 | Drawer + Form | el-drawer + el-form | Sheet + Form |
+  | 指标卡片 | Card + Statistic | el-card + Statistic | Card |
+  | 状态标签 | Tag | el-tag | Badge |
+  | 审批按钮 | Button | el-button | Button |
+  | 终端区域 | xterm.js 容器 | 自定义组件 | Terminal Panel |
+  | 文本编辑器 | Monaco/CodeMirror 容器 | 自定义组件 | Code Editor |
+  | 审计详情 | Drawer + Descriptions | el-drawer + el-descriptions | Sheet + DescriptionList |
+  | 通知提示 | Alert / message | el-alert / ElMessage | Alert / Toast |
+
+  图标映射（Lucide -> Ant Design Icons）：
+  | Lucide | AntD Icon |
+  |--------|-----------|
+  | server | CloudServerOutlined |
+  | terminal | CodeOutlined |
+  | key-round | KeyOutlined |
+  | shield-check | SafetyCertificateOutlined |
+  | folder-tree | FolderOpenOutlined |
+  | file-pen-line | EditOutlined |
+  | brain-circuit | RobotOutlined |
+  | plug-zap | ApiOutlined |
+  | scroll-text | AuditOutlined |
+  | settings | SettingOutlined |
+  ================================================================
+  -->
+</body>
+</html>
