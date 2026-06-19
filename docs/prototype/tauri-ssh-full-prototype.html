@@ -326,15 +326,16 @@
         <a href="#vault"><i data-lucide="key-round"></i><span>凭据保险库</span><small>06</small></a>
         <a href="#terminal"><i data-lucide="terminal"></i><span>终端 + AI</span><small>07</small></a>
         <a href="#approval"><i data-lucide="shield-check"></i><span>审批队列</span><small>08</small></a>
-        <a href="#sftp"><i data-lucide="folder-tree"></i><span>SFTP 文件</span><small>09</small></a>
-        <a href="#editor"><i data-lucide="file-pen-line"></i><span>文本编辑器</span><small>10</small></a>
-        <a href="#providers"><i data-lucide="brain-circuit"></i><span>AI Provider</span><small>11</small></a>
-        <a href="#mcp"><i data-lucide="plug-zap"></i><span>MCP Server</span><small>12</small></a>
-        <a href="#jumpserver"><i data-lucide="landmark"></i><span>堡垒机会话</span><small>13</small></a>
-        <a href="#audit"><i data-lucide="scroll-text"></i><span>审计日志</span><small>14</small></a>
-        <a href="#workspace"><i data-lucide="users"></i><span>团队预留</span><small>15</small></a>
-        <a href="#settings"><i data-lucide="settings"></i><span>系统设置</span><small>16</small></a>
-        <a href="#states"><i data-lucide="circle-alert"></i><span>状态页</span><small>17</small></a>
+        <a href="#logs"><i data-lucide="logs"></i><span>日志监听</span><small>09</small></a>
+        <a href="#sftp"><i data-lucide="folder-tree"></i><span>SFTP 文件</span><small>10</small></a>
+        <a href="#editor"><i data-lucide="file-pen-line"></i><span>文本编辑器</span><small>11</small></a>
+        <a href="#providers"><i data-lucide="brain-circuit"></i><span>AI Provider</span><small>12</small></a>
+        <a href="#mcp"><i data-lucide="plug-zap"></i><span>MCP Server</span><small>13</small></a>
+        <a href="#jumpserver"><i data-lucide="landmark"></i><span>堡垒机会话</span><small>14</small></a>
+        <a href="#audit"><i data-lucide="scroll-text"></i><span>审计日志</span><small>15</small></a>
+        <a href="#workspace"><i data-lucide="users"></i><span>团队预留</span><small>16</small></a>
+        <a href="#settings"><i data-lucide="settings"></i><span>系统设置</span><small>17</small></a>
+        <a href="#states"><i data-lucide="circle-alert"></i><span>状态页</span><small>18</small></a>
         <a href="#coverage"><i data-lucide="list-checks"></i><span>覆盖矩阵</span><small>100%</small></a>
       </nav>
     </aside>
@@ -511,9 +512,51 @@
           </div>
         </section>
 
+        <section id="logs" class="section">
+          <div class="section-title">
+            <div><h2>09 日志监听</h2><p>标签多开 tail，同一或不同服务器多个文件并发监听，支持搜索和过滤。</p></div>
+            <button class="btn primary">新增监听标签</button>
+          </div>
+          <div class="card split-3">
+            <div class="side-panel">
+              <div class="tree-item active">prod-api-01 <span>2</span></div>
+              <div class="tree-item">prod-worker-02 <span>1</span></div>
+              <div class="tree-item">stage-app-01 <span>1</span></div>
+              <div class="tree-item">日志路径预设 <span>8</span></div>
+            </div>
+            <div>
+              <div class="toolbar">
+                <strong>prod-api-01:/opt/app/logs/app.log</strong>
+                <div><button class="btn">暂停</button><button class="btn">清屏</button><button class="btn">重连</button></div>
+              </div>
+              <div class="toolbar" style="justify-content:flex-start;gap:8px;flex-wrap:wrap">
+                <span class="pill ok">TAILING</span>
+                <span class="pill">prod-api-01:/var/log/nginx/error.log</span>
+                <span class="pill warn">prod-worker-02:/opt/worker/logs/job.log</span>
+                <span class="pill">stage-app-01:/opt/app/logs/app.log</span>
+              </div>
+              <div class="terminal">
+                <div><span class="muted">10:41:20</span> INFO  request_id=8ef2 GET /api/health 200 12ms</div>
+                <div><span class="muted">10:41:21</span> WARN  disk usage on /var reached 86%</div>
+                <div><span class="muted">10:41:22</span> <span style="color:#ffb4b4">ERROR</span> upstream timeout service=payment retry=1</div>
+                <div><span class="muted">10:41:23</span> INFO  queue consumed job=sync-user elapsed=98ms</div>
+                <div><span class="muted">10:41:24</span> <span style="color:#ffb4b4">ERROR</span> upstream timeout service=payment retry=2</div>
+                <div><span class="muted">10:41:25</span> INFO  fallback node selected node=pay-b</div>
+                <br />
+                <div class="muted">Search: ERROR · 2 matches · current 2/2 · Filter enabled</div>
+              </div>
+            </div>
+            <div class="ai-panel">
+              <div class="chat"><strong>搜索</strong><div class="input" style="margin-top:8px">ERROR</div><p><span class="pill warn">2 个匹配</span> <button class="btn">上一条</button> <button class="btn">下一条</button></p></div>
+              <div class="chat"><strong>过滤</strong><p><span class="pill ok">仅显示匹配行</span> <span class="pill">正则关闭</span> <span class="pill">大小写不敏感</span> <span class="pill">反向过滤关闭</span></p><button class="btn">关闭过滤</button></div>
+              <div class="command-card"><span class="pill ai">AI 解释</span><p>最近两条 ERROR 都来自 payment 上游超时，建议先只读检查网关和支付服务健康。</p><pre>tail -n 200 /opt/app/logs/app.log | rg "payment|ERROR"</pre><button class="btn primary">解释最近 200 行</button></div>
+            </div>
+          </div>
+        </section>
+
         <section id="sftp" class="section">
           <div class="section-title">
-            <div><h2>09 SFTP 文件管理</h2><p>远程文件、传输队列和路径权限保护。</p></div>
+            <div><h2>10 SFTP 文件管理</h2><p>远程文件、传输队列和路径权限保护。</p></div>
           </div>
           <div class="card file-layout">
             <div class="side-panel">
@@ -541,7 +584,7 @@
 
         <section id="editor" class="section">
           <div class="section-title">
-            <div><h2>10 内置文本编辑器</h2><p>远程文件编辑、差异预览和保存审批。</p></div>
+            <div><h2>11 内置文本编辑器</h2><p>远程文件编辑、差异预览和保存审批。</p></div>
           </div>
           <div class="card editor-layout">
             <div>
@@ -567,7 +610,7 @@
 
         <section id="providers" class="section">
           <div class="section-title">
-            <div><h2>11 AI Provider 设置</h2><p>OpenAI、DeepSeek、GLM、Kimi、MiniMax 和自定义 Endpoint。</p></div>
+            <div><h2>12 AI Provider 设置</h2><p>OpenAI、DeepSeek、GLM、Kimi、MiniMax 和自定义 Endpoint。</p></div>
           </div>
           <div class="grid grid-3">
             <div class="card card-pad"><span class="pill ok">启用</span><h3>OpenAI API</h3><p>model: gpt-4.1<br/>base: https://api.openai.com</p><button class="btn">测试连接</button></div>
@@ -586,7 +629,7 @@
 
         <section id="mcp" class="section">
           <div class="section-title">
-            <div><h2>12 MCP Server 设置</h2><p>首版优先：本应用作为 MCP Server 暴露受控 SSH 工具。</p></div>
+            <div><h2>13 MCP Server 设置</h2><p>首版优先：本应用作为 MCP Server 暴露受控 SSH 工具。</p></div>
             <span class="pill ok">Running 127.0.0.1:8721/mcp</span>
           </div>
           <div class="grid grid-2">
@@ -604,7 +647,7 @@
 
         <section id="jumpserver" class="section">
           <div class="section-title">
-            <div><h2>13 JumpServer / 堡垒机会话兼容</h2><p>覆盖国家电网 ISC 登录场景：只接入会话能力，不绕过鉴权。</p></div>
+            <div><h2>14 JumpServer / 堡垒机会话兼容</h2><p>覆盖国家电网 ISC 登录场景：只接入会话能力，不绕过鉴权。</p></div>
           </div>
           <div class="card card-pad">
             <div class="notice">设计边界：不抓 Cookie、不解析浏览器缓存、不获取目标服务器明文凭据。只支持授权资产同步、Web SSH 嵌入、连接令牌/网关模式预留。</div>
@@ -618,7 +661,7 @@
 
         <section id="audit" class="section">
           <div class="section-title">
-            <div><h2>14 审计日志</h2><p>命令、SFTP、AI、MCP、审批链路统一审计并脱敏。</p></div>
+            <div><h2>15 审计日志</h2><p>命令、日志监听、搜索过滤、SFTP、AI、MCP、审批链路统一审计并脱敏。</p></div>
           </div>
           <div class="card">
             <div class="toolbar"><strong>审计查询</strong><div><button class="btn">筛选</button><button class="btn">导出脱敏日志</button></div></div>
@@ -627,6 +670,7 @@
               <tbody>
                 <tr><td>10:42:13</td><td>mcp_client: Codex</td><td>prod-api-01</td><td>ssh_exec</td><td><span class="pill ok">L0</span></td><td>exit 0</td><td>du 分析 /var 使用量</td></tr>
                 <tr><td>10:39:02</td><td>ai</td><td>prod-log-02</td><td>blocked</td><td><span class="pill danger">L3</span></td><td>拒绝</td><td>命中 rm -rf 规则</td></tr>
+                <tr><td>10:36:28</td><td>user</td><td>prod-api-01</td><td>tail_search_filter</td><td><span class="pill ok">只读</span></td><td>成功</td><td>搜索 ERROR，过滤开启，2 个匹配</td></tr>
                 <tr><td>10:33:55</td><td>user</td><td>prod-api-01</td><td>sftp_write</td><td><span class="pill warn">变更</span></td><td>审批通过</td><td>app.yml 保存，凭据字段已脱敏</td></tr>
               </tbody>
             </table>
@@ -635,7 +679,7 @@
 
         <section id="workspace" class="section">
           <div class="section-title">
-            <div><h2>15 团队/工作区预留</h2><p>V0.1 只预留字段，不做云协作。</p></div>
+            <div><h2>16 团队/工作区预留</h2><p>V0.1 只预留字段，不做云协作。</p></div>
           </div>
           <div class="grid grid-3">
             <div class="metric"><span>Workspace</span><strong>Local</strong><p>默认本地个人空间。</p></div>
@@ -646,7 +690,7 @@
 
         <section id="settings" class="section">
           <div class="section-title">
-            <div><h2>16 系统设置</h2><p>安全、SQLite 加密、跨平台、更新和数据备份。</p></div>
+            <div><h2>17 系统设置</h2><p>安全、SQLite 加密、跨平台、更新和数据备份。</p></div>
           </div>
           <div class="card">
             <div class="toolbar"><strong>安全设置</strong><button class="btn primary">保存</button></div>
@@ -661,7 +705,7 @@
 
         <section id="states" class="section">
           <div class="section-title">
-            <div><h2>17 空状态与错误状态</h2><p>覆盖无数据、失败、未配置和安全拦截。</p></div>
+            <div><h2>18 空状态与错误状态</h2><p>覆盖无数据、失败、未配置和安全拦截。</p></div>
           </div>
           <div class="grid grid-3">
             <div class="card card-pad"><span class="pill">空状态</span><h3>还没有服务器</h3><p>从 ~/.ssh/config 导入，或手动新增第一台服务器。</p><button class="btn primary">开始导入</button></div>
@@ -682,15 +726,17 @@
             <div>~/.ssh/config 导入</div><div>05 SSH Config 导入向导</div><div><span class="pill ok">覆盖</span></div>
             <div>SSH 终端</div><div>07 终端 + AI</div><div><span class="pill ok">覆盖</span></div>
             <div>命令执行与审批</div><div>07 终端 + AI，08 审批队列</div><div><span class="pill ok">覆盖</span></div>
-            <div>SFTP 文件与传输</div><div>09 SFTP 文件</div><div><span class="pill ok">覆盖</span></div>
-            <div>内置文本编辑器</div><div>10 文本编辑器</div><div><span class="pill ok">覆盖</span></div>
-            <div>AI Provider</div><div>11 AI Provider 设置</div><div><span class="pill ok">覆盖</span></div>
-            <div>MCP Server</div><div>12 MCP Server 设置</div><div><span class="pill ok">覆盖</span></div>
-            <div>JumpServer 兼容</div><div>13 堡垒机会话兼容</div><div><span class="pill ok">覆盖</span></div>
-            <div>审计日志</div><div>14 审计日志</div><div><span class="pill ok">覆盖</span></div>
-            <div>团队字段预留</div><div>15 团队/工作区预留</div><div><span class="pill ok">覆盖</span></div>
-            <div>跨平台和安全设置</div><div>16 系统设置</div><div><span class="pill ok">覆盖</span></div>
-            <div>空状态和错误状态</div><div>17 空状态与错误状态</div><div><span class="pill ok">覆盖</span></div>
+            <div>日志监听多标签</div><div>09 日志监听</div><div><span class="pill ok">覆盖</span></div>
+            <div>日志关键词搜索和过滤</div><div>09 日志监听</div><div><span class="pill ok">覆盖</span></div>
+            <div>SFTP 文件与传输</div><div>10 SFTP 文件</div><div><span class="pill ok">覆盖</span></div>
+            <div>内置文本编辑器</div><div>11 文本编辑器</div><div><span class="pill ok">覆盖</span></div>
+            <div>AI Provider</div><div>12 AI Provider 设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>MCP Server</div><div>13 MCP Server 设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>JumpServer 兼容</div><div>14 堡垒机会话兼容</div><div><span class="pill ok">覆盖</span></div>
+            <div>审计日志</div><div>15 审计日志</div><div><span class="pill ok">覆盖</span></div>
+            <div>团队字段预留</div><div>16 团队/工作区预留</div><div><span class="pill ok">覆盖</span></div>
+            <div>跨平台和安全设置</div><div>17 系统设置</div><div><span class="pill ok">覆盖</span></div>
+            <div>空状态和错误状态</div><div>18 空状态与错误状态</div><div><span class="pill ok">覆盖</span></div>
           </div>
         </section>
       </div>
@@ -713,6 +759,8 @@
   | 状态标签 | Tag | el-tag | Badge |
   | 审批按钮 | Button | el-button | Button |
   | 终端区域 | xterm.js 容器 | 自定义组件 | Terminal Panel |
+  | 日志监听 | Tabs + VirtualList | el-tabs + VirtualList | Tabs + ScrollArea |
+  | 日志搜索过滤 | Input.Search + Switch | el-input + el-switch | Input + Switch |
   | 文本编辑器 | Monaco/CodeMirror 容器 | 自定义组件 | Code Editor |
   | 审计详情 | Drawer + Descriptions | el-drawer + el-descriptions | Sheet + DescriptionList |
   | 通知提示 | Alert / message | el-alert / ElMessage | Alert / Toast |
