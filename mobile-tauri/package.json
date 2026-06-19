@@ -1,0 +1,14 @@
+{
+  "name": "tauri-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "pnpm --dir .. mobile:build && tauri android build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

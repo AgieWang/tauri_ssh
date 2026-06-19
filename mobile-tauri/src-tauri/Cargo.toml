@@ -1,0 +1,38 @@
+[package]
+name = "tauri-mobile"
+version = "0.1.0"
+description = "Tauri Mobile Companion (远程伴侣，连接桌面端)"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "tauri_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# 关键：Android NDK ld.lld 在 Windows 上不支持中文路径。
+# 项目若位于含中文的目录（如 E:/my/桌面软件tauri/...），
+# cargo 中间产物路径里的中文字符会让 ld 找不到文件。
+# 已在 mobile-tauri/.cargo/config.toml 中把 target-dir 强制移到 ASCII 目录。
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 核心 — 极简依赖（移动端只是 webview 容器，业务逻辑全走桌面端的 axum 远程网关）
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+# 移动端可用的 Tauri 插件（按需启用）
+tauri-plugin-log = "2"
+tauri-plugin-os = "2"
+tauri-plugin-opener = "2"
+
+# 体积优化（与桌面端一致）
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

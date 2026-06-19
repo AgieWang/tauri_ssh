@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tauri Mobile",
+  "version": "0.1.0",
+  "identifier": "com.agilefr.tauri_ssh_ssh.mobile",
+  "build": {
+    "beforeDevCommand": "pnpm --dir .. mobile:dev",
+    "devUrl": "http://localhost:1520",
+    "beforeBuildCommand": "pnpm --dir .. mobile:build",
+    "frontendDist": "../../dist-mobile"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Tauri Mobile",
+        "width": 400,
+        "height": 800
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "minSdkVersion": 26
+    }
+  }
+}

@@ -1,0 +1,13 @@
+# Tauri Mobile build artifacts
+src-tauri/target/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/local.properties
+
+# Android signing (NEVER commit)
+keystore.properties
+*.keystore
+*.jks
+
+# Node
+node_modules/

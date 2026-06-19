@@ -1,0 +1,10 @@
+# Android NDK ld.lld 在 Windows 上不支持中文路径，
+# 必须把 build 产物移到纯 ASCII 目录避免链接失败。
+#
+# 详见 .claude/skills/tauri-mobile-android/skill.md "关键坑 #1"。
+#
+# 提示：首次构建前请确保父目录存在（Tauri CLI 不会自动创建）：
+#   mkdir -p C:/cargo-target/tauri-mobile
+
+[build]
+target-dir = "C:/cargo-target/tauri-mobile"

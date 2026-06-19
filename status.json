@@ -1,0 +1,58 @@
+{
+  "framework": "Tauri",
+  "directoryName": "tauri",
+  "language": "Rust + TypeScript",
+  "languageVersion": "Rust 2021 edition / TypeScript 5.8",
+  "techStack": {
+    "backend": "Rust + Tauri 2.x",
+    "frontend": "React 19 + TypeScript + Vite 7",
+    "desktop": "Tauri 2 (WebView)",
+    "serialization": "serde + serde_json",
+    "plugins": ["tauri-plugin-opener"]
+  },
+  "createdAt": "2026-03-05",
+  "updatedAt": "2026-03-20",
+  "sourcePath": "D:\\desktop\\my\\framework\\ruoyi-plus-uniapp\\定制skills\\frameworks\\tauri",
+  "phase": 7,
+  "progress": {
+    "phase0_init": "completed",
+    "phase1_analysis": "completed",
+    "phase2_claude_md": "completed",
+    "phase3_core_skills": "completed",
+    "phase4_hooks_commands": "completed",
+    "phase5_extend_skills": "completed",
+    "phase6_quality_check": "completed",
+    "phase7_export": "completed"
+  },
+  "skills": {
+    "total": 33,
+    "completed": 33,
+    "categories": {
+      "L1_direct_reuse": { "total": 8, "completed": 8 },
+      "L2_template_adapt": { "total": 0, "completed": 0 },
+      "L3_deep_customize": { "total": 15, "completed": 15 },
+      "L4_framework_specific": { "total": 10, "completed": 10 }
+    }
+  },
+  "codex": {
+    "total": 43,
+    "mirrored_skills": 33,
+    "command_skills": 7,
+    "management_skills": 3,
+    "scripts_copied": true
+  },
+  "gitcode": {
+    "repo_url": "https://gitcode.com/zhuawashi/tauri",
+    "repo_name": "zhuawashi/tauri",
+    "created_at": "2026-03-20",
+    "last_push": "2026-03-20",
+    "initialized": true
+  },
+  "experience_loop": {
+    "exp_sediment_skill": true,
+    "exp_command_skill": true,
+    "session_start_hook": true,
+    "experience_dir_created": true,
+    "claude_md_loader_section": true
+  }
+}

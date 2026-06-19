@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Capability for the mobile webview window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "log:default",
+    "os:default",
+    "opener:default"
+  ]
+}

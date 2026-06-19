@@ -1,0 +1,53 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-mobile
+dist-ssr
+*.local
+
+# Tauri Mobile (Android 打包产物 + 签名密钥)
+mobile-tauri/src-tauri/target/
+mobile-tauri/src-tauri/gen/android/app/build/
+mobile-tauri/src-tauri/gen/android/.gradle/
+mobile-tauri/src-tauri/gen/android/local.properties
+mobile-tauri/keystore.properties
+mobile-tauri/*.keystore
+mobile-tauri/*.jks
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tauri signing keys (NEVER commit private keys)
+src-tauri/keys/
+
+# Release config (contains local paths)
+.claude/release-config.json
+
+# ============================================================================
+# 自动追加 (sync_to_skills_local 修复)
+# 部署产出 / 凭据 / 密钥不入 git
+# ============================================================================
+output/
+.vault/
+*.vault
+*.encrypted
+secrets.json
+credentials.json
+*.pem
+*.key

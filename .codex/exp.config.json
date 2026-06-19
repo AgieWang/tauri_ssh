@@ -1,0 +1,23 @@
+{
+  "mode": "subproject",
+  "frameworkRepo": "https://gitcode.com/zhuawashi/tauri",
+  "frameworkName": "tauri",
+  "subprojectName": "Tauri SSH",
+  "createdAt": "2026-06-19",
+  "experienceLoop": {
+    "frameworkReadOnly": [
+      ".claude/skills/",
+      ".claude/commands/",
+      ".claude/hooks/",
+      ".codex/skills/",
+      ".codex/hooks/",
+      "AGENTS.md"
+    ],
+    "subprojectWritable": [
+      ".codex/PROJECT.md",
+      ".codex/project-skills/",
+      ".codex/docs/experience/"
+    ],
+    "feedbackChannel": ".codex/docs/experience/feedback-to-framework.md"
+  }
+}

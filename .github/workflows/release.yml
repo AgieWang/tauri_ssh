@@ -1,0 +1,260 @@
+# =============================================================================
+# Tauri 跨平台自动构建 & 发布工作流
+# =============================================================================
+#
+# 触发方式：推送 v*.*.* 格式的 Git Tag
+#   git tag v1.0.0
+#   git push <remote> v1.0.0
+#
+# 前提条件（GitHub Secrets）：
+#   - TAURI_SIGNING_PRIVATE_KEY       签名私钥内容
+#   - TAURI_SIGNING_PRIVATE_KEY_PASSWORD  私钥密码（通常为空）
+#
+# 使用前须修改（搜索 TODO 标记）：
+#   1. releaseName: 修改为你的应用名称
+#   2. 构建矩阵: 根据 .claude/release-config.json 的 platforms 配置
+#      裁剪不需要的平台（删除对应 matrix include 条目）
+#
+# CI 只负责构建和上传到 GitHub Release（草稿）。
+# 产物下载和推送到 release 仓库由本地 /release 命令完成。
+# =============================================================================
+
+name: Release
+
+# 双 tag 触发，按前缀分流（移动端为可选，未启用时 release-android job 永远休眠）：
+#   v*.*.*        → 桌面端构建（release job 跑，release-android 跳过）
+#   mobile-v*.*.* → 移动端构建（release-android job 跑，release 跳过）
+# 桌面与移动端版本号完全独立，单独打 tag、单独构建、互不触发对方。
+# 纯桌面项目可忽略 mobile-* 触发与 release-android job（不推 mobile-* tag 即不会运行）。
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'mobile-v*.*.*'
+
+jobs:
+  # ===========================================================================
+  # Job 1: 桌面端跨平台构建
+  # ===========================================================================
+  release:
+    # 跳过 mobile-v* tag（交给 release-android job）
+    if: ${{ !startsWith(github.ref_name, 'mobile-') }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      # TODO: 根据 platforms 配置裁剪不需要的平台
+      # 只需 Windows + macOS 时，删除 ubuntu-22.04 条目
+      matrix:
+        include:
+          - platform: windows-latest           # platforms: windows
+            args: '--bundles nsis'
+          - platform: macos-latest             # platforms: macos
+            args: '--bundles app,dmg'
+            target: aarch64-apple-darwin
+          - platform: macos-latest             # platforms: macos
+            args: '--bundles app,dmg'
+            target: x86_64-apple-darwin
+          - platform: ubuntu-22.04             # platforms: linux（不需要可删除此条目及对应的 Install dependencies step）
+            args: '--bundles deb,appimage'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Linux 必需系统依赖（Tauri v2 官方推荐组合，参考 https://v2.tauri.app/start/prerequisites/）：
+      # - webkit2gtk-4.1: WebView 内核
+      # - libayatana-appindicator3-dev: 系统托盘（🔴 不要用 libappindicator3-dev,二者冲突）
+      # - patchelf + librsvg2-dev: AppImage 打包
+      # - libxdo-dev: 输入模拟（Tauri v2 必需，缺失会编译报错）
+      - name: Install dependencies (Ubuntu)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libxdo-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          tagName: ${{ github.ref_name }}
+          # TODO: 修改为你的应用名称
+          releaseName: '${{ github.ref_name }}'
+          releaseBody: 'See the assets to download and install this version.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+  # ===========================================================================
+  # 注意：上面的 release job 只负责桌面端构建和上传到 GitHub Release（草稿）。
+  # 产物下载、复制到 release 仓库、生成 update.json、推送到 Gitee/GitHub
+  # 均由本地 /release 命令完成（避免 CI 跨国推送 Gitee 超时问题）。
+  # ===========================================================================
+
+  # ===========================================================================
+  # Job 2: 移动端 Android APK + AAB 构建（可选，仅启用移动端伴侣时使用）
+  # ===========================================================================
+  #
+  # 🔴 此 job 仅在推送 mobile-v*.*.* tag 时运行；纯桌面项目永不触发，可整段删除。
+  # 启用前提：项目已按 mobile-app-architecture skill 建好 mobile-tauri/ 子项目。
+  #
+  # 签名策略：4 个 ANDROID_* Secrets 都配置时用 release key 签名（可覆盖安装/可上架），
+  # 否则 build.gradle.kts 回退 debug 签名（每次构建签名不同 → 用户升级被系统拦截，必须先卸载）。
+  #
+  # 配置 release 签名（首次发版前一次性，详见 release-publish skill "移动端 Android 发布要点"）：
+  #   1. 本地生成 keystore: keytool -genkeypair -v -keystore release.keystore \
+  #        -alias <app> -keyalg RSA -keysize 4096 -validity 36500
+  #   2. base64 编码: base64 -w0 release.keystore > release.keystore.b64
+  #   3. GitHub Secrets 添加 4 个：ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD
+  #      / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD（多 CI 仓库每个都要单独配，不跨仓共享）
+  release-android:
+    name: Build Android APK + AAB
+    # 仅 mobile-v* tag 触发；桌面 v* tag 跳过
+    if: ${{ startsWith(github.ref_name, 'mobile-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 剥离 mobile- 前缀得到纯版本号用于产物命名（mobile-v0.2.1 → v0.2.1）
+      - name: Extract mobile version
+        id: mobile_version
+        shell: bash
+        run: |
+          MOBILE_VERSION="${GITHUB_REF_NAME#mobile-}"
+          echo "version=$MOBILE_VERSION" >> $GITHUB_OUTPUT
+          echo "Mobile version: $MOBILE_VERSION"
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+
+      - name: Install Android NDK 27
+        run: |
+          sdkmanager --install "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Rust cache (mobile)
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './mobile-tauri/src-tauri -> target'
+          key: android
+
+      - name: Install root frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install mobile-tauri deps
+        working-directory: mobile-tauri
+        run: pnpm install --frozen-lockfile
+
+      # 写入 release 签名（仅当 4 个 Secrets 都配置时；否则 build.gradle.kts 回退 debug 签名）
+      - name: Setup release keystore
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && 'true' || 'false' }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > mobile-tauri/release.keystore
+          cat > mobile-tauri/keystore.properties <<EOF
+          storeFile=release.keystore
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+      # Linux CI 用默认 target/，无需 mobile-tauri/.cargo/config.toml 的 Windows 中文路径 workaround
+      - name: Build Android (vite + APK + AAB)
+        working-directory: mobile-tauri
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/mobile-tauri-target
+        run: pnpm android:build
+
+      # TODO: 把 <AppName> 替换为你的移动端产物前缀（与 release-publish skill 的前缀过滤一致）
+      - name: Rename + collect artifacts
+        env:
+          MVER: ${{ steps.mobile_version.outputs.version }}
+        run: |
+          mkdir -p release-artifacts
+          cp mobile-tauri/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
+             "release-artifacts/<AppName>-mobile-${MVER}.apk"
+          cp mobile-tauri/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab \
+             "release-artifacts/<AppName>-mobile-${MVER}.aab"
+          ls -lh release-artifacts/
+
+      - name: Upload to GitHub Release (append to draft)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          # TODO: 修改为你的应用名称
+          name: '<AppName> Mobile ${{ steps.mobile_version.outputs.version }}'
+          draft: true
+          fail_on_unmatched_files: true
+          files: |
+            release-artifacts/<AppName>-mobile-${{ steps.mobile_version.outputs.version }}.apk
+            release-artifacts/<AppName>-mobile-${{ steps.mobile_version.outputs.version }}.aab

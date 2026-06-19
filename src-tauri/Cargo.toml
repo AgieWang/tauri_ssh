@@ -1,0 +1,52 @@
+[package]
+name = "tauri_ssh"
+version = "0.1.0"
+description = "SSH desktop management tool"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "tauri_ssh_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-log = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.31", features = ["bundled"] }
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+# ─── 远程访问网关（移动端伴侣） ─────────────
+# 详见 src/remote/ 模块和 .claude/skills/remote-gateway/skill.md
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tower-http = { version = "0.5", features = ["cors"] }
+tokio = { version = "1", features = ["full"] }
+
+# ─── 编译优化 ─────────────────────────────
+
+# 开发模式：依赖包使用 O2 优化（加速运行，不影响本地代码编译速度）
+[profile.dev.package."*"]
+opt-level = 2
+
+# 发布模式：最小体积 + 最佳性能
+[profile.release]
+opt-level = "z"         # 最小体积优化
+lto = true              # 链接时优化
+codegen-units = 1       # 单代码生成单元（更好优化）
+strip = true            # 剥离调试符号
+panic = "abort"         # panic 时 abort（减小体积）
