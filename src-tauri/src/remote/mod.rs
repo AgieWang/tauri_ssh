@@ -2,6 +2,7 @@
 //
 // 详细文档：.claude/skills/remote-gateway/skill.md
 // 上层架构：.claude/skills/mobile-app-architecture/skill.md
+#![allow(dead_code, unused_imports)]
 
 pub mod auth;
 pub mod config;

@@ -51,9 +51,13 @@ impl From<AppError> for CommandError {
             AppError::InvalidInput(_) => "INVALID_INPUT",
             AppError::Custom(_) => "INTERNAL",
         };
+        let message = match &err {
+            AppError::InvalidInput(message) => message.clone(),
+            _ => err.to_string(),
+        };
         CommandError {
             code: code.to_string(),
-            message: err.to_string(),
+            message,
         }
     }
 }

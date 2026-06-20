@@ -6,12 +6,29 @@ import { useAppStore } from "@/store";
 import { resolveTheme } from "@/store/app";
 import { getAntdTheme } from "@/theme/antdTheme";
 import { AppRouter } from "@/Router";
+import { systemSettingsApi } from "@/lib/api";
 
 function App() {
   const appTheme = useAppStore((s) => s.theme);
+  const setTheme = useAppStore((s) => s.setTheme);
   const [resolved, setResolved] = useState<"light" | "dark">(
     resolveTheme(appTheme)
   );
+
+  useEffect(() => {
+    let mounted = true;
+    systemSettingsApi
+      .get()
+      .then((settings) => {
+        if (mounted) {
+          setTheme(settings.theme);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [setTheme]);
 
   useEffect(() => {
     // 非 system 模式直接应用

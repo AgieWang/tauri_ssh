@@ -30,6 +30,12 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+sha2 = "0.10"
+ssh2 = "0.9"
 
 # ─── 远程访问网关（移动端伴侣） ─────────────
 # 详见 src/remote/ 模块和 .claude/skills/remote-gateway/skill.md

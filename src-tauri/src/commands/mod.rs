@@ -1,2 +1,12 @@
+pub mod ai_provider;
+pub mod approval;
+pub mod audit;
 pub mod config;
+pub mod credential_vault;
+pub mod jumpserver;
+pub mod mcp;
+pub mod sftp;
+pub mod ssh_server;
 pub mod system;
+pub mod system_settings;
+pub mod terminal;

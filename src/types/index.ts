@@ -7,3 +7,101 @@
 
 export type { AppConfig } from "./config";
 export type { SystemInfo } from "./system";
+export type {
+  SystemCloseBehavior,
+  SystemLanguage,
+  SystemLogLevel,
+  SystemPlatform,
+  SystemSettings,
+  SystemSettingsExportResult,
+  UpdateSystemSettingsInput,
+} from "./systemSettings";
+export type {
+  AiProvider,
+  AiProviderAskInput,
+  AiProviderAskResult,
+  AiProviderModelListInput,
+  AiProviderModelListResult,
+  AiProviderRegion,
+  AiProviderRoute,
+  AiProviderStatus,
+  AiProviderTestResult,
+  UpsertAiProviderInput,
+  UpsertAiProviderRouteInput,
+} from "./aiProvider";
+export type {
+  SshConfigImportResult,
+  SshServer,
+  SshServerAuthType,
+  SshServerConnectionTestInput,
+  SshServerPolicy,
+  SshServerSource,
+  SshServerStatus,
+  SshServerTestResult,
+  UpsertSshServerInput,
+} from "./sshServer";
+export type {
+  AuthorizeCredentialInput,
+  CredentialStatus,
+  CredentialType,
+  CredentialVaultItem,
+  RotateCredentialInput,
+  UpsertCredentialInput,
+} from "./credentialVault";
+export type {
+  TerminalCommandInput,
+  TerminalCommandResult,
+  TerminalSessionCloseInput,
+  TerminalSessionEvent,
+  TerminalSessionResizeInput,
+  TerminalSessionStartInput,
+  TerminalSessionStartResult,
+  TerminalSessionWriteInput,
+} from "./terminal";
+export type {
+  SftpCreateDirectoryInput,
+  SftpCreateFileInput,
+  SftpDeleteInput,
+  SftpFileEntry,
+  SftpFileType,
+  SftpListInput,
+  SftpListResult,
+  SftpOperationResult,
+  SftpReadTextInput,
+  SftpReadTextResult,
+  SftpRenameInput,
+  SftpTransferPathInput,
+  SftpWriteTextInput,
+} from "./sftp";
+export type {
+  ConfigureMcpClientInput,
+  ConfigureMcpClientResult,
+  McpClientConfig,
+  McpManualSnippet,
+  McpOverview,
+  McpServerStatus,
+  McpToolPermission,
+} from "./mcp";
+export type {
+  ApprovalRequest,
+  ApprovalRisk,
+  ApprovalStatus,
+  CreateApprovalRequestInput,
+  DecideApprovalRequestInput,
+  ListApprovalRequestsInput,
+} from "./approval";
+export type {
+  JumpServerAiMode,
+  JumpServerOpenResult,
+  JumpServerProtocol,
+  JumpServerSession,
+  JumpServerStatus,
+  UpsertJumpServerSessionInput,
+} from "./jumpserver";
+export type {
+  AuditLog,
+  AuditLogExportResult,
+  AuditRisk,
+  CreateAuditLogInput,
+  ListAuditLogsInput,
+} from "./audit";

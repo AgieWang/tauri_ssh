@@ -1,5 +1,7 @@
 mod commands;
 mod database;
+#[cfg(debug_assertions)]
+mod dev_server;
 mod error;
 mod models;
 mod remote;
@@ -53,6 +55,9 @@ pub fn run() {
             // 注册全局状态
             app.manage(AppState::new(db));
 
+            #[cfg(debug_assertions)]
+            dev_server::start(app.handle().clone());
+
             // 初始化系统托盘
             tray::setup_tray(app)?;
             log::info!("系统托盘初始化完成");
@@ -77,6 +82,65 @@ pub fn run() {
             commands::config::get_config,
             commands::config::set_config,
             commands::config::delete_config,
+            // 系统设置模块
+            commands::system_settings::get_system_settings,
+            commands::system_settings::update_system_settings,
+            commands::system_settings::reset_system_settings,
+            commands::system_settings::export_system_settings,
+            // AI Provider 模块
+            commands::ai_provider::list_ai_providers,
+            commands::ai_provider::upsert_ai_provider,
+            commands::ai_provider::delete_ai_provider,
+            commands::ai_provider::list_ai_provider_routes,
+            commands::ai_provider::upsert_ai_provider_route,
+            commands::ai_provider::test_ai_provider,
+            commands::ai_provider::list_ai_provider_models,
+            commands::ai_provider::ask_ai_provider,
+            // SSH 服务器模块
+            commands::ssh_server::list_ssh_servers,
+            commands::ssh_server::upsert_ssh_server,
+            commands::ssh_server::delete_ssh_server,
+            commands::ssh_server::import_ssh_config,
+            commands::ssh_server::test_ssh_server,
+            commands::ssh_server::test_ssh_server_connection,
+            // 凭据保险库模块
+            commands::credential_vault::list_credentials,
+            commands::credential_vault::upsert_credential,
+            commands::credential_vault::authorize_credential,
+            commands::credential_vault::rotate_credential,
+            commands::credential_vault::delete_credential,
+            // MCP Server 模块
+            commands::mcp::get_mcp_overview,
+            commands::mcp::configure_mcp_client,
+            // 审批队列模块
+            commands::approval::list_approval_requests,
+            commands::approval::create_approval_request,
+            commands::approval::decide_approval_request,
+            // 审计日志模块
+            commands::audit::list_audit_logs,
+            commands::audit::create_audit_log,
+            commands::audit::export_audit_logs,
+            // 堡垒机会话模块
+            commands::jumpserver::list_jumpserver_sessions,
+            commands::jumpserver::upsert_jumpserver_session,
+            commands::jumpserver::open_jumpserver_session,
+            commands::jumpserver::delete_jumpserver_session,
+            // 终端模块
+            commands::terminal::execute_terminal_command,
+            commands::terminal::start_terminal_session,
+            commands::terminal::write_terminal_session,
+            commands::terminal::resize_terminal_session,
+            commands::terminal::close_terminal_session,
+            // SFTP 文件模块
+            commands::sftp::sftp_list,
+            commands::sftp::sftp_read_text,
+            commands::sftp::sftp_write_text,
+            commands::sftp::sftp_upload,
+            commands::sftp::sftp_download,
+            commands::sftp::sftp_create_directory,
+            commands::sftp::sftp_create_file,
+            commands::sftp::sftp_rename,
+            commands::sftp::sftp_delete,
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {

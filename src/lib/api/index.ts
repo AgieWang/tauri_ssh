@@ -6,11 +6,22 @@ export {
   parseCommandError,
   getErrorMessage,
   getErrorCode,
+  hasTauriRuntime,
   invoke,
 } from "./client";
 export type { CommandError } from "./client";
 
 // 业务 API
 export { systemApi } from "./system";
+export { systemSettingsApi } from "./systemSettings";
 export { configApi } from "./config";
 export { updaterApi } from "./updater";
+export { aiProviderApi } from "./aiProvider";
+export { sshServerApi } from "./sshServer";
+export { credentialVaultApi } from "./credentialVault";
+export { terminalApi } from "./terminal";
+export { sftpApi } from "./sftp";
+export { mcpApi } from "./mcp";
+export { approvalApi } from "./approval";
+export { jumpserverApi } from "./jumpserver";
+export { auditApi } from "./audit";
