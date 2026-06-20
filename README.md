@@ -4,7 +4,7 @@
 
 Tauri SSH 是一款面向 AI 时代的跨平台 SSH 桌面管理工具。它将服务器资产、凭据保险库、真实 SSH 终端、SFTP 文件管理、日志监听、AI Provider、MCP Server、审批队列与审计日志整合到一个本地优先的桌面应用中，适合个人开发者、运维人员和需要让 Agent 安全参与服务器操作的团队使用。
 
-> 当前版本：`v0.1.3`，仍处于活跃开发阶段。请在生产环境使用前完整校验凭据管理、AI 权限策略、审批规则和审计链路。
+> 当前版本：`v0.1.5`，仍处于活跃开发阶段。请在生产环境使用前完整校验凭据管理、AI 权限策略、审批规则和审计链路。
 
 ## 功能概览
 
@@ -168,8 +168,8 @@ pnpm tauri:build
 项目已包含 `.github/workflows/release.yml`，推送符合格式的 Git Tag 后会触发跨平台构建：
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 桌面端发布 Tag 格式：
