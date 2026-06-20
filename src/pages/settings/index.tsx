@@ -4,6 +4,7 @@ import { SyncOutlined } from "@ant-design/icons";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { systemApi, updaterApi } from "@/lib/api";
 import { UpdateModal } from "@/components/ui/UpdateModal";
+import packageJson from "../../../package.json";
 
 const { Title, Text } = Typography;
 
@@ -11,7 +12,7 @@ export default function SettingsPage() {
   const [checking, setChecking] = useState(false);
   const [update, setUpdate] = useState<Update | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [appVersion, setAppVersion] = useState(packageJson.version);
 
   async function handleCheckUpdate() {
     setChecking(true);
@@ -31,7 +32,11 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    systemApi.getSystemInfo().then((info) => setAppVersion(info.appVersion)).catch(() => {});
+    systemApi
+      .getSystemInfo()
+      .then((info) => setAppVersion(info.appVersion))
+      // 浏览器调试没有 Tauri IPC，保留 Vite 注入的 package.json 版本作为兜底。
+      .catch(() => {});
   }, []);
 
   return (
