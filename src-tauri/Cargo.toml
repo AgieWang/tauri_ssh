@@ -35,7 +35,7 @@ aes-gcm = "0.10"
 base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
-ssh2 = "0.9"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 # ─── 远程访问网关（移动端伴侣） ─────────────
 # 详见 src/remote/ 模块和 .claude/skills/remote-gateway/skill.md
