@@ -92,8 +92,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -189,8 +187,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Install Rust + Android targets
         uses: dtolnay/rust-toolchain@stable
