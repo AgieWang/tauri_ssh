@@ -12,9 +12,15 @@ interface UpdateModalProps {
   open: boolean;
   onClose: () => void;
   update: Update | null;
+  forceUpdate?: boolean;
 }
 
-export function UpdateModal({ open, onClose, update }: UpdateModalProps) {
+export function UpdateModal({
+  open,
+  onClose,
+  update,
+  forceUpdate = false,
+}: UpdateModalProps) {
   const [status, setStatus] = useState<UpdateStatus>("found");
   const [progress, setProgress] = useState(0);
   const [downloadedSize, setDownloadedSize] = useState(0);
@@ -58,6 +64,7 @@ export function UpdateModal({ open, onClose, update }: UpdateModalProps) {
   }
 
   function handleClose() {
+    if (forceUpdate) return;
     if (status === "downloading") return;
     setStatus("found");
     setProgress(0);
@@ -74,17 +81,18 @@ export function UpdateModal({ open, onClose, update }: UpdateModalProps) {
 
   return (
     <Modal
-      title="软件更新"
+      title={forceUpdate ? "发现新版本，必须更新后继续使用" : "软件更新"}
       open={open}
       onCancel={handleClose}
-      closable={status !== "downloading"}
-      maskClosable={status !== "downloading"}
+      closable={!forceUpdate && status !== "downloading"}
+      keyboard={!forceUpdate && status !== "downloading"}
+      maskClosable={!forceUpdate && status !== "downloading"}
       footer={
         status === "found" ? (
           <Space>
-            <Button onClick={handleClose}>稍后</Button>
+            {!forceUpdate && <Button onClick={handleClose}>稍后</Button>}
             <Button type="primary" onClick={handleInstall}>
-              安装更新
+              {forceUpdate ? "立即更新" : "安装更新"}
             </Button>
           </Space>
         ) : status === "downloaded" ? (
@@ -96,6 +104,12 @@ export function UpdateModal({ open, onClose, update }: UpdateModalProps) {
     >
       {update && (
         <div>
+          {forceUpdate && (
+            <Paragraph type="secondary">
+              为确保功能兼容和安全策略一致，当前版本需要更新到最新版后继续使用。
+            </Paragraph>
+          )}
+
           <Paragraph>
             <Text strong>新版本：</Text>
             <Text>{update.version}</Text>
