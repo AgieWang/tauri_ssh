@@ -952,6 +952,88 @@ impl DatabaseOpsService {
         })
     }
 
+    pub async fn execute_redis_write_command(
+        db: &Database,
+        connection_key: &str,
+        database_name: Option<String>,
+        command: &str,
+        args: Vec<String>,
+    ) -> Result<serde_json::Value, AppError> {
+        let command = command.trim().to_uppercase();
+        if command.is_empty() {
+            return Err(AppError::InvalidInput("Redis 命令不能为空".into()));
+        }
+        let allowed = ["SET", "DEL", "EXPIRE", "HSET", "HDEL"];
+        if !allowed.contains(&command.as_str()) {
+            return Err(AppError::InvalidInput(format!(
+                "Redis 批准执行仅支持 {}，当前命令为 {}",
+                allowed.join("/"),
+                command
+            )));
+        }
+        let connection = db
+            .get_database_connection_secret_row(connection_key)?
+            .ok_or_else(|| AppError::NotFound(format!("Redis 连接 '{}' 不存在", connection_key)))?;
+        let mut connection_info = connection.connection;
+        if connection_info.db_type != "redis" {
+            return Err(AppError::InvalidInput("当前连接不是 Redis".into()));
+        }
+        if connection_info.connection_mode != "direct" {
+            return Err(AppError::InvalidInput(
+                "SSH 隧道 Redis 写入会在隧道模块接入后启用".into(),
+            ));
+        }
+        if let Some(database_name) = database_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            connection_info.database_name = database_name.to_string();
+        }
+        let expected_args = match command.as_str() {
+            "SET" => 2,
+            "DEL" => 1,
+            "EXPIRE" => 2,
+            "HSET" => 3,
+            "HDEL" => 2,
+            _ => unreachable!(),
+        };
+        if args.len() < expected_args {
+            return Err(AppError::InvalidInput(format!(
+                "Redis {} 至少需要 {} 个参数",
+                command, expected_args
+            )));
+        }
+        let password = Self::resolve_connection_password(
+            db,
+            &connection_info,
+            connection.password_nonce.as_deref(),
+            connection.password_ciphertext.as_deref(),
+        )?;
+        let url = Self::redis_url(&connection_info, password.as_deref());
+        let client = redis::Client::open(url)
+            .map_err(|error| AppError::Custom(format!("Redis URL 无效: {}", error)))?;
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|error| AppError::Custom(format!("连接 Redis 失败: {}", error)))?;
+        let mut redis_command = redis::cmd(command.as_str());
+        for arg in &args {
+            redis_command.arg(arg);
+        }
+        let value: redis::Value = redis_command
+            .query_async(&mut conn)
+            .await
+            .map_err(|error| AppError::Custom(format!("执行 Redis 命令失败: {}", error)))?;
+        Ok(serde_json::json!({
+            "connectionKey": connection_key,
+            "databaseName": connection_info.database_name,
+            "command": command,
+            "argsCount": args.len(),
+            "result": format!("{:?}", value)
+        }))
+    }
+
     fn database_export_dir(db: &Database) -> Result<PathBuf, AppError> {
         let settings = SystemSettingsService::get(db)?;
         let configured = settings.database_download_dir.trim();

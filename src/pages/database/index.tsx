@@ -1714,7 +1714,7 @@ export default function DatabasePage() {
     <div className="prototype-page">
       <div className="prototype-page-header">
         <div>
-          <Title level={3} style={{ margin: 0 }}>数据库管理</Title>
+          <Title level={3} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>数据库管理</Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
             管理 MySQL、PostgreSQL 和 Redis 连接，后续查询、导出、审批与 MCP 工具会复用这里的连接配置。
           </Paragraph>

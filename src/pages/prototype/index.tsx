@@ -1135,7 +1135,7 @@ const serverColumns = [
 export function OnboardingPage() {
   return (
     <div className="prototype-page prototype-audit-page">
-      <PageHeader title="01 启动引导" description="首次启动时完成资产导入、AI Provider、安全策略和 MCP Server 配置。" />
+      <PageHeader title="启动引导" description="首次启动时完成资产导入、AI Provider、安全策略和 MCP Server 配置。" />
       <Card>
         <Steps
           current={1}
@@ -1727,7 +1727,7 @@ export function ServersPage() {
 export function ServerFormPage() {
   return (
     <div className="prototype-page">
-      <PageHeader title="04 服务器表单" description="新增或编辑服务器配置，凭据只保存加密引用，预留团队字段。" />
+      <PageHeader title="服务器表单" description="新增或编辑服务器配置，凭据只保存加密引用，预留团队字段。" />
       <Card>
         <Form layout="vertical" initialValues={{ source: "manual", authType: "key", aiPolicy: "L2", workspace: "local-personal" }}>
           <SectionGrid columns={3}>
@@ -1752,7 +1752,7 @@ export function SshImportPage() {
   const rows = servers.filter((item) => item.source !== "manual");
   return (
     <div className="prototype-page">
-      <PageHeader title="05 SSH Config 导入" description="解析本机 SSH Config，处理冲突、分组映射和凭据引用。" actions={<Button type="primary">选择配置文件</Button>} />
+      <PageHeader title="SSH Config 导入" description="解析本机 SSH Config，处理冲突、分组映射和凭据引用。" actions={<Button type="primary">选择配置文件</Button>} />
       <SectionGrid columns={3}>
         <Card title="解析结果"><Progress percent={100} /><Paragraph>发现 12 个 Host，8 个可直接导入，2 个需要处理 ProxyJump，2 个重复。</Paragraph></Card>
         <Card title="冲突策略"><Checkbox defaultChecked>保留已有别名</Checkbox><br /><Checkbox defaultChecked>重复 Host 加后缀</Checkbox><br /><Checkbox>覆盖旧配置</Checkbox></Card>
@@ -3663,7 +3663,7 @@ export function LogsPage() {
   return (
     <div className="prototype-page">
       <PageHeader
-        title="09 日志监听"
+        title="日志监听"
         description="标签多开 tail，同一或不同服务器多个文件并发监听，支持搜索、过滤和按钮触发 AI 解释。"
         actions={
           <Space>
@@ -4076,7 +4076,11 @@ export function SftpPage() {
         />
         <Tag>{selectedServer ? `${selectedServer.host}:${selectedServer.port}` : "未选择"}</Tag>
         <Tag>{selectedServer?.groupName ?? "未分组"}</Tag>
-        <Tag>{selectedServer?.status ?? "unknown"}</Tag>
+        {selectedServer ? (
+          <Tag color={(sshServerStatusMeta[selectedServer.status] ?? sshServerStatusMeta.unknown).color}>
+            {(sshServerStatusMeta[selectedServer.status] ?? sshServerStatusMeta.unknown).text}
+          </Tag>
+        ) : null}
       </div>
       {!selectedServer ? (
         <Alert
@@ -4281,7 +4285,7 @@ export function SftpPage() {
 export function EditorPage() {
   return (
     <div className="prototype-page">
-      <PageHeader title="11 文本编辑器" description="SFTP 内置文本编辑器，保存前显示差异摘要并进入审批。" actions={<Space><Button>格式化</Button><Button type="primary">保存并申请审批</Button></Space>} />
+      <PageHeader title="文本编辑器" description="SFTP 内置文本编辑器，保存前显示差异摘要并进入审批。" actions={<Space><Button>格式化</Button><Button type="primary">保存并申请审批</Button></Space>} />
       <TwoColumn
         left={<Card title="/opt/app/config/app.yml"><div className="prototype-editor">{["server:", "  port: 8080", "logging:", "  level: INFO", "  file: /opt/app/logs/app.log", "security:", "  require_approval: true"].map((line, index) => <div key={line} className="prototype-editor-line"><span>{index + 1}</span><code>{line}</code></div>)}</div></Card>}
         right={<><AiInsightPanel title="差异摘要"><Paragraph>将日志级别从 DEBUG 调整为 INFO，影响应用日志输出量。</Paragraph><RiskBadge level="L2" label="保存需审批" /></AiInsightPanel><Card title="编辑器设置"><Switch defaultChecked /> 自动检测换行符<br /><Switch defaultChecked /> 保存前脱敏扫描<br /><Switch /> AI 改写后自动生成说明</Card></>}
@@ -4517,7 +4521,7 @@ export function ProvidersPage() {
   return (
     <div className="prototype-page">
       <PageHeader
-        title="12 AI Provider"
+        title="AI Provider"
         description="统一管理 Anthropic、OpenAI、Gemini、DeepSeek、智谱 GLM、Kimi、MiniMax、小米 MiMo。"
         actions={<Space><Button loading={loadingProviders || testingKey === ALL_PROVIDER_TEST_KEY} onClick={() => void handleRefreshAndTestProviders()}>刷新</Button><Button type="primary" onClick={() => { setSelectedProvider(null); setModelOptions([]); setDrawerOpen(true); }}>新增 Provider</Button></Space>}
       />
@@ -4808,7 +4812,7 @@ export function McpPage() {
         <Card title={<span className="prototype-card-title"><KeyRound size={16} />工具权限</span>} loading={loadingMcp && !mcpOverview}>
           <Table
             size="small"
-            pagination={false}
+            pagination={{ pageSize: 10, showSizeChanger: false, size: "small" }}
             rowKey="tool"
             dataSource={mcpOverview?.tools ?? []}
             columns={[
@@ -5300,7 +5304,7 @@ export function AuditPage() {
 export function WorkspacePage() {
   return (
     <div className="prototype-page">
-      <PageHeader title="16 团队预留" description="V0.1 先预留 workspace、user、role、server scope 字段，默认本地个人空间。" />
+      <PageHeader title="团队预留" description="V0.1 先预留 workspace、user、role、server scope 字段，默认本地个人空间。" />
       <SectionGrid columns={3}>
         <Card title="Workspace"><Title level={3}>local-personal</Title><Text type="secondary">默认本机个人空间</Text></Card>
         <Card title="Roles"><Tag>Owner</Tag><Tag>Operator</Tag><Tag>Auditor</Tag></Card>
@@ -5454,7 +5458,7 @@ export function PrototypeSettingsPage() {
 export function StatesPage() {
   return (
     <div className="prototype-page">
-      <PageHeader title="18 状态页" description="覆盖空状态、错误状态、权限不足、连接失败、审批等待和重连状态。" />
+      <PageHeader title="状态页" description="覆盖空状态、错误状态、权限不足、连接失败、审批等待和重连状态。" />
       <SectionGrid columns={3}>
         <Alert type="info" showIcon title="暂无服务器" description="从 SSH Config 导入或手工新增服务器。" />
         <Alert type="error" showIcon title="连接失败" description="SSH 握手超时，建议检查网络、端口和跳板机。" />

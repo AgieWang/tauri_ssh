@@ -114,7 +114,7 @@ export default function SkillsPage() {
     <div className="prototype-page">
       <div className="prototype-page-header">
         <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>
+          <Typography.Title level={3} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>
             Skill 管理
           </Typography.Title>
           <Typography.Text type="secondary">

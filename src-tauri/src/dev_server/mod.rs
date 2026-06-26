@@ -32,6 +32,7 @@ use crate::services::ssh_server::SshServerService;
 use crate::services::system_settings::SystemSettingsService;
 use crate::services::terminal::{TerminalPtyCommand, TerminalService};
 use crate::state::AppState;
+use sha2::{Digest, Sha256};
 use tauri::Manager;
 
 const DEV_API_ADDR: &str = "127.0.0.1:17321";
@@ -574,6 +575,316 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             "inputSchema": { "type": "object", "properties": {} }
         }),
         serde_json::json!({
+            "name": "database_connections_list",
+            "description": "列出数据库连接脱敏元数据，不返回密码或凭据明文。",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "database_connection_test",
+            "description": "测试数据库连接可用性。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "connectionKey": { "type": "string" } },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_names_list",
+            "description": "读取 MySQL/PostgreSQL 数据库列表。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "connectionKey": { "type": "string" } },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_schema_list",
+            "description": "读取数据库对象结构，包含表、视图、字段和索引。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" }
+                },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_sql_query_readonly",
+            "description": "执行只读 SQL 查询，仅允许 SELECT/SHOW/DESC/EXPLAIN/WITH 等语句。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "sql": { "type": "string" },
+                    "page": { "type": "number" },
+                    "pageSize": { "type": "number" }
+                },
+                "required": ["connectionKey", "sql"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_sql_execute_controlled",
+            "description": "受控执行 SQL：只读 SQL 自动执行，写入/DDL 创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "sql": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "page": { "type": "number" },
+                    "pageSize": { "type": "number" }
+                },
+                "required": ["connectionKey", "sql"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_sql_execute_approved",
+            "description": "执行已批准的数据库 SQL，approvalId 必须对应 approved 审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "sql": { "type": "string" },
+                    "page": { "type": "number" },
+                    "pageSize": { "type": "number" }
+                },
+                "required": ["approvalId", "connectionKey", "sql"]
+            }
+        }),
+        serde_json::json!({
+            "name": "database_export_create",
+            "description": "创建数据库导出任务，导出 CSV/Schema 到系统默认下载目录。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "mode": { "type": "string", "enum": ["table_csv", "query_csv", "sql_backup"] },
+                    "tableName": { "type": "string" },
+                    "sql": { "type": "string" },
+                    "includeData": { "type": "boolean" },
+                    "maxRows": { "type": "number" }
+                },
+                "required": ["connectionKey", "mode"]
+            }
+        }),
+        serde_json::json!({
+            "name": "redis_databases_list",
+            "description": "读取 Redis DB 列表和每个 DB 的 Key 数。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "connectionKey": { "type": "string" } },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "redis_key_tree",
+            "description": "读取 Redis Key 树状浏览数据。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "pattern": { "type": "string" },
+                    "limit": { "type": "number" }
+                },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "redis_key_value_preview",
+            "description": "只读预览 Redis Key 的类型、TTL 和 Value。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "key": { "type": "string" }
+                },
+                "required": ["connectionKey", "key"]
+            }
+        }),
+        serde_json::json!({
+            "name": "redis_command_controlled",
+            "description": "受控执行 Redis 命令：只读命令自动执行，写入命令创建审批，危险命令拒绝。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "command": { "type": "string" },
+                    "args": { "type": "array", "items": { "type": "string" } },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["connectionKey", "command"]
+            }
+        }),
+        serde_json::json!({
+            "name": "redis_command_approved",
+            "description": "执行已批准的 Redis 写入命令，仅支持 SET/DEL/EXPIRE/HSET/HDEL。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "connectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "command": { "type": "string" },
+                    "args": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["approvalId", "connectionKey", "command"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skills_list",
+            "description": "列出 Skill 脱敏元数据，不返回 Skill 正文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string" },
+                    "source": { "type": "string", "enum": ["all", "builtin", "user"] },
+                    "scope": { "type": "string", "enum": ["all", "global", "terminal", "sql", "logs", "sftp", "mcp", "jumpserver"] },
+                    "showBuiltin": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skill_detail",
+            "description": "读取已允许 MCP 调用的 Skill 内容。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "skillKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skill_trigger_test",
+            "description": "测试 MCP 场景下用户输入会命中哪些 Skill 和经验。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "prompt": { "type": "string" } },
+                "required": ["prompt"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_prompt_preview",
+            "description": "预览 MCP 场景最终会注入给 AI 的 Skill/经验提示词片段。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "prompt": { "type": "string" } }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_experiences_list",
+            "description": "列出本地经验库条目和 Markdown 文件路径。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "keyword": { "type": "string" } }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_experience_upsert_controlled",
+            "description": "新增或更新经验库条目，默认生成 Markdown 文件并写入本地经验库。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "experienceKey": { "type": "string" },
+                    "title": { "type": "string" },
+                    "symptom": { "type": "string" },
+                    "cause": { "type": "string" },
+                    "solution": { "type": "string" },
+                    "scenario": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "enabled": { "type": "boolean" }
+                },
+                "required": ["title"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_runbooks_list",
+            "description": "列出 Runbook 脱敏元数据，不返回步骤正文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "keyword": { "type": "string" } }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_runbook_detail",
+            "description": "读取已允许 MCP 调用的 Runbook 步骤详情。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "runbookKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_runbook_run",
+            "description": "执行已允许 MCP 调用的 Runbook，等同 run_runbook。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "runbookKey": { "type": "string" },
+                    "serverAlias": { "type": "string" },
+                    "databaseConnectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "dryRun": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skill_enable_controlled",
+            "description": "为启用/停用 Skill 创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "skillKey": { "type": "string" },
+                    "enabled": { "type": "boolean" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["enabled"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skill_enable_approved",
+            "description": "执行已批准的 Skill 启用/停用动作。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "id": { "type": "number" },
+                    "skillKey": { "type": "string" },
+                    "enabled": { "type": "boolean" }
+                },
+                "required": ["approvalId", "enabled"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_skill_copy_controlled",
+            "description": "复制一个 Skill 为用户 Skill 副本，副本默认禁用。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "skillKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
             "name": "recall_experience",
             "description": "按问题和场景召回 Tauri SSH 本地经验库，返回 Markdown 文件路径、摘要和匹配词。",
             "inputSchema": {
@@ -676,6 +987,21 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "sftp_write_text_controlled",
+            "description": "为远程文本文件写入创建审批请求，审批通过后再调用 sftp_write_text_approved 执行。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "serverAlias": { "type": "string" },
+                    "path": { "type": "string" },
+                    "content": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["serverAlias", "path", "content"]
+            }
+        }),
+        serde_json::json!({
             "name": "sftp_write_text_approved",
             "description": "写入已批准的远程文本文件。",
             "inputSchema": {
@@ -690,6 +1016,20 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "sftp_create_directory_controlled",
+            "description": "为远程目录创建动作创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "serverAlias": { "type": "string" },
+                    "path": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["serverAlias", "path"]
+            }
+        }),
+        serde_json::json!({
             "name": "sftp_create_directory_approved",
             "description": "创建已批准的远程目录。",
             "inputSchema": {
@@ -700,6 +1040,21 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                     "path": { "type": "string" }
                 },
                 "required": ["approvalId", "serverAlias", "path"]
+            }
+        }),
+        serde_json::json!({
+            "name": "sftp_create_file_controlled",
+            "description": "为远程文件创建动作创建审批请求，审批通过后再调用 sftp_create_file_approved 执行。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "serverAlias": { "type": "string" },
+                    "path": { "type": "string" },
+                    "content": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["serverAlias", "path"]
             }
         }),
         serde_json::json!({
@@ -717,6 +1072,21 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "sftp_rename_controlled",
+            "description": "为远程路径重命名创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "serverAlias": { "type": "string" },
+                    "fromPath": { "type": "string" },
+                    "toPath": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["serverAlias", "fromPath", "toPath"]
+            }
+        }),
+        serde_json::json!({
             "name": "sftp_rename_approved",
             "description": "重命名已批准的远程路径。",
             "inputSchema": {
@@ -728,6 +1098,21 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                     "toPath": { "type": "string" }
                 },
                 "required": ["approvalId", "serverAlias", "fromPath", "toPath"]
+            }
+        }),
+        serde_json::json!({
+            "name": "sftp_delete_controlled",
+            "description": "为远程文件或空目录删除创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "serverAlias": { "type": "string" },
+                    "path": { "type": "string" },
+                    "fileType": { "type": "string", "enum": ["file", "directory"] },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["serverAlias", "path", "fileType"]
             }
         }),
         serde_json::json!({
@@ -1040,6 +1425,574 @@ async fn call_mcp_tool_inner(
                 .collect::<Vec<_>>();
             Ok(serde_json::json!({ "providers": providers }))
         }
+        "database_connections_list" => {
+            let state = app_state(ctx);
+            let connections = DatabaseOpsService::list_connections(&state.db)?
+                .into_iter()
+                .map(|connection| database_connection_profile_json(&connection))
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({ "connections": connections }))
+        }
+        "database_connection_test" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::test_connection(
+                    &state.db,
+                    &required_string(&arguments, "connectionKey")?,
+                )
+                .await?,
+            )?)
+        }
+        "database_names_list" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::list_database_names(
+                    &state.db,
+                    crate::models::DatabaseNameListInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "database_schema_list" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::list_database_schema(
+                    &state.db,
+                    crate::models::DatabaseSchemaInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                        database_name: optional_string(&arguments, "databaseName"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "database_sql_query_readonly" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::execute_readonly_query(
+                    &state.db,
+                    crate::models::DatabaseQueryInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        sql: required_string(&arguments, "sql")?,
+                        page: optional_i64(&arguments, "page").or(Some(1)),
+                        page_size: optional_i64(&arguments, "pageSize").or(Some(500)),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "database_sql_execute_controlled" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let sql = required_string(&arguments, "sql")?;
+            if is_readonly_sql_mcp(&sql) {
+                let result = DatabaseOpsService::execute_readonly_query(
+                    &state.db,
+                    crate::models::DatabaseQueryInput {
+                        connection_key,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        sql,
+                        page: optional_i64(&arguments, "page").or(Some(1)),
+                        page_size: optional_i64(&arguments, "pageSize").or(Some(500)),
+                    },
+                )
+                .await?;
+                return Ok(serde_json::json!({
+                    "action": "executed",
+                    "risk": "readonly",
+                    "result": result
+                }));
+            }
+            let risk = classify_database_sql_risk(&sql)?;
+            if risk == "blocked" {
+                return Ok(serde_json::json!({
+                    "action": "blocked",
+                    "risk": risk,
+                    "message": "SQL 命中禁止策略，未创建审批"
+                }));
+            }
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "mcp".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: "database_execute".into(),
+                    risk: risk.clone(),
+                    command: sql.clone(),
+                    resource: connection_key.clone(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "MCP Agent 请求执行数据库 SQL".into()),
+                    summary: format!("执行数据库 SQL：{}", redact_audit_text(&sql, 160)),
+                    payload_json: Some(
+                        serde_json::json!({
+                            "tool": "database_sql_execute_controlled",
+                            "connectionKey": connection_key,
+                            "databaseName": optional_string(&arguments, "databaseName"),
+                            "sql": sql,
+                            "page": optional_i64(&arguments, "page"),
+                            "pageSize": optional_i64(&arguments, "pageSize")
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": risk,
+                "approval": approval
+            }))
+        }
+        "database_sql_execute_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let sql = required_string(&arguments, "sql")?;
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "database_execute",
+                "",
+                Some(&sql),
+                Some(&connection_key),
+            )?;
+            Ok(serde_json::to_value(
+                DatabaseOpsService::execute_sql(
+                    &state.db,
+                    crate::models::DatabaseQueryInput {
+                        connection_key,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        sql,
+                        page: optional_i64(&arguments, "page").or(Some(1)),
+                        page_size: optional_i64(&arguments, "pageSize").or(Some(500)),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "database_export_create" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::export_database(
+                    &state.db,
+                    crate::models::DatabaseExportInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        mode: required_string(&arguments, "mode")?,
+                        table_name: optional_string(&arguments, "tableName"),
+                        sql: optional_string(&arguments, "sql"),
+                        include_data: optional_bool(&arguments, "includeData"),
+                        max_rows: optional_i64(&arguments, "maxRows"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "redis_databases_list" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::list_redis_databases(
+                    &state.db,
+                    crate::models::RedisDatabaseListInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "redis_key_tree" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::list_redis_key_tree(
+                    &state.db,
+                    crate::models::RedisKeyTreeInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        pattern: optional_string(&arguments, "pattern"),
+                        limit: optional_i64(&arguments, "limit"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "redis_key_value_preview" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                DatabaseOpsService::get_redis_value_preview(
+                    &state.db,
+                    crate::models::RedisValuePreviewInput {
+                        connection_key: required_string(&arguments, "connectionKey")?,
+                        database_name: optional_string(&arguments, "databaseName"),
+                        key: required_string(&arguments, "key")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "redis_command_controlled" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let command = required_string(&arguments, "command")?;
+            let args = optional_string_array(&arguments, "args");
+            match classify_redis_command(&command) {
+                "readonly" => {
+                    let result = execute_readonly_redis_mcp(
+                        &state.db,
+                        &connection_key,
+                        optional_string(&arguments, "databaseName"),
+                        &command,
+                        &args,
+                    )
+                    .await?;
+                    Ok(serde_json::json!({
+                        "action": "executed",
+                        "risk": "readonly",
+                        "result": result
+                    }))
+                }
+                "blocked" => Ok(serde_json::json!({
+                    "action": "blocked",
+                    "risk": "blocked",
+                    "message": "Redis 命令命中禁止策略，未创建审批"
+                })),
+                _ => {
+                    let canonical = canonical_redis_command(&command, &args);
+                    let approval = ApprovalService::create(
+                        &state.db,
+                        CreateApprovalRequestInput {
+                            source: "mcp".into(),
+                            requester: optional_string(&arguments, "requester")
+                                .unwrap_or_else(|| "mcp-client".into()),
+                            server_alias: String::new(),
+                            action: "redis_command".into(),
+                            risk: "L3".into(),
+                            command: canonical.clone(),
+                            resource: connection_key.clone(),
+                            reason: optional_string(&arguments, "reason")
+                                .unwrap_or_else(|| "MCP Agent 请求执行 Redis 写入命令".into()),
+                            summary: format!(
+                                "执行 Redis 命令：{}",
+                                redact_audit_text(&canonical, 160)
+                            ),
+                            payload_json: Some(
+                                serde_json::json!({
+                                    "tool": "redis_command_controlled",
+                                    "connectionKey": connection_key,
+                                    "databaseName": optional_string(&arguments, "databaseName"),
+                                    "command": command,
+                                    "args": args
+                                })
+                                .to_string(),
+                            ),
+                            expires_at: None,
+                        },
+                    )?;
+                    Ok(serde_json::json!({
+                        "action": "approval_required",
+                        "risk": "L3",
+                        "approval": approval
+                    }))
+                }
+            }
+        }
+        "redis_command_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let command = required_string(&arguments, "command")?;
+            let args = optional_string_array(&arguments, "args");
+            let canonical = canonical_redis_command(&command, &args);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "redis_command",
+                "",
+                Some(&canonical),
+                Some(&connection_key),
+            )?;
+            Ok(DatabaseOpsService::execute_redis_write_command(
+                &state.db,
+                &connection_key,
+                optional_string(&arguments, "databaseName"),
+                &command,
+                args,
+            )
+            .await?)
+        }
+        "ai_skills_list" => {
+            let state = app_state(ctx);
+            let result = AiSkillService::list(
+                &state.db,
+                ListAiSkillsInput {
+                    keyword: optional_string(&arguments, "keyword"),
+                    source: optional_string(&arguments, "source"),
+                    show_builtin: optional_bool(&arguments, "showBuiltin"),
+                    scope: optional_string(&arguments, "scope"),
+                },
+            )?;
+            let items = result
+                .items
+                .into_iter()
+                .map(|skill| ai_skill_metadata_json(&skill))
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "items": items,
+                "stats": result.stats
+            }))
+        }
+        "ai_skill_detail" => {
+            let state = app_state(ctx);
+            let skills = AiSkillService::list(
+                &state.db,
+                ListAiSkillsInput {
+                    keyword: None,
+                    source: None,
+                    show_builtin: Some(true),
+                    scope: None,
+                },
+            )?
+            .items;
+            let skill = find_ai_skill(
+                skills,
+                optional_i64(&arguments, "id"),
+                optional_string(&arguments, "skillKey"),
+            )?;
+            if !skill.allow_mcp {
+                return Err(AppError::InvalidInput(format!(
+                    "Skill '{}' 未开启 MCP 调用",
+                    skill.name
+                )));
+            }
+            Ok(serde_json::to_value(skill)?)
+        }
+        "ai_skill_trigger_test" => {
+            let state = app_state(ctx);
+            let mut result = AiSkillService::test_trigger(
+                &state.db,
+                AiSkillTriggerInput {
+                    prompt: required_string(&arguments, "prompt")?,
+                    scope: Some("mcp".into()),
+                    include_global: Some(true),
+                },
+            )?;
+            result.matches.retain(|item| item.skill.allow_mcp);
+            Ok(serde_json::to_value(result)?)
+        }
+        "ai_prompt_preview" => {
+            let state = app_state(ctx);
+            let mut result = AiSkillService::prompt_preview(
+                &state.db,
+                AiSkillPromptPreviewInput {
+                    prompt: optional_string(&arguments, "prompt"),
+                    scope: "mcp".into(),
+                    include_global: Some(true),
+                },
+            )?;
+            result.skills.retain(|skill| skill.allow_mcp);
+            Ok(serde_json::to_value(result)?)
+        }
+        "ai_experiences_list" => {
+            let state = app_state(ctx);
+            let items = AiSkillService::list_experiences(
+                &state.db,
+                optional_string(&arguments, "keyword"),
+            )?;
+            Ok(serde_json::json!({
+                "items": items,
+                "count": items.len()
+            }))
+        }
+        "ai_experience_upsert_controlled" => {
+            let state = app_state(ctx);
+            let experience = AiSkillService::upsert_experience(
+                &ctx.app_handle,
+                &state.db,
+                UpsertAiExperienceInput {
+                    id: optional_i64(&arguments, "id"),
+                    experience_key: optional_string(&arguments, "experienceKey"),
+                    title: required_string(&arguments, "title")?,
+                    symptom: optional_string(&arguments, "symptom"),
+                    cause: optional_string(&arguments, "cause"),
+                    solution: optional_string(&arguments, "solution"),
+                    scenario: optional_string(&arguments, "scenario").or(Some("mcp".into())),
+                    source: Some("mcp".into()),
+                    tags: Some(optional_string_array(&arguments, "tags")),
+                    references_json: None,
+                    markdown_path: None,
+                    enabled: optional_bool(&arguments, "enabled").or(Some(true)),
+                },
+            )?;
+            Ok(serde_json::json!({
+                "action": "saved",
+                "experience": experience
+            }))
+        }
+        "ai_runbooks_list" => {
+            let state = app_state(ctx);
+            let items =
+                AiSkillService::list_runbooks(&state.db, optional_string(&arguments, "keyword"))?
+                    .into_iter()
+                    .map(|runbook| ai_runbook_metadata_json(&runbook))
+                    .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "items": items,
+                "count": items.len()
+            }))
+        }
+        "ai_runbook_detail" => {
+            let state = app_state(ctx);
+            let input = RunAiRunbookInput {
+                id: optional_i64(&arguments, "id"),
+                runbook_key: optional_string(&arguments, "runbookKey"),
+                server_alias: None,
+                database_connection_key: None,
+                database_name: None,
+                requester: None,
+                dry_run: None,
+            };
+            let runbook = AiSkillService::resolve_runbook(&state.db, &input)?;
+            if !runbook.allow_mcp {
+                return Err(AppError::InvalidInput(format!(
+                    "Runbook '{}' 未开启 MCP 调用",
+                    runbook.name
+                )));
+            }
+            Ok(serde_json::to_value(runbook)?)
+        }
+        "ai_runbook_run" => {
+            let state = app_state(ctx);
+            let input = RunAiRunbookInput {
+                id: optional_i64(&arguments, "id"),
+                runbook_key: optional_string(&arguments, "runbookKey"),
+                server_alias: optional_string(&arguments, "serverAlias"),
+                database_connection_key: optional_string(&arguments, "databaseConnectionKey"),
+                database_name: optional_string(&arguments, "databaseName"),
+                requester: optional_string(&arguments, "requester")
+                    .or_else(|| Some("mcp-client".into())),
+                dry_run: optional_bool(&arguments, "dryRun"),
+            };
+            let runbook = AiSkillService::resolve_runbook(&state.db, &input)?;
+            if !runbook.allow_mcp {
+                return Err(AppError::InvalidInput(format!(
+                    "Runbook '{}' 未开启 MCP 调用",
+                    runbook.name
+                )));
+            }
+            Ok(serde_json::to_value(
+                AiSkillService::run_runbook(&state.db, input).await?,
+            )?)
+        }
+        "ai_skill_enable_controlled" => {
+            let state = app_state(ctx);
+            let skills = AiSkillService::list(
+                &state.db,
+                ListAiSkillsInput {
+                    keyword: None,
+                    source: None,
+                    show_builtin: Some(true),
+                    scope: None,
+                },
+            )?
+            .items;
+            let skill = find_ai_skill(
+                skills,
+                optional_i64(&arguments, "id"),
+                optional_string(&arguments, "skillKey"),
+            )?;
+            let enabled = optional_bool(&arguments, "enabled")
+                .ok_or_else(|| AppError::InvalidInput("参数 'enabled' 不能为空".into()))?;
+            let command = format!("enabled={}", enabled);
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "mcp".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: "ai_skill_enable".into(),
+                    risk: "L2".into(),
+                    command: command.clone(),
+                    resource: skill.skill_key.clone(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "MCP Agent 请求切换 Skill 启用状态".into()),
+                    summary: format!("切换 Skill '{}' 状态为 {}", skill.name, enabled),
+                    payload_json: Some(
+                        serde_json::json!({
+                            "tool": "ai_skill_enable_controlled",
+                            "skillKey": skill.skill_key,
+                            "enabled": enabled
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L2",
+                "approval": approval
+            }))
+        }
+        "ai_skill_enable_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let skills = AiSkillService::list(
+                &state.db,
+                ListAiSkillsInput {
+                    keyword: None,
+                    source: None,
+                    show_builtin: Some(true),
+                    scope: None,
+                },
+            )?
+            .items;
+            let skill = find_ai_skill(
+                skills,
+                optional_i64(&arguments, "id"),
+                optional_string(&arguments, "skillKey"),
+            )?;
+            let enabled = optional_bool(&arguments, "enabled")
+                .ok_or_else(|| AppError::InvalidInput("参数 'enabled' 不能为空".into()))?;
+            let command = format!("enabled={}", enabled);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "ai_skill_enable",
+                "",
+                Some(&command),
+                Some(&skill.skill_key),
+            )?;
+            Ok(serde_json::to_value(AiSkillService::set_enabled(
+                &state.db, skill.id, enabled,
+            )?)?)
+        }
+        "ai_skill_copy_controlled" => {
+            let state = app_state(ctx);
+            let skills = AiSkillService::list(
+                &state.db,
+                ListAiSkillsInput {
+                    keyword: None,
+                    source: None,
+                    show_builtin: Some(true),
+                    scope: None,
+                },
+            )?
+            .items;
+            let skill = find_ai_skill(
+                skills,
+                optional_i64(&arguments, "id"),
+                optional_string(&arguments, "skillKey"),
+            )?;
+            Ok(serde_json::json!({
+                "action": "copied",
+                "skill": AiSkillService::copy_skill(&state.db, skill.id)?
+            }))
+        }
         "recall_experience" => {
             let state = app_state(ctx);
             let matches = AiSkillService::recall_experiences(
@@ -1221,17 +2174,49 @@ async fn call_mcp_tool_inner(
             .await?;
             Ok(serde_json::to_value(result)?)
         }
+        "sftp_write_text_controlled" => {
+            let state = app_state(ctx);
+            let server_alias = required_string(&arguments, "serverAlias")?;
+            let path = required_string(&arguments, "path")?;
+            let content = required_string(&arguments, "content")?;
+            let content_hash = content_sha256(&content);
+            let approval = create_sftp_approval(
+                &state.db,
+                &arguments,
+                &server_alias,
+                "sftp_write_text",
+                "L3",
+                &content_hash,
+                &path,
+                format!("写入远程文本文件：{}", path),
+                serde_json::json!({
+                    "tool": "sftp_write_text_controlled",
+                    "serverAlias": server_alias,
+                    "path": path,
+                    "contentSha256": content_hash,
+                    "contentBytes": content.as_bytes().len()
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L3",
+                "approval": approval,
+                "contentSha256": content_hash
+            }))
+        }
         "sftp_write_text_approved" => {
             let state = app_state(ctx);
             let approval_id = required_i64(&arguments, "approvalId")?;
             let server_alias = required_string(&arguments, "serverAlias")?;
             let path = required_string(&arguments, "path")?;
+            let content = required_string(&arguments, "content")?;
+            let content_hash = content_sha256(&content);
             require_approved_request(
                 &state.db,
                 approval_id,
                 "sftp_write_text",
                 &server_alias,
-                None,
+                Some(&content_hash),
                 Some(&path),
             )?;
             let result = SftpService::write_text(
@@ -1239,10 +2224,35 @@ async fn call_mcp_tool_inner(
                 crate::models::SftpWriteTextInput {
                     server_alias,
                     path,
-                    content: required_string(&arguments, "content")?,
+                    content,
                 },
             )?;
             Ok(serde_json::to_value(result)?)
+        }
+        "sftp_create_directory_controlled" => {
+            let state = app_state(ctx);
+            let server_alias = required_string(&arguments, "serverAlias")?;
+            let path = required_string(&arguments, "path")?;
+            let approval = create_sftp_approval(
+                &state.db,
+                &arguments,
+                &server_alias,
+                "sftp_create_directory",
+                "L2",
+                "mkdir",
+                &path,
+                format!("创建远程目录：{}", path),
+                serde_json::json!({
+                    "tool": "sftp_create_directory_controlled",
+                    "serverAlias": server_alias,
+                    "path": path
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L2",
+                "approval": approval
+            }))
         }
         "sftp_create_directory_approved" => {
             let state = app_state(ctx);
@@ -1254,7 +2264,7 @@ async fn call_mcp_tool_inner(
                 approval_id,
                 "sftp_create_directory",
                 &server_alias,
-                None,
+                Some("mkdir"),
                 Some(&path),
             )?;
             let result = SftpService::create_directory(
@@ -1263,17 +2273,49 @@ async fn call_mcp_tool_inner(
             )?;
             Ok(serde_json::to_value(result)?)
         }
+        "sftp_create_file_controlled" => {
+            let state = app_state(ctx);
+            let server_alias = required_string(&arguments, "serverAlias")?;
+            let path = required_string(&arguments, "path")?;
+            let content = optional_string(&arguments, "content").unwrap_or_default();
+            let content_hash = content_sha256(&content);
+            let approval = create_sftp_approval(
+                &state.db,
+                &arguments,
+                &server_alias,
+                "sftp_create_file",
+                "L3",
+                &content_hash,
+                &path,
+                format!("创建远程文件：{}", path),
+                serde_json::json!({
+                    "tool": "sftp_create_file_controlled",
+                    "serverAlias": server_alias,
+                    "path": path,
+                    "contentSha256": content_hash,
+                    "contentBytes": content.as_bytes().len()
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L3",
+                "approval": approval,
+                "contentSha256": content_hash
+            }))
+        }
         "sftp_create_file_approved" => {
             let state = app_state(ctx);
             let approval_id = required_i64(&arguments, "approvalId")?;
             let server_alias = required_string(&arguments, "serverAlias")?;
             let path = required_string(&arguments, "path")?;
+            let content = optional_string(&arguments, "content").unwrap_or_default();
+            let content_hash = content_sha256(&content);
             require_approved_request(
                 &state.db,
                 approval_id,
                 "sftp_create_file",
                 &server_alias,
-                None,
+                Some(&content_hash),
                 Some(&path),
             )?;
             let result = SftpService::create_file(
@@ -1281,10 +2323,37 @@ async fn call_mcp_tool_inner(
                 crate::models::SftpCreateFileInput {
                     server_alias,
                     path,
-                    content: optional_string(&arguments, "content"),
+                    content: Some(content),
                 },
             )?;
             Ok(serde_json::to_value(result)?)
+        }
+        "sftp_rename_controlled" => {
+            let state = app_state(ctx);
+            let server_alias = required_string(&arguments, "serverAlias")?;
+            let from_path = required_string(&arguments, "fromPath")?;
+            let to_path = required_string(&arguments, "toPath")?;
+            let approval = create_sftp_approval(
+                &state.db,
+                &arguments,
+                &server_alias,
+                "sftp_rename",
+                "L3",
+                &to_path,
+                &from_path,
+                format!("重命名远程路径：{} -> {}", from_path, to_path),
+                serde_json::json!({
+                    "tool": "sftp_rename_controlled",
+                    "serverAlias": server_alias,
+                    "fromPath": from_path,
+                    "toPath": to_path
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L3",
+                "approval": approval
+            }))
         }
         "sftp_rename_approved" => {
             let state = app_state(ctx);
@@ -1297,7 +2366,7 @@ async fn call_mcp_tool_inner(
                 approval_id,
                 "sftp_rename",
                 &server_alias,
-                None,
+                Some(&to_path),
                 Some(&from_path),
             )?;
             let result = SftpService::rename(
@@ -1310,17 +2379,55 @@ async fn call_mcp_tool_inner(
             )?;
             Ok(serde_json::to_value(result)?)
         }
+        "sftp_delete_controlled" => {
+            let state = app_state(ctx);
+            let server_alias = required_string(&arguments, "serverAlias")?;
+            let path = required_string(&arguments, "path")?;
+            let file_type = required_string(&arguments, "fileType")?;
+            if !matches!(file_type.as_str(), "file" | "directory") {
+                return Err(AppError::InvalidInput(
+                    "fileType 只能是 file 或 directory".into(),
+                ));
+            }
+            let approval = create_sftp_approval(
+                &state.db,
+                &arguments,
+                &server_alias,
+                "sftp_delete",
+                "L3",
+                &file_type,
+                &path,
+                format!("删除远程{}：{}", sftp_file_type_label(&file_type), path),
+                serde_json::json!({
+                    "tool": "sftp_delete_controlled",
+                    "serverAlias": server_alias,
+                    "path": path,
+                    "fileType": file_type
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "action": "approval_required",
+                "risk": "L3",
+                "approval": approval
+            }))
+        }
         "sftp_delete_approved" => {
             let state = app_state(ctx);
             let approval_id = required_i64(&arguments, "approvalId")?;
             let server_alias = required_string(&arguments, "serverAlias")?;
             let path = required_string(&arguments, "path")?;
+            let file_type = required_string(&arguments, "fileType")?;
+            if !matches!(file_type.as_str(), "file" | "directory") {
+                return Err(AppError::InvalidInput(
+                    "fileType 只能是 file 或 directory".into(),
+                ));
+            }
             require_approved_request(
                 &state.db,
                 approval_id,
                 "sftp_delete",
                 &server_alias,
-                None,
+                Some(&file_type),
                 Some(&path),
             )?;
             let result = SftpService::delete(
@@ -1328,7 +2435,7 @@ async fn call_mcp_tool_inner(
                 crate::models::SftpDeleteInput {
                     server_alias,
                     path,
-                    file_type: required_string(&arguments, "fileType")?,
+                    file_type,
                 },
             )?;
             Ok(serde_json::to_value(result)?)
@@ -1567,11 +2674,17 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         || tool_name.contains("rename")
         || tool_name.contains("credential_access")
         || tool_name == "terminal_execute_approved"
+        || tool_name == "database_sql_execute_approved"
+        || tool_name == "redis_command_approved"
+        || tool_name == "sftp_create_file_controlled"
+        || tool_name == "sftp_create_file_approved"
     {
         "L3"
     } else if tool_name.contains("controlled")
         || tool_name.contains("approval_request_create")
         || tool_name == "run_runbook"
+        || tool_name == "ai_runbook_run"
+        || tool_name == "database_export_create"
         || tool_name.contains("create_file")
         || tool_name.contains("create_directory")
     {
@@ -1666,6 +2779,91 @@ fn redact_audit_text(value: &str, max_chars: usize) -> String {
     }
 }
 
+fn database_connection_profile_json(
+    connection: &crate::models::DatabaseConnection,
+) -> serde_json::Value {
+    serde_json::json!({
+        "key": connection.key,
+        "name": connection.name,
+        "groupName": connection.group_name,
+        "dbType": connection.db_type,
+        "connectionMode": connection.connection_mode,
+        "host": connection.host,
+        "port": connection.port,
+        "databaseName": connection.database_name,
+        "username": connection.username,
+        "authType": connection.auth_type,
+        "hasPassword": connection.has_password,
+        "sshServerAlias": connection.ssh_server_alias,
+        "securityMode": connection.security_mode,
+        "aiPolicy": connection.ai_policy,
+        "pageSize": connection.page_size,
+        "status": connection.status,
+        "enabled": connection.enabled,
+        "lastConnectedAt": connection.last_connected_at,
+        "updatedAt": connection.updated_at
+    })
+}
+
+fn ai_skill_metadata_json(skill: &crate::models::AiSkill) -> serde_json::Value {
+    serde_json::json!({
+        "id": skill.id,
+        "skillKey": skill.skill_key,
+        "name": skill.name,
+        "description": skill.description,
+        "scopes": skill.scopes,
+        "triggerWords": skill.trigger_words,
+        "tags": skill.tags,
+        "priority": skill.priority,
+        "enabled": skill.enabled,
+        "builtin": skill.builtin,
+        "source": skill.source,
+        "sourcePath": skill.source_path,
+        "missing": skill.missing,
+        "builtinVersion": skill.builtin_version,
+        "userOverridden": skill.user_overridden,
+        "allowMcp": skill.allow_mcp,
+        "createdAt": skill.created_at,
+        "updatedAt": skill.updated_at
+    })
+}
+
+fn ai_runbook_metadata_json(runbook: &crate::models::AiRunbook) -> serde_json::Value {
+    serde_json::json!({
+        "id": runbook.id,
+        "runbookKey": runbook.runbook_key,
+        "name": runbook.name,
+        "description": runbook.description,
+        "scenario": runbook.scenario,
+        "tags": runbook.tags,
+        "stepCount": runbook.steps.len(),
+        "enabled": runbook.enabled,
+        "allowMcp": runbook.allow_mcp,
+        "createdAt": runbook.created_at,
+        "updatedAt": runbook.updated_at
+    })
+}
+
+fn find_ai_skill(
+    skills: Vec<crate::models::AiSkill>,
+    id: Option<i64>,
+    skill_key: Option<String>,
+) -> Result<crate::models::AiSkill, AppError> {
+    if let Some(id) = id {
+        return skills
+            .into_iter()
+            .find(|skill| skill.id == id)
+            .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)));
+    }
+    if let Some(skill_key) = skill_key {
+        return skills
+            .into_iter()
+            .find(|skill| skill.skill_key == skill_key)
+            .ok_or_else(|| AppError::NotFound(format!("Skill '{}' 不存在", skill_key)));
+    }
+    Err(AppError::InvalidInput("请提供 id 或 skillKey".into()))
+}
+
 fn required_string(arguments: &serde_json::Value, key: &str) -> Result<String, AppError> {
     arguments
         .get(key)
@@ -1707,12 +2905,203 @@ fn optional_string(arguments: &serde_json::Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn optional_string_array(arguments: &serde_json::Value, key: &str) -> Vec<String> {
+    match arguments.get(key) {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Some(serde_json::Value::String(value)) => value
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn optional_bool(arguments: &serde_json::Value, key: &str) -> Option<bool> {
     arguments.get(key).and_then(|value| {
         value
             .as_bool()
             .or_else(|| value.as_str().and_then(|text| text.parse::<bool>().ok()))
     })
+}
+
+fn is_readonly_sql_mcp(sql: &str) -> bool {
+    let statements = sql
+        .split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+        .collect::<Vec<_>>();
+    !statements.is_empty()
+        && statements.iter().all(|statement| {
+            let lower = statement.to_lowercase();
+            matches!(
+                lower.split_whitespace().next().unwrap_or_default(),
+                "select" | "show" | "describe" | "desc" | "explain" | "with"
+            )
+        })
+}
+
+fn classify_database_sql_risk(sql: &str) -> Result<String, AppError> {
+    let normalized = sql.trim();
+    if normalized.is_empty() {
+        return Err(AppError::InvalidInput("SQL 不能为空".into()));
+    }
+    if is_readonly_sql_mcp(normalized) {
+        return Ok("readonly".into());
+    }
+    let lower = normalized.to_lowercase();
+    let blocked_patterns = [
+        "drop database",
+        "drop schema",
+        "shutdown",
+        "grant ",
+        "revoke ",
+    ];
+    if blocked_patterns
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    {
+        return Ok("blocked".into());
+    }
+    let high_patterns = [
+        "drop table",
+        "truncate",
+        "alter ",
+        "create ",
+        "delete ",
+        "update ",
+        "insert ",
+        "replace ",
+        "merge ",
+        "call ",
+    ];
+    if high_patterns.iter().any(|pattern| lower.contains(pattern)) {
+        return Ok("L3".into());
+    }
+    Ok("L2".into())
+}
+
+fn classify_redis_command(command: &str) -> &'static str {
+    let command = command.trim().to_uppercase();
+    match command.as_str() {
+        "GET" | "MGET" | "TTL" | "PTTL" | "TYPE" | "EXISTS" | "SCAN" | "DBSIZE" | "HGET"
+        | "HGETALL" | "LRANGE" | "SMEMBERS" | "ZRANGE" => "readonly",
+        "FLUSHALL" | "FLUSHDB" | "CONFIG" | "SHUTDOWN" | "SCRIPT" | "EVAL" | "EVALSHA"
+        | "MIGRATE" | "RESTORE" | "SAVE" | "BGSAVE" | "BGREWRITEAOF" | "SLAVEOF" | "REPLICAOF" => {
+            "blocked"
+        }
+        _ => "review",
+    }
+}
+
+fn canonical_redis_command(command: &str, args: &[String]) -> String {
+    let mut parts = vec![command.trim().to_uppercase()];
+    parts.extend(args.iter().map(|item| item.trim().to_string()));
+    parts
+        .into_iter()
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+async fn execute_readonly_redis_mcp(
+    db: &crate::database::Database,
+    connection_key: &str,
+    database_name: Option<String>,
+    command: &str,
+    args: &[String],
+) -> Result<serde_json::Value, AppError> {
+    let command_upper = command.trim().to_uppercase();
+    if matches!(command_upper.as_str(), "SCAN" | "DBSIZE") {
+        let pattern = args
+            .first()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .or_else(|| Some("*".into()));
+        let result = DatabaseOpsService::list_redis_key_tree(
+            db,
+            crate::models::RedisKeyTreeInput {
+                connection_key: connection_key.into(),
+                database_name,
+                pattern,
+                limit: Some(500),
+            },
+        )
+        .await?;
+        return Ok(serde_json::json!({
+            "command": command_upper,
+            "args": args,
+            "result": result
+        }));
+    }
+    let key = args
+        .first()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::InvalidInput("Redis 只读命令需要提供 key 参数".into()))?;
+    let result = DatabaseOpsService::get_redis_value_preview(
+        db,
+        crate::models::RedisValuePreviewInput {
+            connection_key: connection_key.into(),
+            database_name,
+            key: key.into(),
+        },
+    )
+    .await?;
+    Ok(serde_json::json!({
+        "command": command_upper,
+        "args": args,
+        "result": result
+    }))
+}
+
+fn content_sha256(content: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(content.as_bytes()))
+}
+
+fn sftp_file_type_label(file_type: &str) -> &'static str {
+    match file_type {
+        "directory" => "目录",
+        _ => "文件",
+    }
+}
+
+fn create_sftp_approval(
+    db: &crate::database::Database,
+    arguments: &serde_json::Value,
+    server_alias: &str,
+    action: &str,
+    risk: &str,
+    command: &str,
+    resource: &str,
+    summary: String,
+    payload: serde_json::Value,
+) -> Result<crate::models::ApprovalRequest, AppError> {
+    ApprovalService::create(
+        db,
+        CreateApprovalRequestInput {
+            source: "mcp".into(),
+            requester: optional_string(arguments, "requester")
+                .unwrap_or_else(|| "mcp-client".into()),
+            server_alias: server_alias.into(),
+            action: action.into(),
+            risk: risk.into(),
+            command: command.into(),
+            resource: resource.into(),
+            reason: optional_string(arguments, "reason")
+                .unwrap_or_else(|| "MCP Agent 请求执行 SFTP 写入类操作".into()),
+            summary,
+            payload_json: Some(payload.to_string()),
+            expires_at: None,
+        },
+    )
 }
 
 fn shell_quote(value: &str) -> String {

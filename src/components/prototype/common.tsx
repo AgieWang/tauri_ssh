@@ -25,7 +25,7 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <div className="prototype-page-header">
       <div>
-        <Title level={2} style={{ margin: 0 }}>
+        <Title level={2} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>
           {title}
         </Title>
         <Text type="secondary">{description}</Text>

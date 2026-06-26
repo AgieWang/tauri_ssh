@@ -115,6 +115,111 @@ impl McpService {
                 audit: "记录客户端与数量".into(),
             },
             McpToolPermission {
+                tool: "database_connections_list".into(),
+                policy: "只读，返回数据库连接脱敏元数据".into(),
+                audit: "记录客户端与连接数量".into(),
+            },
+            McpToolPermission {
+                tool: "database_connection_test".into(),
+                policy: "只读连通性探测，不返回凭据".into(),
+                audit: "记录连接 Key 和测试结果".into(),
+            },
+            McpToolPermission {
+                tool: "database_names_list".into(),
+                policy: "只读读取数据库列表".into(),
+                audit: "记录连接 Key 和数据库数量".into(),
+            },
+            McpToolPermission {
+                tool: "database_schema_list".into(),
+                policy: "只读读取表、字段、视图和索引元数据".into(),
+                audit: "记录连接 Key、数据库名和对象数量".into(),
+            },
+            McpToolPermission {
+                tool: "database_sql_query_readonly".into(),
+                policy: "仅允许 SELECT/SHOW/DESC/EXPLAIN/WITH 等只读 SQL".into(),
+                audit: "记录连接 Key、SQL 摘要、行数和耗时".into(),
+            },
+            McpToolPermission {
+                tool: "database_sql_execute_controlled".into(),
+                policy: "只读 SQL 自动执行；写入/DDL SQL 创建审批；禁止 SQL 直接拒绝".into(),
+                audit: "记录连接 Key、SQL 摘要、审批 ID 或执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "database_sql_execute_approved".into(),
+                policy: "仅执行 approved 且 SQL 与连接匹配的审批请求".into(),
+                audit: "记录审批 ID、连接 Key、SQL 类型和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "database_export_create".into(),
+                policy: "按系统默认下载目录导出 CSV/备份文件，不返回凭据".into(),
+                audit: "记录连接 Key、导出模式、输出路径和行数".into(),
+            },
+            McpToolPermission {
+                tool: "redis_databases_list".into(),
+                policy: "只读读取 Redis DB 编号和 Key 数".into(),
+                audit: "记录连接 Key 和 DB 数量".into(),
+            },
+            McpToolPermission {
+                tool: "redis_key_tree".into(),
+                policy: "只读扫描 Redis Key，限制返回数量".into(),
+                audit: "记录连接 Key、DB、模式和扫描数量".into(),
+            },
+            McpToolPermission {
+                tool: "redis_key_value_preview".into(),
+                policy: "只读预览 Redis Key 类型、TTL 和 Value".into(),
+                audit: "记录连接 Key、DB 和 Key 名".into(),
+            },
+            McpToolPermission {
+                tool: "redis_command_controlled".into(),
+                policy: "只读命令自动执行；写入命令创建审批；危险管理命令直接拒绝".into(),
+                audit: "记录连接 Key、命令摘要、审批 ID 或执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "redis_command_approved".into(),
+                policy: "仅执行 approved 且命令与连接匹配的 Redis 写入命令".into(),
+                audit: "记录审批 ID、连接 Key、命令和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skills_list".into(),
+                policy: "只读返回 Skill 元数据，不返回正文".into(),
+                audit: "记录过滤条件和数量".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skill_detail".into(),
+                policy: "只允许读取 allow_mcp=true 的 Skill 正文".into(),
+                audit: "记录 Skill Key".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skill_trigger_test".into(),
+                policy: "只读测试 MCP 场景 Skill 命中".into(),
+                audit: "记录问题摘要和命中数量".into(),
+            },
+            McpToolPermission {
+                tool: "ai_prompt_preview".into(),
+                policy: "只读预览 MCP 场景提示词片段".into(),
+                audit: "记录问题摘要和注入 Skill 数量".into(),
+            },
+            McpToolPermission {
+                tool: "ai_experiences_list".into(),
+                policy: "只读返回经验库条目和 Markdown 路径".into(),
+                audit: "记录过滤条件和数量".into(),
+            },
+            McpToolPermission {
+                tool: "ai_experience_upsert_controlled".into(),
+                policy: "写入本地 Markdown 经验库，来源标记为 MCP".into(),
+                audit: "记录经验标题、Key、标签和 Markdown 路径".into(),
+            },
+            McpToolPermission {
+                tool: "ai_runbooks_list".into(),
+                policy: "只读返回 Runbook 元数据，不返回步骤正文".into(),
+                audit: "记录过滤条件和数量".into(),
+            },
+            McpToolPermission {
+                tool: "ai_runbook_detail".into(),
+                policy: "只允许读取 allow_mcp=true 的 Runbook 步骤详情".into(),
+                audit: "记录 Runbook Key".into(),
+            },
+            McpToolPermission {
                 tool: "recall_experience".into(),
                 policy: "只读，按场景和问题召回本地经验库 Markdown 摘要".into(),
                 audit: "记录作用域、问题摘要和命中数量".into(),
@@ -125,6 +230,28 @@ impl McpService {
                     "仅允许 allow_mcp=true 的 Runbook；只读步骤自动执行，写入/高风险步骤创建审批"
                         .into(),
                 audit: "记录 Runbook、请求方、步骤结果和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "ai_runbook_run".into(),
+                policy:
+                    "run_runbook 的等价别名；仅允许 allow_mcp=true 的 Runbook，危险步骤按审批策略处理"
+                        .into(),
+                audit: "记录 Runbook、请求方、步骤结果和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skill_enable_controlled".into(),
+                policy: "只创建启用/禁用 Skill 的审批请求，不直接改状态".into(),
+                audit: "记录 Skill Key、目标状态和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skill_enable_approved".into(),
+                policy: "仅执行 approved 且 Skill Key、目标状态匹配的启停变更".into(),
+                audit: "记录审批 ID、Skill Key 和目标状态".into(),
+            },
+            McpToolPermission {
+                tool: "ai_skill_copy_controlled".into(),
+                policy: "复制 Skill 为用户副本，便于修改后再启用".into(),
+                audit: "记录来源 Skill Key 和新副本 Key".into(),
             },
             McpToolPermission {
                 tool: "approval_requests_list".into(),
@@ -152,28 +279,53 @@ impl McpService {
                 audit: "记录审批 ID、服务器、命令和退出码".into(),
             },
             McpToolPermission {
+                tool: "sftp_write_text_controlled".into(),
+                policy: "仅创建远程文本写入审批，审批中记录内容 SHA-256".into(),
+                audit: "记录服务器、路径、内容哈希和审批 ID".into(),
+            },
+            McpToolPermission {
                 tool: "sftp_write_text_approved".into(),
-                policy: "仅允许 approved 且资源匹配的文本写入".into(),
+                policy: "仅允许 approved 且路径、内容哈希匹配的文本写入".into(),
                 audit: "记录审批 ID、服务器、路径和字节数".into(),
+            },
+            McpToolPermission {
+                tool: "sftp_create_directory_controlled".into(),
+                policy: "仅创建远程目录创建审批，不直接写远端".into(),
+                audit: "记录服务器、路径和审批 ID".into(),
             },
             McpToolPermission {
                 tool: "sftp_create_directory_approved".into(),
-                policy: "仅允许 approved 且资源匹配的目录创建".into(),
+                policy: "仅允许 approved 且路径匹配的目录创建".into(),
                 audit: "记录审批 ID、服务器和路径".into(),
             },
             McpToolPermission {
+                tool: "sftp_create_file_controlled".into(),
+                policy: "仅创建远程文件创建审批，审批中记录初始内容 SHA-256".into(),
+                audit: "记录服务器、路径、内容哈希和审批 ID".into(),
+            },
+            McpToolPermission {
                 tool: "sftp_create_file_approved".into(),
-                policy: "仅允许 approved 且资源匹配的文件创建".into(),
+                policy: "仅允许 approved 且路径、内容哈希匹配的文件创建".into(),
                 audit: "记录审批 ID、服务器、路径和字节数".into(),
             },
             McpToolPermission {
+                tool: "sftp_rename_controlled".into(),
+                policy: "仅创建远程路径重命名审批，不直接改远端".into(),
+                audit: "记录服务器、源路径、目标路径和审批 ID".into(),
+            },
+            McpToolPermission {
                 tool: "sftp_rename_approved".into(),
-                policy: "仅允许 approved 且源路径匹配的重命名".into(),
+                policy: "仅允许 approved 且源路径、目标路径匹配的重命名".into(),
                 audit: "记录审批 ID、服务器、源路径和目标路径".into(),
             },
             McpToolPermission {
+                tool: "sftp_delete_controlled".into(),
+                policy: "仅创建远程文件/空目录删除审批，不直接删除".into(),
+                audit: "记录服务器、路径、类型和审批 ID".into(),
+            },
+            McpToolPermission {
                 tool: "sftp_delete_approved".into(),
-                policy: "仅允许 approved 且资源匹配的文件/空目录删除".into(),
+                policy: "仅允许 approved 且路径、类型匹配的文件/空目录删除".into(),
                 audit: "记录审批 ID、服务器、路径和类型".into(),
             },
             McpToolPermission {
