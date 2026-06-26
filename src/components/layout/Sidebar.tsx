@@ -2,6 +2,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Menu } from "antd";
 import {
   Bot,
+  BookOpen,
+  Database,
   FolderTree,
   KeyRound,
   Landmark,
@@ -39,6 +41,7 @@ const menuItems = [
       { key: "/terminal", icon: <Terminal size={16} />, label: "终端 + AI" },
       { key: "/logs", icon: <Logs size={16} />, label: "日志监听" },
       { key: "/sftp", icon: <FolderTree size={16} />, label: "SFTP 文件" },
+      { key: "/database", icon: <Database size={16} />, label: "数据库管理" },
     ],
   },
   {
@@ -48,6 +51,7 @@ const menuItems = [
     children: [
       { key: "/providers", icon: <Bot size={16} />, label: "AI Provider" },
       { key: "/mcp", icon: <PlugZap size={16} />, label: "MCP Server" },
+      { key: "/skills", icon: <BookOpen size={16} />, label: "Skill 管理" },
       { key: "/jumpserver", icon: <Landmark size={16} />, label: "堡垒机会话" },
     ],
   },

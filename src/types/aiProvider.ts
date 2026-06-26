@@ -85,6 +85,8 @@ export interface AiProviderAskInput {
   prompt: string;
   providerKey?: string | null;
   systemPrompt?: string | null;
+  skillScope?: string | null;
+  useSkillTrigger?: boolean | null;
 }
 
 export interface AiProviderAskResult {

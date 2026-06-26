@@ -17,6 +17,7 @@ use crate::models::{
     AiProviderModelListResult, AiProviderRoute, AiProviderTestResult, UpsertAiProviderInput,
     UpsertAiProviderRouteInput,
 };
+use crate::services::ai_skill::AiSkillService;
 
 const SECRET_SEED_KEY: &str = "ai_provider_secret_seed";
 
@@ -179,10 +180,18 @@ impl AiProviderService {
             _ => None,
         };
         let started = Instant::now();
+        let system_prompt = Self::build_system_prompt_with_skills(
+            db,
+            input.system_prompt.as_deref(),
+            input.skill_scope.as_deref(),
+            input.use_skill_trigger.unwrap_or(true),
+            prompt,
+        )?;
+
         let answer = Self::perform_chat_request(
             &row.provider,
             api_key.as_deref(),
-            input.system_prompt.as_deref(),
+            system_prompt.as_deref(),
             prompt,
         )
         .await?;
@@ -194,6 +203,32 @@ impl AiProviderService {
             answer,
             latency_ms: started.elapsed().as_millis() as i64,
         })
+    }
+
+    fn build_system_prompt_with_skills(
+        db: &Database,
+        system_prompt: Option<&str>,
+        skill_scope: Option<&str>,
+        use_skill_trigger: bool,
+        prompt: &str,
+    ) -> Result<Option<String>, AppError> {
+        if !use_skill_trigger && system_prompt.map(str::trim).unwrap_or("").is_empty() {
+            return Ok(None);
+        }
+        let skill_fragment = match skill_scope.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(scope) if use_skill_trigger => {
+                AiSkillService::build_prompt_for_ai(db, scope, prompt)?
+            }
+            _ => String::new(),
+        };
+        let base = system_prompt.map(str::trim).unwrap_or("");
+        let merged = match (base.is_empty(), skill_fragment.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => base.to_string(),
+            (true, false) => skill_fragment,
+            (false, false) => format!("{}\n\n{}", base, skill_fragment),
+        };
+        Ok((!merged.trim().is_empty()).then_some(merged))
     }
 
     fn validate_provider(input: &UpsertAiProviderInput) -> Result<(), AppError> {

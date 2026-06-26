@@ -84,6 +84,22 @@ impl CredentialVaultService {
         Ok(())
     }
 
+    pub fn get_secret(db: &Database, key: &str) -> Result<String, AppError> {
+        if key.trim().is_empty() {
+            return Err(AppError::InvalidInput("凭据 Key 不能为空".into()));
+        }
+        let row = db
+            .get_credential_secret_row(key.trim())?
+            .ok_or_else(|| AppError::NotFound(format!("凭据 '{}' 不存在", key)))?;
+        match (row.secret_nonce, row.secret_ciphertext) {
+            (Some(nonce), Some(ciphertext)) => Self::decrypt_secret(db, &nonce, &ciphertext),
+            _ => Err(AppError::InvalidInput(format!(
+                "凭据 '{}' 未保存可用密钥内容",
+                key
+            ))),
+        }
+    }
+
     fn validate_upsert(input: &UpsertCredentialInput) -> Result<(), AppError> {
         if input.key.trim().is_empty() {
             return Err(AppError::InvalidInput("凭据 Key 不能为空".into()));
@@ -136,7 +152,6 @@ impl CredentialVaultService {
         ))
     }
 
-    #[allow(dead_code)]
     fn decrypt_secret(db: &Database, nonce: &str, ciphertext: &str) -> Result<String, AppError> {
         let key = Self::secret_key(db)?;
         let nonce_bytes = general_purpose::STANDARD

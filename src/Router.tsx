@@ -3,6 +3,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import HomePage from "@/pages/home";
 import SettingsPage from "@/pages/settings";
 import AboutPage from "@/pages/about";
+import DatabasePage from "@/pages/database";
+import SkillsPage from "@/pages/skills";
 import {
   ApprovalPage,
   AuditPage,
@@ -42,9 +44,11 @@ const router = createBrowserRouter([
       { path: "approval", element: <ApprovalPage /> },
       { path: "logs", element: <LogsPage /> },
       { path: "sftp", element: <SftpPage /> },
+      { path: "database", element: <DatabasePage /> },
       { path: "editor", element: <EditorPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "mcp", element: <McpPage /> },
+      { path: "skills", element: <SkillsPage /> },
       { path: "jumpserver", element: <JumpServerPage /> },
       { path: "audit", element: <AuditPage /> },
       { path: "workspace", element: <WorkspacePage /> },

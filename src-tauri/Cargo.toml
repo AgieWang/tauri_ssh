@@ -36,6 +36,8 @@ base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql", "postgres", "json", "chrono"], default-features = false }
+redis = { version = "0.32", features = ["tokio-comp"] }
 
 # ─── 远程访问网关（移动端伴侣） ─────────────
 # 详见 src/remote/ 模块和 .claude/skills/remote-gateway/skill.md

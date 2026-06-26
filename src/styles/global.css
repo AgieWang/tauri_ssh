@@ -93,6 +93,22 @@ a:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.prototype-database-object-layout {
+  min-height: 680px;
+}
+
+.prototype-database-object-tree-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.prototype-database-object-tree-card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 .prototype-audit-filter-card .ant-card-body {
   padding: 22px 28px 24px;
 }

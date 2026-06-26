@@ -12,14 +12,19 @@ use tower_http::cors::CorsLayer;
 
 use crate::error::{AppError, CommandError};
 use crate::models::{
-    AiProviderAskInput, AiProviderModelListInput, CreateApprovalRequestInput, CreateAuditLogInput,
-    DecideApprovalRequestInput, ListApprovalRequestsInput, UpdateSystemSettingsInput,
-    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertJumpServerSessionInput,
+    AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
+    AiSkillPromptPreviewInput, AiSkillTriggerInput, CreateApprovalRequestInput,
+    CreateAuditLogInput, DecideApprovalRequestInput, ListAiSkillsInput, ListApprovalRequestsInput,
+    RunAiRunbookInput, UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
+    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput,
 };
 use crate::services::ai_provider::AiProviderService;
+use crate::services::ai_skill::AiSkillService;
 use crate::services::approval::ApprovalService;
 use crate::services::audit::AuditService;
 use crate::services::credential_vault::CredentialVaultService;
+use crate::services::database_ops::DatabaseOpsService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
 use crate::services::sftp::SftpService;
@@ -130,6 +135,29 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             post(list_ai_provider_models),
         )
         .route("/dev-api/ai-providers/ask", post(ask_ai_provider))
+        .route("/dev-api/ai-skills/sync", post(sync_builtin_ai_skills))
+        .route("/dev-api/ai-skills", post(list_ai_skills))
+        .route("/dev-api/ai-skills/upsert", post(upsert_ai_skill))
+        .route("/dev-api/ai-skills/:id/enabled", post(set_ai_skill_enabled))
+        .route("/dev-api/ai-skills/:id/copy", post(copy_ai_skill))
+        .route(
+            "/dev-api/ai-skills/:id/restore",
+            post(restore_builtin_ai_skill),
+        )
+        .route("/dev-api/ai-skills/:id", delete(delete_ai_skill))
+        .route("/dev-api/ai-skills/trigger", post(test_ai_skill_trigger))
+        .route("/dev-api/ai-skills/preview", post(preview_ai_skill_prompt))
+        .route("/dev-api/ai-experiences", get(list_ai_experiences))
+        .route("/dev-api/ai-experiences", post(upsert_ai_experience))
+        .route(
+            "/dev-api/ai-experiences/recall",
+            post(recall_ai_experiences),
+        )
+        .route("/dev-api/ai-experiences/:id", delete(delete_ai_experience))
+        .route("/dev-api/ai-runbooks", get(list_ai_runbooks))
+        .route("/dev-api/ai-runbooks", post(upsert_ai_runbook))
+        .route("/dev-api/ai-runbooks/run", post(run_ai_runbook))
+        .route("/dev-api/ai-runbooks/:id", delete(delete_ai_runbook))
         .route("/dev-api/ssh-servers", get(list_ssh_servers))
         .route("/dev-api/ssh-servers", post(upsert_ssh_server))
         .route("/dev-api/ssh-servers/import", post(import_ssh_config))
@@ -144,6 +172,51 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .route("/dev-api/credentials/authorize", post(authorize_credential))
         .route("/dev-api/credentials/rotate", post(rotate_credential))
         .route("/dev-api/credentials/:key", delete(delete_credential))
+        .route(
+            "/dev-api/database/connections",
+            get(list_database_connections),
+        )
+        .route(
+            "/dev-api/database/connections",
+            post(upsert_database_connection),
+        )
+        .route(
+            "/dev-api/database/connections/:key",
+            delete(delete_database_connection),
+        )
+        .route(
+            "/dev-api/database/connections/:key/test",
+            post(test_database_connection),
+        )
+        .route(
+            "/dev-api/database/query",
+            post(execute_database_readonly_query),
+        )
+        .route("/dev-api/database/names", post(list_database_names))
+        .route("/dev-api/database/schema", post(list_database_schema))
+        .route("/dev-api/database/sql", post(execute_database_sql))
+        .route(
+            "/dev-api/database/sql/batch",
+            post(execute_database_sql_batch),
+        )
+        .route("/dev-api/database/export", post(export_database))
+        .route("/dev-api/database/redis/scan", post(scan_redis_keys))
+        .route(
+            "/dev-api/database/redis/describe",
+            post(describe_redis_keys),
+        )
+        .route(
+            "/dev-api/database/redis/databases",
+            post(list_redis_databases),
+        )
+        .route(
+            "/dev-api/database/redis/key-tree",
+            post(list_redis_key_tree),
+        )
+        .route(
+            "/dev-api/database/redis/value",
+            post(get_redis_value_preview),
+        )
         .route("/dev-api/terminal/execute", post(execute_terminal_command))
         .route("/dev-api/terminal/ws", get(terminal_websocket))
         .route("/dev-api/sftp/list", post(sftp_list))
@@ -499,6 +572,35 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             "name": "ai_providers_list",
             "description": "列出已配置 AI Provider 状态，不返回 API Key。",
             "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "recall_experience",
+            "description": "按问题和场景召回 Tauri SSH 本地经验库，返回 Markdown 文件路径、摘要和匹配词。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string" },
+                    "scope": { "type": "string", "enum": ["all", "global", "terminal", "sql", "logs", "sftp", "mcp", "jumpserver"] },
+                    "limit": { "type": "number" }
+                },
+                "required": ["prompt"]
+            }
+        }),
+        serde_json::json!({
+            "name": "run_runbook",
+            "description": "执行已保存 Runbook。只读步骤自动执行，需审批步骤创建审批请求。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "number" },
+                    "runbookKey": { "type": "string" },
+                    "serverAlias": { "type": "string" },
+                    "databaseConnectionKey": { "type": "string" },
+                    "databaseName": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "dryRun": { "type": "boolean" }
+                }
+            }
         }),
         serde_json::json!({
             "name": "approval_requests_list",
@@ -937,6 +1039,61 @@ async fn call_mcp_tool_inner(
                 })
                 .collect::<Vec<_>>();
             Ok(serde_json::json!({ "providers": providers }))
+        }
+        "recall_experience" => {
+            let state = app_state(ctx);
+            let matches = AiSkillService::recall_experiences(
+                &state.db,
+                AiExperienceRecallInput {
+                    prompt: required_string(&arguments, "prompt")?,
+                    scope: optional_string(&arguments, "scope"),
+                    limit: optional_i64(&arguments, "limit"),
+                },
+            )?;
+            let items = matches
+                .into_iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "title": item.experience.title,
+                        "experienceKey": item.experience.experience_key,
+                        "scenario": item.experience.scenario,
+                        "tags": item.experience.tags,
+                        "matchedWords": item.matched_words,
+                        "score": item.score,
+                        "summary": item.summary,
+                        "markdownPath": item.experience.markdown_path,
+                        "updatedAt": item.experience.updated_at
+                    })
+                })
+                .collect::<Vec<_>>();
+            let count = items.len();
+            Ok(serde_json::json!({
+                "matches": items,
+                "count": count
+            }))
+        }
+        "run_runbook" => {
+            let state = app_state(ctx);
+            let input = RunAiRunbookInput {
+                id: optional_i64(&arguments, "id"),
+                runbook_key: optional_string(&arguments, "runbookKey"),
+                server_alias: optional_string(&arguments, "serverAlias"),
+                database_connection_key: optional_string(&arguments, "databaseConnectionKey"),
+                database_name: optional_string(&arguments, "databaseName"),
+                requester: optional_string(&arguments, "requester")
+                    .or_else(|| Some("mcp-client".into())),
+                dry_run: optional_bool(&arguments, "dryRun"),
+            };
+            let runbook = AiSkillService::resolve_runbook(&state.db, &input)?;
+            if !runbook.allow_mcp {
+                return Err(AppError::InvalidInput(format!(
+                    "Runbook '{}' 未开启 MCP 调用",
+                    runbook.name
+                )));
+            }
+            Ok(serde_json::to_value(
+                AiSkillService::run_runbook(&state.db, input).await?,
+            )?)
         }
         "approval_requests_list" => {
             let state = app_state(ctx);
@@ -1414,6 +1571,7 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         "L3"
     } else if tool_name.contains("controlled")
         || tool_name.contains("approval_request_create")
+        || tool_name == "run_runbook"
         || tool_name.contains("create_file")
         || tool_name.contains("create_directory")
     {
@@ -2250,6 +2408,162 @@ async fn ask_ai_provider(
     Ok(Json(AiProviderService::ask(&state.db, input).await?))
 }
 
+async fn sync_builtin_ai_skills(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::SyncBuiltinAiSkillsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::sync_builtin(
+        &ctx.app_handle,
+        &state.db,
+    )?))
+}
+
+async fn list_ai_skills(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListAiSkillsInput>,
+) -> DevApiResult<crate::models::ListAiSkillsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::list(&state.db, input)?))
+}
+
+async fn upsert_ai_skill(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertAiSkillInput>,
+) -> DevApiResult<crate::models::AiSkill> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::upsert(&state.db, input)?))
+}
+
+async fn set_ai_skill_enabled(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<serde_json::Value>,
+) -> DevApiResult<crate::models::AiSkill> {
+    let state = app_state(&ctx);
+    let enabled = payload
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+    Ok(Json(AiSkillService::set_enabled(&state.db, id, enabled)?))
+}
+
+async fn copy_ai_skill(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> DevApiResult<crate::models::AiSkill> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::copy_skill(&state.db, id)?))
+}
+
+async fn restore_builtin_ai_skill(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> DevApiResult<crate::models::AiSkill> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::restore_builtin(&state.db, id)?))
+}
+
+async fn delete_ai_skill(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    AiSkillService::delete(&state.db, id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn test_ai_skill_trigger(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<AiSkillTriggerInput>,
+) -> DevApiResult<crate::models::AiSkillTriggerResult> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::test_trigger(&state.db, input)?))
+}
+
+async fn preview_ai_skill_prompt(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<AiSkillPromptPreviewInput>,
+) -> DevApiResult<crate::models::AiSkillPromptPreviewResult> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::prompt_preview(&state.db, input)?))
+}
+
+async fn list_ai_experiences(
+    State(ctx): State<DevApiState>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> DevApiResult<Vec<crate::models::AiExperience>> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::list_experiences(
+        &state.db,
+        query.get("keyword").cloned(),
+    )?))
+}
+
+async fn recall_ai_experiences(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<AiExperienceRecallInput>,
+) -> DevApiResult<Vec<crate::models::AiExperienceMatch>> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::recall_experiences(&state.db, input)?))
+}
+
+async fn upsert_ai_experience(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertAiExperienceInput>,
+) -> DevApiResult<crate::models::AiExperience> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::upsert_experience(
+        &ctx.app_handle,
+        &state.db,
+        input,
+    )?))
+}
+
+async fn delete_ai_experience(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    AiSkillService::delete_experience(&state.db, id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_ai_runbooks(
+    State(ctx): State<DevApiState>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> DevApiResult<Vec<crate::models::AiRunbook>> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::list_runbooks(
+        &state.db,
+        query.get("keyword").cloned(),
+    )?))
+}
+
+async fn upsert_ai_runbook(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertAiRunbookInput>,
+) -> DevApiResult<crate::models::AiRunbook> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::upsert_runbook(&state.db, input)?))
+}
+
+async fn run_ai_runbook(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<RunAiRunbookInput>,
+) -> DevApiResult<crate::models::AiRunbookRunResult> {
+    let state = app_state(&ctx);
+    Ok(Json(AiSkillService::run_runbook(&state.db, input).await?))
+}
+
+async fn delete_ai_runbook(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    AiSkillService::delete_runbook(&state.db, id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn list_ssh_servers(
     State(ctx): State<DevApiState>,
 ) -> DevApiResult<Vec<crate::models::SshServer>> {
@@ -2334,6 +2648,152 @@ async fn delete_credential(
     let state = app_state(&ctx);
     CredentialVaultService::delete(&state.db, &key)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_database_connections(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<Vec<crate::models::DatabaseConnection>> {
+    let state = app_state(&ctx);
+    Ok(Json(DatabaseOpsService::list_connections(&state.db)?))
+}
+
+async fn upsert_database_connection(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertDatabaseConnectionInput>,
+) -> DevApiResult<crate::models::DatabaseConnection> {
+    let state = app_state(&ctx);
+    Ok(Json(DatabaseOpsService::upsert_connection(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_database_connection(
+    State(ctx): State<DevApiState>,
+    Path(key): Path<String>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    DatabaseOpsService::delete_connection(&state.db, &key)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn test_database_connection(
+    State(ctx): State<DevApiState>,
+    Path(key): Path<String>,
+) -> DevApiResult<crate::models::DatabaseConnectionTestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::test_connection(&state.db, &key).await?,
+    ))
+}
+
+async fn execute_database_readonly_query(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseQueryInput>,
+) -> DevApiResult<crate::models::DatabaseQueryResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::execute_readonly_query(&state.db, input).await?,
+    ))
+}
+
+async fn list_database_names(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseNameListInput>,
+) -> DevApiResult<crate::models::DatabaseNameListResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::list_database_names(&state.db, input).await?,
+    ))
+}
+
+async fn list_database_schema(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseSchemaInput>,
+) -> DevApiResult<crate::models::DatabaseSchemaResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::list_database_schema(&state.db, input).await?,
+    ))
+}
+
+async fn execute_database_sql(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseQueryInput>,
+) -> DevApiResult<crate::models::DatabaseQueryResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::execute_sql(&state.db, input).await?,
+    ))
+}
+
+async fn execute_database_sql_batch(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseQueryInput>,
+) -> DevApiResult<Vec<crate::models::DatabaseQueryResult>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::execute_sql_batch(&state.db, input).await?,
+    ))
+}
+
+async fn export_database(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseExportInput>,
+) -> DevApiResult<crate::models::DatabaseExportResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::export_database(&state.db, input).await?,
+    ))
+}
+
+async fn scan_redis_keys(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RedisScanInput>,
+) -> DevApiResult<crate::models::RedisScanResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::scan_redis_keys(&state.db, input).await?,
+    ))
+}
+
+async fn describe_redis_keys(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RedisDescribeKeysInput>,
+) -> DevApiResult<crate::models::RedisScanResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::describe_redis_keys(&state.db, input).await?,
+    ))
+}
+
+async fn list_redis_databases(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RedisDatabaseListInput>,
+) -> DevApiResult<crate::models::RedisDatabaseListResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::list_redis_databases(&state.db, input).await?,
+    ))
+}
+
+async fn list_redis_key_tree(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RedisKeyTreeInput>,
+) -> DevApiResult<crate::models::RedisKeyTreeResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::list_redis_key_tree(&state.db, input).await?,
+    ))
+}
+
+async fn get_redis_value_preview(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RedisValuePreviewInput>,
+) -> DevApiResult<crate::models::RedisValuePreview> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::get_redis_value_preview(&state.db, input).await?,
+    ))
 }
 
 async fn execute_terminal_command(

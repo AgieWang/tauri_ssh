@@ -52,6 +52,10 @@ pub fn run() {
 
             log::info!("数据库初始化完成: {}", db_path_str);
 
+            if let Err(err) = services::ai_skill::AiSkillService::sync_builtin(app.handle(), &db) {
+                log::warn!("内置 Skill 同步失败: {}", err);
+            }
+
             // 注册全局状态
             app.manage(AppState::new(db));
 
@@ -96,6 +100,24 @@ pub fn run() {
             commands::ai_provider::test_ai_provider,
             commands::ai_provider::list_ai_provider_models,
             commands::ai_provider::ask_ai_provider,
+            // AI Skill 管理模块
+            commands::ai_skill::sync_builtin_ai_skills,
+            commands::ai_skill::list_ai_skills,
+            commands::ai_skill::upsert_ai_skill,
+            commands::ai_skill::set_ai_skill_enabled,
+            commands::ai_skill::copy_ai_skill,
+            commands::ai_skill::delete_ai_skill,
+            commands::ai_skill::restore_builtin_ai_skill,
+            commands::ai_skill::test_ai_skill_trigger,
+            commands::ai_skill::preview_ai_skill_prompt,
+            commands::ai_skill::list_ai_experiences,
+            commands::ai_skill::recall_ai_experiences,
+            commands::ai_skill::upsert_ai_experience,
+            commands::ai_skill::delete_ai_experience,
+            commands::ai_skill::list_ai_runbooks,
+            commands::ai_skill::upsert_ai_runbook,
+            commands::ai_skill::run_ai_runbook,
+            commands::ai_skill::delete_ai_runbook,
             // SSH 服务器模块
             commands::ssh_server::list_ssh_servers,
             commands::ssh_server::upsert_ssh_server,
@@ -109,6 +131,22 @@ pub fn run() {
             commands::credential_vault::authorize_credential,
             commands::credential_vault::rotate_credential,
             commands::credential_vault::delete_credential,
+            // 数据库管理模块
+            commands::database_ops::list_database_connections,
+            commands::database_ops::upsert_database_connection,
+            commands::database_ops::delete_database_connection,
+            commands::database_ops::test_database_connection,
+            commands::database_ops::execute_database_readonly_query,
+            commands::database_ops::list_database_names,
+            commands::database_ops::list_database_schema,
+            commands::database_ops::execute_database_sql,
+            commands::database_ops::execute_database_sql_batch,
+            commands::database_ops::export_database,
+            commands::database_ops::scan_redis_keys,
+            commands::database_ops::describe_redis_keys,
+            commands::database_ops::list_redis_databases,
+            commands::database_ops::list_redis_key_tree,
+            commands::database_ops::get_redis_value_preview,
             // MCP Server 模块
             commands::mcp::get_mcp_overview,
             commands::mcp::configure_mcp_client,

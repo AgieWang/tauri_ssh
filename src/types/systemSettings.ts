@@ -11,6 +11,7 @@ export interface SystemSettings {
   auditRetentionDays: number;
   logLevel: SystemLogLevel;
   backupDir: string;
+  databaseDownloadDir: string;
   platform: SystemPlatform;
   closeBehavior: SystemCloseBehavior;
   language: SystemLanguage;

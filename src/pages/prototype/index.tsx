@@ -15,7 +15,7 @@ import {
 } from "@/data/prototype";
 import { AiInsightPanel, CodeBlock, PageHeader, RiskBadge, SectionGrid, StatCard, TwoColumn } from "@/components/prototype/common";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { aiProviderApi, approvalApi, auditApi, credentialVaultApi, getErrorMessage, hasTauriRuntime, jumpserverApi, mcpApi, sftpApi, sshServerApi, systemSettingsApi, terminalApi } from "@/lib/api";
+import { aiProviderApi, aiSkillApi, approvalApi, auditApi, credentialVaultApi, getErrorMessage, hasTauriRuntime, jumpserverApi, mcpApi, sftpApi, sshServerApi, systemSettingsApi, terminalApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import type { AiProvider, AiProviderModelListInput, AiProviderRegion, ApprovalRequest, ApprovalStatus, AuditLog, AuditRisk, CreateApprovalRequestInput, CredentialStatus, CredentialType, CredentialVaultItem, JumpServerAiMode, JumpServerProtocol, JumpServerSession, JumpServerStatus, ListAuditLogsInput, McpClientConfig, McpOverview, SftpFileEntry, SshServer, SshServerPolicy, SshServerSource, SystemSettings, TerminalCommandResult, TerminalSessionEvent, UpsertCredentialInput, UpsertJumpServerSessionInput, UpsertSshServerInput } from "@/types";
 
@@ -142,11 +142,11 @@ const providerRegionLabel: Record<AiProviderRegion | "all", string> = {
 };
 
 const sshServerStatusMeta: Record<SshServer["status"], { text: string; color: string; status: "success" | "processing" | "default" | "warning" | "error" }> = {
-  unknown: { text: "unknown", color: "default", status: "default" },
-  online: { text: "online", color: "green", status: "success" },
-  offline: { text: "offline", color: "red", status: "error" },
-  degraded: { text: "degraded", color: "orange", status: "warning" },
-  web: { text: "web", color: "blue", status: "processing" },
+  unknown: { text: "未检测", color: "default", status: "default" },
+  online: { text: "在线", color: "green", status: "success" },
+  offline: { text: "离线", color: "red", status: "error" },
+  degraded: { text: "异常", color: "orange", status: "warning" },
+  web: { text: "网页登录", color: "blue", status: "processing" },
 };
 
 const sshServerSourceLabel: Record<SshServerSource, string> = {
@@ -1163,7 +1163,6 @@ export function DashboardPage() {
   const [dashboardApprovals, setDashboardApprovals] = useState<ApprovalRequest[]>([]);
   const [dashboardAudits, setDashboardAudits] = useState<AuditLog[]>([]);
   const [dashboardProviders, setDashboardProviders] = useState<AiProvider[]>([]);
-  const [dashboardCredentials, setDashboardCredentials] = useState<CredentialVaultItem[]>([]);
   const [dashboardJumpSessions, setDashboardJumpSessions] = useState<JumpServerSession[]>([]);
   const [dashboardMcp, setDashboardMcp] = useState<McpOverview | null>(null);
 
@@ -1175,7 +1174,6 @@ export function DashboardPage() {
         approvalResult,
         auditResult,
         providerResult,
-        credentialResult,
         jumpserverResult,
         mcpResult,
       ] = await Promise.allSettled([
@@ -1183,7 +1181,6 @@ export function DashboardPage() {
         approvalApi.list({ status: "pending", limit: 20 }),
         auditApi.list({ limit: 10 }),
         aiProviderApi.list(),
-        credentialVaultApi.list(),
         jumpserverApi.list(),
         mcpApi.overview(),
       ]);
@@ -1192,7 +1189,6 @@ export function DashboardPage() {
       setDashboardApprovals(approvalResult.status === "fulfilled" ? approvalResult.value : []);
       setDashboardAudits(auditResult.status === "fulfilled" ? auditResult.value : []);
       setDashboardProviders(providerResult.status === "fulfilled" ? providerResult.value : []);
-      setDashboardCredentials(credentialResult.status === "fulfilled" ? credentialResult.value : []);
       setDashboardJumpSessions(jumpserverResult.status === "fulfilled" ? jumpserverResult.value : []);
       setDashboardMcp(mcpResult.status === "fulfilled" ? mcpResult.value : null);
 
@@ -1201,7 +1197,6 @@ export function DashboardPage() {
         approvalResult,
         auditResult,
         providerResult,
-        credentialResult,
         jumpserverResult,
         mcpResult,
       ].find((item) => item.status === "rejected");
@@ -1220,7 +1215,6 @@ export function DashboardPage() {
   const enabledServers = dashboardServers.filter((item) => item.enabled);
   const onlineServers = dashboardServers.filter((item) => item.status === "online");
   const configuredProviders = dashboardProviders.filter(isConfiguredProvider);
-  const enabledCredentials = dashboardCredentials.filter((item) => item.enabled);
   const activeJumpSessions = dashboardJumpSessions.filter((item) => item.enabled && item.status !== "disabled");
   const recentServers = [...dashboardServers]
     .sort((left, right) => {
@@ -1247,9 +1241,9 @@ export function DashboardPage() {
       hint: "展示最近 10 条操作记录",
     },
     {
-      label: "AI / MCP",
-      value: `${configuredProviders.length}/${dashboardProviders.length}`,
-      hint: `凭证 ${enabledCredentials.length} 个，MCP 工具 ${dashboardMcp?.tools.length ?? 0} 个`,
+      label: "AI Provider",
+      value: String(configuredProviders.length),
+      hint: `共 ${dashboardProviders.length} 个 Provider，MCP 工具 ${dashboardMcp?.tools.length ?? 0} 个`,
     },
   ];
 
@@ -1269,7 +1263,7 @@ export function DashboardPage() {
       title: "状态",
       dataIndex: "status",
       render: (value: SshServer["status"]) => {
-        const meta = sshServerStatusMeta[value];
+        const meta = sshServerStatusMeta[value] ?? sshServerStatusMeta.unknown;
         return <Badge status={meta.status} text={meta.text} />;
       },
     },
@@ -1328,50 +1322,19 @@ export function DashboardPage() {
       <SectionGrid columns={4}>
         {dashboardStats.map((item) => <StatCard key={item.label} {...item} />)}
       </SectionGrid>
-      <TwoColumn
-        left={(
-          <Card
-            title="服务器快捷入口"
-            extra={<Button size="small" onClick={() => navigate("/servers")}>管理服务器</Button>}
-          >
-            <Table
-              size="small"
-              loading={loadingDashboard}
-              pagination={false}
-              rowKey="alias"
-              columns={dashboardServerColumns}
-              dataSource={recentServers}
-            />
-          </Card>
-        )}
-        right={(
-          <AiInsightPanel title="运行状态">
-            <Space direction="vertical" size={12} style={{ width: "100%" }}>
-              <div className="flex items-center justify-between gap-3">
-                <Text type="secondary">MCP Server</Text>
-                {dashboardMcp ? (
-                  <Badge status={dashboardMcp.status.httpReachable ? "success" : "warning"} text={dashboardMcp.status.httpReachable ? "HTTP 可用" : "本机配置可用"} />
-                ) : (
-                  <Tag>未加载</Tag>
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <Text type="secondary">Agent 客户端</Text>
-                <Text>{dashboardMcp?.clients.filter((item) => item.configured).length ?? 0}/{dashboardMcp?.clients.length ?? 0} 已配置</Text>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <Text type="secondary">堡垒机会话</Text>
-                <Text>{activeJumpSessions.length} 个可用引用</Text>
-              </div>
-              <Divider style={{ margin: "4px 0" }} />
-              <Paragraph style={{ marginBottom: 0 }}>
-                工作台数据来自本机 SQLite 与 Tauri 后端 Command。可从这里快速进入服务器连接、审批处理和审计追踪。
-              </Paragraph>
-              <CodeBlock style={{ marginBottom: 0 }}>{dashboardMcp?.status.streamableHttpUrl ?? "MCP Server 地址将在后端启动后显示"}</CodeBlock>
-            </Space>
-          </AiInsightPanel>
-        )}
-      />
+      <Card
+        title="服务器快捷入口"
+        extra={<Button size="small" onClick={() => navigate("/servers")}>管理服务器</Button>}
+      >
+        <Table
+          size="small"
+          loading={loadingDashboard}
+          pagination={false}
+          rowKey="alias"
+          columns={dashboardServerColumns}
+          dataSource={recentServers}
+        />
+      </Card>
       <Card
         title="待审批"
         extra={<Button size="small" onClick={() => navigate("/approval")}>进入审批队列</Button>}
@@ -1398,6 +1361,31 @@ export function DashboardPage() {
           dataSource={dashboardAudits}
         />
       </Card>
+      <AiInsightPanel title="运行状态">
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <div className="flex items-center justify-between gap-3">
+            <Text type="secondary">MCP Server</Text>
+            {dashboardMcp ? (
+              <Badge status={dashboardMcp.status.httpReachable ? "success" : "warning"} text={dashboardMcp.status.httpReachable ? "HTTP 可用" : "本机配置可用"} />
+            ) : (
+              <Tag>未加载</Tag>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Text type="secondary">Agent 客户端</Text>
+            <Text>{dashboardMcp?.clients.filter((item) => item.configured).length ?? 0}/{dashboardMcp?.clients.length ?? 0} 已配置</Text>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Text type="secondary">堡垒机会话</Text>
+            <Text>{activeJumpSessions.length} 个可用引用</Text>
+          </div>
+          <Divider style={{ margin: "4px 0" }} />
+          <Paragraph style={{ marginBottom: 0 }}>
+            工作台数据来自本机 SQLite 与 Tauri 后端 Command。可从这里快速进入服务器连接、审批处理和审计追踪。
+          </Paragraph>
+          <CodeBlock style={{ marginBottom: 0 }}>{dashboardMcp?.status.streamableHttpUrl ?? "MCP Server 地址将在后端启动后显示"}</CodeBlock>
+        </Space>
+      </AiInsightPanel>
     </div>
   );
 }
@@ -2068,6 +2056,7 @@ export function TerminalPage() {
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiAnswer, setAiAnswer] = useState("打开一个 SSH 终端后，可以让 AI 解释当前标签输出、判断风险或生成下一步排障建议。");
+  const [terminalExperienceSaving, setTerminalExperienceSaving] = useState(false);
   const terminalTabsRef = useRef<TerminalTabState[]>(terminalWorkspace.tabs);
   const activeTerminalIdRef = useRef<string | undefined>(terminalWorkspace.activeId);
   const terminalHostsRef = useRef(terminalWorkspace.hosts);
@@ -2416,6 +2405,8 @@ export function TerminalPage() {
       stopThinking = startTerminalThinkingIndicator(context.terminal, "AI 思考中，正在生成只读检查计划");
       const planResult = await aiProviderApi.ask({
         prompt,
+        skillScope: "terminal",
+        useSkillTrigger: true,
         systemPrompt: [
           "你是 Tauri SSH 的终端 AI 命令规划器。",
           `当前服务器标签是 ${tab.serverAlias}，服务器 AI 权限策略是 ${sshPolicyLabel[serverPolicy] ?? serverPolicy}。`,
@@ -2604,6 +2595,8 @@ export function TerminalPage() {
           `自动执行结果：\n${truncateText(executionText, 12_000)}`,
           rejectedPlan.length > 0 ? `未执行命令：\n${rejectedPlan.map(({ item, decision }) => `${item.command}：${decision.reason}`).join("\n")}` : "",
         ].filter(Boolean).join("\n\n"),
+        skillScope: "terminal",
+        useSkillTrigger: true,
         systemPrompt: "你是 SSH 运维结果分析助手。请基于真实命令输出，用中文给出简洁汇总、异常点、下一步建议。不要声称执行未执行的命令。",
       });
       stopCurrentThinking();
@@ -2968,6 +2961,37 @@ export function TerminalPage() {
     setAiQuestion("");
   }
 
+  async function handleSaveTerminalExperience() {
+    const answer = aiAnswer.trim();
+    if (!answer || answer.startsWith("打开一个 SSH 终端后")) {
+      message.warning("当前没有可沉淀的终端 AI 输出");
+      return;
+    }
+    setTerminalExperienceSaving(true);
+    try {
+      const serverAlias = activeTab?.serverAlias ?? "未选择服务器";
+      const recentTranscript = activeTab?.transcript.slice(-80).join("\n") ?? "";
+      const experience = await aiSkillApi.upsertExperience({
+        title: `终端经验：${serverAlias}`,
+        symptom: [
+          `服务器：${serverAlias}`,
+          recentTranscript ? `最近终端上下文：\n${truncateText(recentTranscript, 8_000)}` : "",
+        ].filter(Boolean).join("\n\n"),
+        cause: "",
+        solution: answer,
+        scenario: "terminal",
+        source: "ai",
+        tags: ["terminal", "ssh", "ai", serverAlias].filter(Boolean),
+        enabled: true,
+      });
+      message.success(`已沉淀经验：${experience.title}`);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setTerminalExperienceSaving(false);
+    }
+  }
+
   function handleClearTerminal(tabId = activeTerminalId) {
     if (!tabId) {
       return;
@@ -3111,6 +3135,16 @@ export function TerminalPage() {
               className="prototype-ai-command-card"
             >
               <div className="prototype-ai-command-body">
+                <div className="flex justify-end">
+                  <Button
+                    size="small"
+                    loading={terminalExperienceSaving}
+                    disabled={!aiAnswer.trim() || aiAnswer.startsWith("打开一个 SSH 终端后")}
+                    onClick={() => void handleSaveTerminalExperience()}
+                  >
+                    沉淀经验
+                  </Button>
+                </div>
                 <div className="prototype-ai-answer-scroll">
                   <MarkdownAnswer content={aiAnswer} />
                 </div>
@@ -3407,6 +3441,7 @@ export function LogsPage() {
   const [logModalOpen, setLogModalOpen] = useState(false);
   const [logAiAnswer, setLogAiAnswer] = useState("");
   const [logAiLoading, setLogAiLoading] = useState(false);
+  const [logExperienceSaving, setLogExperienceSaving] = useState(false);
   const logTabsRef = useRef<LogWatchTabState[]>([]);
   const [logForm] = Form.useForm();
 
@@ -3574,6 +3609,8 @@ export function LogsPage() {
           `过滤关键词：${tab.keyword || "无"}`,
           `最近日志：\n${truncateText(linesForAi, 12_000)}`,
         ].join("\n\n"),
+        skillScope: "logs",
+        useSkillTrigger: true,
         systemPrompt: "你是日志分析助手。请用中文基于真实日志内容解释异常、归纳可能原因，并给出下一步只读排查建议。不要编造日志中不存在的事实。",
       });
       setLogAiAnswer(`### ${result.providerName} / ${result.model}\n\n${result.answer}`);
@@ -3582,6 +3619,38 @@ export function LogsPage() {
       message.error(getErrorMessage(error));
     } finally {
       setLogAiLoading(false);
+    }
+  }
+
+  async function handleSaveLogExperience() {
+    const answer = logAiAnswer.trim();
+    if (!activeLogTab || !answer || answer === "AI 思考中...") {
+      message.warning("当前没有可沉淀的日志 AI 输出");
+      return;
+    }
+    setLogExperienceSaving(true);
+    try {
+      const visibleLines = filterLogLines(activeLogTab).slice(-200).join("\n");
+      const experience = await aiSkillApi.upsertExperience({
+        title: `日志经验：${activeLogTab.title}`,
+        symptom: [
+          `服务器：${activeLogTab.serverAlias}`,
+          `日志文件：${activeLogTab.filePath}`,
+          `过滤关键词：${activeLogTab.keyword || "无"}`,
+          `最近日志：\n${truncateText(visibleLines, 10_000)}`,
+        ].join("\n\n"),
+        cause: "",
+        solution: answer,
+        scenario: "logs",
+        source: "ai",
+        tags: ["logs", "tail", "ai", activeLogTab.serverAlias].filter(Boolean),
+        enabled: true,
+      });
+      message.success(`已沉淀经验：${experience.title}`);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setLogExperienceSaving(false);
     }
   }
 
@@ -3676,6 +3745,13 @@ export function LogsPage() {
         )}
       </Card>
       <AiInsightPanel title="AI 日志解释">
+        {logAiAnswer && logAiAnswer !== "AI 思考中..." ? (
+          <div className="flex justify-end">
+            <Button size="small" loading={logExperienceSaving} onClick={() => void handleSaveLogExperience()}>
+              沉淀经验
+            </Button>
+          </div>
+        ) : null}
         {logAiLoading ? (
           <Paragraph>AI 思考中...</Paragraph>
         ) : logAiAnswer ? (
@@ -5345,6 +5421,9 @@ export function PrototypeSettingsPage() {
             <Form.Item label="备份位置" name="backupDir" rules={[{ required: true, message: "请输入备份位置" }]}>
               <Input placeholder="应用数据目录 / backups" />
             </Form.Item>
+            <Form.Item label="数据库导出目录" name="databaseDownloadDir" rules={[{ required: true, message: "请输入数据库导出目录" }]}>
+              <Input placeholder="~/Downloads" />
+            </Form.Item>
             <Form.Item label="首发平台" name="platform" rules={[{ required: true }]}>
               <Select options={[{ value: "macos-windows", label: "macOS + Windows" }]} />
             </Form.Item>
@@ -5364,6 +5443,7 @@ export function PrototypeSettingsPage() {
           <Descriptions.Item label="审计保留">{settings ? `${settings.auditRetentionDays} 天` : "-"}</Descriptions.Item>
           <Descriptions.Item label="日志级别">{settings?.logLevel ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="备份位置">{settings?.backupDir ?? "-"}</Descriptions.Item>
+          <Descriptions.Item label="数据库导出目录">{settings?.databaseDownloadDir ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="关闭行为">{settings?.closeBehavior === "exit" ? "直接退出" : "关闭到托盘"}</Descriptions.Item>
         </Descriptions>
       </Card>

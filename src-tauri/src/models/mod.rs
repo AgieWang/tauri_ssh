@@ -197,6 +197,8 @@ pub struct AiProviderAskInput {
     pub prompt: String,
     pub provider_key: Option<String>,
     pub system_prompt: Option<String>,
+    pub skill_scope: Option<String>,
+    pub use_skill_trigger: Option<bool>,
 }
 
 /// AI Provider 问答结果。
@@ -208,6 +210,252 @@ pub struct AiProviderAskResult {
     pub model: String,
     pub answer: String,
     pub latency_ms: i64,
+}
+
+/// AI Skill 记录。内置 Skill 来自打包资源，用户 Skill 来自 SQLite。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkill {
+    pub id: i64,
+    pub skill_key: String,
+    pub name: String,
+    pub description: String,
+    pub content: String,
+    pub scopes: Vec<String>,
+    pub trigger_words: Vec<String>,
+    pub tags: Vec<String>,
+    pub priority: i64,
+    pub enabled: bool,
+    pub builtin: bool,
+    pub source: String,
+    pub source_path: String,
+    pub content_hash: String,
+    pub missing: bool,
+    pub builtin_version: i64,
+    pub user_overridden: bool,
+    pub allow_mcp: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertAiSkillInput {
+    pub id: Option<i64>,
+    pub skill_key: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub content: String,
+    pub scopes: Vec<String>,
+    pub trigger_words: Option<Vec<String>>,
+    pub tags: Option<Vec<String>>,
+    pub priority: Option<i64>,
+    pub enabled: Option<bool>,
+    pub allow_mcp: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAiSkillsInput {
+    pub keyword: Option<String>,
+    pub source: Option<String>,
+    pub show_builtin: Option<bool>,
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillStats {
+    pub total: i64,
+    pub user: i64,
+    pub builtin: i64,
+    pub enabled: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAiSkillsResult {
+    pub items: Vec<AiSkill>,
+    pub stats: AiSkillStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillTriggerInput {
+    pub prompt: String,
+    pub scope: Option<String>,
+    pub include_global: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillMatch {
+    pub skill: AiSkill,
+    pub matched_words: Vec<String>,
+    pub score: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExperienceMatch {
+    pub experience: AiExperience,
+    pub matched_words: Vec<String>,
+    pub score: i64,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillTriggerResult {
+    pub prompt: String,
+    pub scope: String,
+    pub matches: Vec<AiSkillMatch>,
+    pub experiences: Vec<AiExperienceMatch>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillPromptPreviewInput {
+    pub prompt: Option<String>,
+    pub scope: String,
+    pub include_global: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkillPromptPreviewResult {
+    pub scope: String,
+    pub skills: Vec<AiSkill>,
+    pub experiences: Vec<AiExperienceMatch>,
+    pub prompt_fragment: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExperienceRecallInput {
+    pub prompt: String,
+    pub scope: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBuiltinAiSkillsResult {
+    pub scanned: i64,
+    pub inserted: i64,
+    pub updated: i64,
+    pub missing: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExperience {
+    pub id: i64,
+    pub experience_key: String,
+    pub title: String,
+    pub symptom: String,
+    pub cause: String,
+    pub solution: String,
+    pub scenario: String,
+    pub source: String,
+    pub tags: Vec<String>,
+    pub references_json: String,
+    pub markdown_path: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertAiExperienceInput {
+    pub id: Option<i64>,
+    pub experience_key: Option<String>,
+    pub title: String,
+    pub symptom: Option<String>,
+    pub cause: Option<String>,
+    pub solution: Option<String>,
+    pub scenario: Option<String>,
+    pub source: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub references_json: Option<String>,
+    pub markdown_path: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRunbookStep {
+    pub id: String,
+    pub title: String,
+    pub step_type: String,
+    pub content: String,
+    pub risk_level: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRunbook {
+    pub id: i64,
+    pub runbook_key: String,
+    pub name: String,
+    pub description: String,
+    pub scenario: String,
+    pub tags: Vec<String>,
+    pub steps: Vec<AiRunbookStep>,
+    pub enabled: bool,
+    pub allow_mcp: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertAiRunbookInput {
+    pub id: Option<i64>,
+    pub runbook_key: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub scenario: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub steps: Option<Vec<AiRunbookStep>>,
+    pub enabled: Option<bool>,
+    pub allow_mcp: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunAiRunbookInput {
+    pub id: Option<i64>,
+    pub runbook_key: Option<String>,
+    pub server_alias: Option<String>,
+    pub database_connection_key: Option<String>,
+    pub database_name: Option<String>,
+    pub requester: Option<String>,
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRunbookStepResult {
+    pub step_id: String,
+    pub title: String,
+    pub step_type: String,
+    pub risk_level: String,
+    pub status: String,
+    pub message: String,
+    pub output: serde_json::Value,
+    pub approval_id: Option<i64>,
+    pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRunbookRunResult {
+    pub runbook: AiRunbook,
+    pub status: String,
+    pub message: String,
+    pub steps: Vec<AiRunbookStepResult>,
 }
 
 /// 本地凭据保险库条目。敏感值永不返回前端，只返回掩码状态。
@@ -252,6 +500,272 @@ pub struct AuthorizeCredentialInput {
 pub struct RotateCredentialInput {
     pub key: String,
     pub secret: String,
+}
+
+/// 数据库连接配置。敏感密码只返回掩码状态，不返回明文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseConnection {
+    pub key: String,
+    pub name: String,
+    pub group_name: String,
+    pub db_type: String,
+    pub connection_mode: String,
+    pub host: String,
+    pub port: i64,
+    pub database_name: String,
+    pub username: String,
+    pub auth_type: String,
+    pub credential_ref: String,
+    pub password_masked: Option<String>,
+    pub has_password: bool,
+    pub ssh_server_alias: String,
+    pub security_mode: String,
+    pub ai_policy: String,
+    pub page_size: i64,
+    pub status: String,
+    pub enabled: bool,
+    pub last_connected_at: Option<String>,
+    pub notes: String,
+    pub updated_at: String,
+}
+
+/// 数据库连接创建/更新输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertDatabaseConnectionInput {
+    pub key: String,
+    pub name: String,
+    pub group_name: String,
+    pub db_type: String,
+    pub connection_mode: String,
+    pub host: String,
+    pub port: i64,
+    pub database_name: String,
+    pub username: String,
+    pub auth_type: String,
+    pub credential_ref: String,
+    pub password: Option<String>,
+    pub clear_password: Option<bool>,
+    pub ssh_server_alias: String,
+    pub security_mode: String,
+    pub ai_policy: String,
+    pub page_size: i64,
+    pub status: Option<String>,
+    pub enabled: bool,
+    pub notes: String,
+}
+
+/// 数据库连接测试结果。当前阶段测试目标 TCP 端点可达性。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseConnectionTestResult {
+    pub ok: bool,
+    pub connection_key: String,
+    pub endpoint: String,
+    pub latency_ms: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseQueryInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub sql: String,
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseQueryResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<serde_json::Value>,
+    pub row_count: i64,
+    pub rows_affected: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub duration_ms: i64,
+    pub truncated: bool,
+    pub statement_type: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseNameListInput {
+    pub connection_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseNameListResult {
+    pub connection_key: String,
+    pub databases: Vec<String>,
+    pub current: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseSchemaInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTableSchema {
+    pub name: String,
+    pub schema_name: Option<String>,
+    pub object_type: String,
+    pub columns: Vec<String>,
+    pub column_details: Vec<DatabaseColumnSchema>,
+    pub indexes: Vec<DatabaseIndexSchema>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseColumnSchema {
+    pub name: String,
+    pub data_type: String,
+    pub column_type: String,
+    pub nullable: bool,
+    pub default_value: Option<String>,
+    pub extra: String,
+    pub ordinal_position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseIndexSchema {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseSchemaResult {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub tables: Vec<DatabaseTableSchema>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseExportInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub mode: String,
+    pub table_name: Option<String>,
+    pub sql: Option<String>,
+    pub include_data: Option<bool>,
+    pub max_rows: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseExportResult {
+    pub file_name: String,
+    pub file_path: String,
+    pub row_count: i64,
+    pub table_count: i64,
+    pub mode: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisScanInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub pattern: Option<String>,
+    pub cursor: Option<u64>,
+    pub count: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDescribeKeysInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyEntry {
+    pub key: String,
+    pub key_type: String,
+    pub ttl: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisScanResult {
+    pub cursor: u64,
+    pub keys: Vec<RedisKeyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDatabaseListInput {
+    pub connection_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDatabaseInfo {
+    pub name: String,
+    pub index: u8,
+    pub key_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDatabaseListResult {
+    pub connection_key: String,
+    pub current: String,
+    pub databases: Vec<RedisDatabaseInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyTreeInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub pattern: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyTreeResult {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub pattern: String,
+    pub keys: Vec<String>,
+    pub total_scanned: i64,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisValuePreviewInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisValuePreview {
+    pub key: String,
+    pub key_type: String,
+    pub ttl: i64,
+    pub preview: serde_json::Value,
 }
 
 /// AI/Agent 操作审批请求。用于把需要人工确认的远程命令、文件写入等动作落到本地队列。
@@ -420,6 +934,7 @@ pub struct SystemSettings {
     pub audit_retention_days: i64,
     pub log_level: String,
     pub backup_dir: String,
+    pub database_download_dir: String,
     pub platform: String,
     pub close_behavior: String,
     pub language: String,
@@ -433,6 +948,7 @@ pub struct UpdateSystemSettingsInput {
     pub audit_retention_days: i64,
     pub log_level: String,
     pub backup_dir: String,
+    pub database_download_dir: String,
     pub platform: String,
     pub close_behavior: String,
     pub language: String,

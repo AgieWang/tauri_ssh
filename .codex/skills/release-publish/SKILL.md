@@ -71,10 +71,10 @@ GitHub Actions 在美国服务器运行，推送二进制产物到 Gitee（中�
 
 ```bash
 # Gitee（主更新端点，中国大陆可访问）
-https://gitee.com/<用户名>/<项目名>-release
+https://gitee.com/fuzhou-irich-network_0/tauri_ssh-release
 
 # GitHub（备份）
-https://github.com/<用户名>/<项目名>-release
+https://github.com/AgieWang/tauri_ssh-release
 ```
 
 每个仓库需要一个 `README.md` 和 `update.json`（本地推送时自动生成 update.json）。

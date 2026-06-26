@@ -115,6 +115,18 @@ impl McpService {
                 audit: "记录客户端与数量".into(),
             },
             McpToolPermission {
+                tool: "recall_experience".into(),
+                policy: "只读，按场景和问题召回本地经验库 Markdown 摘要".into(),
+                audit: "记录作用域、问题摘要和命中数量".into(),
+            },
+            McpToolPermission {
+                tool: "run_runbook".into(),
+                policy:
+                    "仅允许 allow_mcp=true 的 Runbook；只读步骤自动执行，写入/高风险步骤创建审批"
+                        .into(),
+                audit: "记录 Runbook、请求方、步骤结果和审批 ID".into(),
+            },
+            McpToolPermission {
                 tool: "approval_requests_list".into(),
                 policy: "只读，查看本地审批队列状态".into(),
                 audit: "记录客户端、状态过滤和数量".into(),

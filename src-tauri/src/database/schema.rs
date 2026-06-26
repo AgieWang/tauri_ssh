@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 13;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -40,6 +40,9 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             7 => migrate_v7_to_v8(conn)?,
             8 => migrate_v8_to_v9(conn)?,
             9 => migrate_v9_to_v10(conn)?,
+            10 => migrate_v10_to_v11(conn)?,
+            11 => migrate_v11_to_v12(conn)?,
+            12 => migrate_v12_to_v13(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -48,6 +51,100 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v11 -> v12: AI Skill 管理、经验库和 Runbook
+fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v11 -> v12（AI Skill 管理）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS ai_skills (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_key        TEXT NOT NULL UNIQUE,
+            name             TEXT NOT NULL,
+            description      TEXT NOT NULL DEFAULT '',
+            content          TEXT NOT NULL,
+            scopes           TEXT NOT NULL DEFAULT '[\"global\"]',
+            trigger_words    TEXT NOT NULL DEFAULT '[]',
+            tags             TEXT NOT NULL DEFAULT '[]',
+            priority         INTEGER NOT NULL DEFAULT 0,
+            enabled          INTEGER NOT NULL DEFAULT 1,
+            builtin          INTEGER NOT NULL DEFAULT 0,
+            source           TEXT NOT NULL DEFAULT 'user',
+            source_path      TEXT NOT NULL DEFAULT '',
+            content_hash     TEXT NOT NULL DEFAULT '',
+            missing          INTEGER NOT NULL DEFAULT 0,
+            builtin_version  INTEGER NOT NULL DEFAULT 1,
+            builtin_content  TEXT NOT NULL DEFAULT '',
+            user_overridden  INTEGER NOT NULL DEFAULT 0,
+            allow_mcp        INTEGER NOT NULL DEFAULT 1,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at       TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_skills_enabled_priority
+            ON ai_skills(enabled, priority);
+        CREATE INDEX IF NOT EXISTS idx_ai_skills_source
+            ON ai_skills(source);
+
+        CREATE TABLE IF NOT EXISTS ai_experiences (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            experience_key  TEXT NOT NULL UNIQUE,
+            title           TEXT NOT NULL,
+            symptom         TEXT NOT NULL DEFAULT '',
+            cause           TEXT NOT NULL DEFAULT '',
+            solution        TEXT NOT NULL DEFAULT '',
+            scenario        TEXT NOT NULL DEFAULT '',
+            source          TEXT NOT NULL DEFAULT 'user',
+            tags            TEXT NOT NULL DEFAULT '[]',
+            references_json TEXT NOT NULL DEFAULT '[]',
+            enabled         INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at      TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_experiences_enabled
+            ON ai_experiences(enabled, updated_at);
+
+        CREATE TABLE IF NOT EXISTS ai_runbooks (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            runbook_key  TEXT NOT NULL UNIQUE,
+            name         TEXT NOT NULL,
+            description  TEXT NOT NULL DEFAULT '',
+            scenario     TEXT NOT NULL DEFAULT '',
+            tags         TEXT NOT NULL DEFAULT '[]',
+            steps_json   TEXT NOT NULL DEFAULT '[]',
+            enabled      INTEGER NOT NULL DEFAULT 1,
+            allow_mcp    INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at   TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_runbooks_enabled
+            ON ai_runbooks(enabled, updated_at);
+        ",
+    )?;
+
+    set_version(conn, 12)?;
+    Ok(())
+}
+
+/// v12 -> v13: 经验库 Markdown 文件路径
+fn migrate_v12_to_v13(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v12 -> v13（经验库 Markdown 文件路径）");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE ai_experiences ADD COLUMN markdown_path TEXT NOT NULL DEFAULT '';
+        ",
+    )?;
+
+    set_version(conn, 13)?;
     Ok(())
 }
 
@@ -364,5 +461,100 @@ fn migrate_v9_to_v10(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 10)?;
+    Ok(())
+}
+
+/// v10 -> v11: 数据库管理运维
+fn migrate_v10_to_v11(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v10 -> v11（数据库管理运维）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS database_connections (
+            key                 TEXT PRIMARY KEY,
+            name                TEXT NOT NULL,
+            group_name          TEXT NOT NULL DEFAULT '默认分组',
+            db_type             TEXT NOT NULL,
+            connection_mode     TEXT NOT NULL DEFAULT 'direct',
+            host                TEXT NOT NULL DEFAULT '',
+            port                INTEGER NOT NULL DEFAULT 0,
+            database_name       TEXT NOT NULL DEFAULT '',
+            username            TEXT NOT NULL DEFAULT '',
+            auth_type           TEXT NOT NULL DEFAULT 'direct_password',
+            credential_ref      TEXT NOT NULL DEFAULT '',
+            password_nonce      TEXT DEFAULT NULL,
+            password_ciphertext TEXT DEFAULT NULL,
+            ssh_server_alias    TEXT NOT NULL DEFAULT '',
+            security_mode       TEXT NOT NULL DEFAULT 'approval_all',
+            ai_policy           TEXT NOT NULL DEFAULT 'L2',
+            page_size           INTEGER NOT NULL DEFAULT 500,
+            status              TEXT NOT NULL DEFAULT 'unknown',
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            last_connected_at   TEXT DEFAULT NULL,
+            notes               TEXT NOT NULL DEFAULT '',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at          TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_database_connections_type ON database_connections(db_type);
+        CREATE INDEX IF NOT EXISTS idx_database_connections_group ON database_connections(group_name);
+        CREATE INDEX IF NOT EXISTS idx_database_connections_status ON database_connections(status);
+        CREATE INDEX IF NOT EXISTS idx_database_connections_enabled ON database_connections(enabled);
+
+        CREATE TABLE IF NOT EXISTS database_query_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key  TEXT NOT NULL,
+            db_type         TEXT NOT NULL DEFAULT '',
+            sql_text        TEXT NOT NULL,
+            risk_level      TEXT NOT NULL DEFAULT 'readonly',
+            row_count       INTEGER NOT NULL DEFAULT 0,
+            duration_ms     INTEGER NOT NULL DEFAULT 0,
+            result          TEXT NOT NULL DEFAULT '',
+            error_message   TEXT NOT NULL DEFAULT '',
+            actor           TEXT NOT NULL DEFAULT '',
+            source          TEXT NOT NULL DEFAULT 'ui',
+            approval_id     INTEGER DEFAULT NULL,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at      TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_database_query_history_connection ON database_query_history(connection_key);
+        CREATE INDEX IF NOT EXISTS idx_database_query_history_created ON database_query_history(created_at);
+        CREATE INDEX IF NOT EXISTS idx_database_query_history_risk ON database_query_history(risk_level);
+
+        CREATE TABLE IF NOT EXISTS database_saved_queries (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key  TEXT NOT NULL DEFAULT '',
+            title           TEXT NOT NULL,
+            sql_text        TEXT NOT NULL,
+            tags            TEXT NOT NULL DEFAULT '[]',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at      TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_database_saved_queries_connection ON database_saved_queries(connection_key);
+        CREATE INDEX IF NOT EXISTS idx_database_saved_queries_updated ON database_saved_queries(updated_at);
+
+        CREATE TABLE IF NOT EXISTS database_export_tasks (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key  TEXT NOT NULL,
+            task_type       TEXT NOT NULL DEFAULT 'query_csv',
+            status          TEXT NOT NULL DEFAULT 'pending',
+            file_path       TEXT NOT NULL DEFAULT '',
+            summary         TEXT NOT NULL DEFAULT '',
+            error_message   TEXT NOT NULL DEFAULT '',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at      TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_database_export_tasks_connection ON database_export_tasks(connection_key);
+        CREATE INDEX IF NOT EXISTS idx_database_export_tasks_status ON database_export_tasks(status);
+        ",
+    )?;
+
+    set_version(conn, 11)?;
     Ok(())
 }

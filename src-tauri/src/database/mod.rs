@@ -6,11 +6,13 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::AppError;
 use crate::models::{
-    AiProvider, AiProviderRoute, AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput,
-    CreateAuditLogInput, CredentialVaultItem, DecideApprovalRequestInput, JumpServerSession,
-    ListApprovalRequestsInput, ListAuditLogsInput, SshServer, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertCredentialInput, UpsertJumpServerSessionInput,
-    UpsertSshServerInput,
+    AiExperience, AiProvider, AiProviderRoute, AiRunbook, AiRunbookStep, AiSkill, AiSkillStats,
+    AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
+    CredentialVaultItem, DatabaseConnection, DecideApprovalRequestInput, JumpServerSession,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, SshServer,
+    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
+    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput, UpsertDatabaseConnectionInput,
+    UpsertJumpServerSessionInput, UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -28,6 +30,13 @@ pub struct SshServerSecretRow {
 pub struct CredentialSecretRow {
     pub secret_nonce: Option<String>,
     pub secret_ciphertext: Option<String>,
+}
+
+#[allow(dead_code)]
+pub struct DatabaseConnectionSecretRow {
+    pub connection: DatabaseConnection,
+    pub password_nonce: Option<String>,
+    pub password_ciphertext: Option<String>,
 }
 
 /// 数据库封装，线程安全
@@ -503,6 +512,200 @@ impl Database {
             [key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── 数据库管理 DAO ───────────────────────────────
+
+    pub fn list_database_connections(&self) -> Result<Vec<DatabaseConnection>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT key, name, group_name, db_type, connection_mode, host, port, database_name,
+                    username, auth_type, credential_ref, password_ciphertext IS NOT NULL AS has_password,
+                    ssh_server_alias, security_mode, ai_policy, page_size, status, enabled,
+                    last_connected_at, notes, updated_at
+             FROM database_connections
+             WHERE deleted_at IS NULL
+             ORDER BY group_name, name",
+        )?;
+        let rows = stmt
+            .query_map([], |row| self.map_database_connection_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_database_connection(
+        &self,
+        key: &str,
+    ) -> Result<Option<DatabaseConnection>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT key, name, group_name, db_type, connection_mode, host, port, database_name,
+                    username, auth_type, credential_ref, password_ciphertext IS NOT NULL AS has_password,
+                    ssh_server_alias, security_mode, ai_policy, page_size, status, enabled,
+                    last_connected_at, notes, updated_at
+             FROM database_connections
+             WHERE key = ?1 AND deleted_at IS NULL",
+            [key],
+            |row| self.map_database_connection_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    #[allow(dead_code)]
+    pub fn get_database_connection_secret_row(
+        &self,
+        key: &str,
+    ) -> Result<Option<DatabaseConnectionSecretRow>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT key, name, group_name, db_type, connection_mode, host, port, database_name,
+                    username, auth_type, credential_ref, password_ciphertext IS NOT NULL AS has_password,
+                    ssh_server_alias, security_mode, ai_policy, page_size, status, enabled,
+                    last_connected_at, notes, updated_at, password_nonce, password_ciphertext
+             FROM database_connections
+             WHERE key = ?1 AND deleted_at IS NULL",
+            [key],
+            |row| {
+                Ok(DatabaseConnectionSecretRow {
+                    connection: self.map_database_connection_row(row)?,
+                    password_nonce: row.get(21)?,
+                    password_ciphertext: row.get(22)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn upsert_database_connection(
+        &self,
+        input: &UpsertDatabaseConnectionInput,
+        encrypted_password: Option<(&str, &str)>,
+        clear_password: bool,
+    ) -> Result<DatabaseConnection, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let enabled = if input.enabled { 1 } else { 0 };
+        let status = input.status.as_deref().unwrap_or("unknown");
+        conn.execute(
+            "INSERT INTO database_connections
+             (key, name, group_name, db_type, connection_mode, host, port, database_name, username,
+              auth_type, credential_ref, password_nonce, password_ciphertext, ssh_server_alias,
+              security_mode, ai_policy, page_size, status, enabled, notes, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     ?17, ?18, ?19, ?20, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(key) DO UPDATE SET
+               name = excluded.name,
+               group_name = excluded.group_name,
+               db_type = excluded.db_type,
+               connection_mode = excluded.connection_mode,
+               host = excluded.host,
+               port = excluded.port,
+               database_name = excluded.database_name,
+               username = excluded.username,
+               auth_type = excluded.auth_type,
+               credential_ref = excluded.credential_ref,
+               password_nonce = CASE
+                 WHEN ?21 THEN NULL
+                 WHEN ?12 IS NOT NULL THEN excluded.password_nonce
+                 ELSE database_connections.password_nonce
+               END,
+               password_ciphertext = CASE
+                 WHEN ?21 THEN NULL
+                 WHEN ?13 IS NOT NULL THEN excluded.password_ciphertext
+                 ELSE database_connections.password_ciphertext
+               END,
+               ssh_server_alias = excluded.ssh_server_alias,
+               security_mode = excluded.security_mode,
+               ai_policy = excluded.ai_policy,
+               page_size = excluded.page_size,
+               status = excluded.status,
+               enabled = excluded.enabled,
+               notes = excluded.notes,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                input.key,
+                input.name,
+                input.group_name,
+                input.db_type,
+                input.connection_mode,
+                input.host,
+                input.port,
+                input.database_name,
+                input.username,
+                input.auth_type,
+                input.credential_ref,
+                encrypted_password.map(|v| v.0),
+                encrypted_password.map(|v| v.1),
+                input.ssh_server_alias,
+                input.security_mode,
+                input.ai_policy,
+                input.page_size,
+                status,
+                enabled,
+                input.notes,
+                clear_password
+            ],
+        )?;
+        drop(conn);
+
+        self.get_database_connection(&input.key)?
+            .ok_or_else(|| AppError::NotFound(format!("数据库连接 '{}' 不存在", input.key)))
+    }
+
+    pub fn delete_database_connection(&self, key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE database_connections
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE key = ?1 AND deleted_at IS NULL",
+            [key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn update_database_connection_status(
+        &self,
+        key: &str,
+        status: &str,
+        connected: bool,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        if connected {
+            conn.execute(
+                "UPDATE database_connections
+                 SET status = ?2, last_connected_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+                 WHERE key = ?1 AND deleted_at IS NULL",
+                params![key, status],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE database_connections
+                 SET status = ?2, updated_at = datetime('now', 'localtime')
+                 WHERE key = ?1 AND deleted_at IS NULL",
+                params![key, status],
+            )?;
+        }
+        Ok(())
     }
 
     // ─── 审批队列 DAO ───────────────────────────────
@@ -1107,6 +1310,878 @@ impl Database {
         .map_err(|e| e.into())
     }
 
+    // ─── AI Skill DAO ───────────────────────────────
+
+    pub fn list_ai_skills(&self, input: &ListAiSkillsInput) -> Result<Vec<AiSkill>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, skill_key, name, description, content, scopes, trigger_words, tags,
+                    priority, enabled, builtin, source, source_path, content_hash, missing,
+                    builtin_version, user_overridden, allow_mcp, created_at, updated_at
+             FROM ai_skills
+             WHERE deleted_at IS NULL
+             ORDER BY builtin ASC, priority DESC, updated_at DESC, name ASC",
+        )?;
+        let mut items = stmt
+            .query_map([], |row| self.map_ai_skill_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if input.show_builtin == Some(false) {
+            items.retain(|item| !item.builtin);
+        }
+        if let Some(source) = input
+            .source
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            items.retain(|item| item.source == source);
+        }
+        if let Some(scope) = input
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            items.retain(|item| item.scopes.iter().any(|s| s == scope || s == "global"));
+        }
+        if let Some(keyword) = input
+            .keyword
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            let lowered = keyword.to_lowercase();
+            items.retain(|item| {
+                item.name.to_lowercase().contains(&lowered)
+                    || item.skill_key.to_lowercase().contains(&lowered)
+                    || item.description.to_lowercase().contains(&lowered)
+                    || item
+                        .trigger_words
+                        .iter()
+                        .any(|word| word.to_lowercase().contains(&lowered))
+                    || item
+                        .tags
+                        .iter()
+                        .any(|tag| tag.to_lowercase().contains(&lowered))
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn get_ai_skill_by_id(&self, id: i64) -> Result<Option<AiSkill>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, skill_key, name, description, content, scopes, trigger_words, tags,
+                    priority, enabled, builtin, source, source_path, content_hash, missing,
+                    builtin_version, user_overridden, allow_mcp, created_at, updated_at
+             FROM ai_skills
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |row| self.map_ai_skill_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_ai_skill_by_key(&self, skill_key: &str) -> Result<Option<AiSkill>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, skill_key, name, description, content, scopes, trigger_words, tags,
+                    priority, enabled, builtin, source, source_path, content_hash, missing,
+                    builtin_version, user_overridden, allow_mcp, created_at, updated_at
+             FROM ai_skills
+             WHERE skill_key = ?1 AND deleted_at IS NULL",
+            [skill_key],
+            |row| self.map_ai_skill_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_ai_skill_builtin_content(
+        &self,
+        skill_key: &str,
+    ) -> Result<Option<String>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT builtin_content FROM ai_skills
+             WHERE skill_key = ?1 AND builtin = 1 AND deleted_at IS NULL",
+            [skill_key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn ai_skill_stats(&self) -> Result<AiSkillStats, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT COUNT(*),
+                    SUM(CASE WHEN source = 'user' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN builtin = 1 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END)
+             FROM ai_skills
+             WHERE deleted_at IS NULL",
+            [],
+            |row| {
+                Ok(AiSkillStats {
+                    total: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
+                    user: row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                    builtin: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                    enabled: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                })
+            },
+        )
+        .map_err(|e| e.into())
+    }
+
+    pub fn upsert_user_ai_skill(&self, input: &UpsertAiSkillInput) -> Result<AiSkill, AppError> {
+        let skill_key = input
+            .skill_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| Self::slugify_key(&input.name));
+        let description = input.description.clone().unwrap_or_default();
+        let scopes_json = serde_json::to_string(&input.scopes)?;
+        let trigger_words_json =
+            serde_json::to_string(&input.trigger_words.clone().unwrap_or_default())?;
+        let tags_json = serde_json::to_string(&input.tags.clone().unwrap_or_default())?;
+        let priority = input.priority.unwrap_or(0);
+        let enabled = if input.enabled.unwrap_or(true) { 1 } else { 0 };
+        let allow_mcp = if input.allow_mcp.unwrap_or(true) {
+            1
+        } else {
+            0
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+
+        if let Some(id) = input.id {
+            let builtin: i64 = conn
+                .query_row(
+                    "SELECT builtin FROM ai_skills WHERE id = ?1 AND deleted_at IS NULL",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)))?;
+            if builtin != 0 {
+                conn.execute(
+                    "UPDATE ai_skills
+                     SET name = ?1, description = ?2, content = ?3, scopes = ?4,
+                         trigger_words = ?5, tags = ?6, priority = ?7, enabled = ?8,
+                         allow_mcp = ?9, user_overridden = 1, updated_at = datetime('now', 'localtime')
+                     WHERE id = ?10 AND deleted_at IS NULL",
+                    params![
+                        input.name,
+                        description,
+                        input.content,
+                        scopes_json,
+                        trigger_words_json,
+                        tags_json,
+                        priority,
+                        enabled,
+                        allow_mcp,
+                        id
+                    ],
+                )?;
+            } else {
+                conn.execute(
+                    "UPDATE ai_skills
+                     SET skill_key = ?1, name = ?2, description = ?3, content = ?4, scopes = ?5,
+                         trigger_words = ?6, tags = ?7, priority = ?8, enabled = ?9,
+                         allow_mcp = ?10, updated_at = datetime('now', 'localtime')
+                     WHERE id = ?11 AND deleted_at IS NULL",
+                    params![
+                        skill_key,
+                        input.name,
+                        description,
+                        input.content,
+                        scopes_json,
+                        trigger_words_json,
+                        tags_json,
+                        priority,
+                        enabled,
+                        allow_mcp,
+                        id
+                    ],
+                )?;
+            }
+            drop(conn);
+            return self
+                .get_ai_skill_by_id(id)?
+                .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)));
+        }
+
+        conn.execute(
+            "INSERT INTO ai_skills
+             (skill_key, name, description, content, scopes, trigger_words, tags, priority,
+              enabled, builtin, source, allow_mcp, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, 'user', ?10, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(skill_key) DO UPDATE SET
+               name = excluded.name,
+               description = excluded.description,
+               content = excluded.content,
+               scopes = excluded.scopes,
+               trigger_words = excluded.trigger_words,
+               tags = excluded.tags,
+               priority = excluded.priority,
+               enabled = excluded.enabled,
+               allow_mcp = excluded.allow_mcp,
+               source = 'user',
+               builtin = 0,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                skill_key,
+                input.name,
+                description,
+                input.content,
+                scopes_json,
+                trigger_words_json,
+                tags_json,
+                priority,
+                enabled,
+                allow_mcp
+            ],
+        )?;
+        drop(conn);
+        self.get_ai_skill_by_key(&skill_key)?
+            .ok_or_else(|| AppError::NotFound(format!("Skill '{}' 不存在", skill_key)))
+    }
+
+    pub fn upsert_builtin_ai_skill(
+        &self,
+        skill_key: &str,
+        name: &str,
+        description: &str,
+        content: &str,
+        scopes: &[String],
+        trigger_words: &[String],
+        tags: &[String],
+        priority: i64,
+        source_path: &str,
+        content_hash: &str,
+    ) -> Result<String, AppError> {
+        let scopes_json = serde_json::to_string(scopes)?;
+        let trigger_words_json = serde_json::to_string(trigger_words)?;
+        let tags_json = serde_json::to_string(tags)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let existing: Option<(i64, String, i64)> = conn
+            .query_row(
+                "SELECT id, content_hash, user_overridden FROM ai_skills WHERE skill_key = ?1 AND deleted_at IS NULL",
+                [skill_key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+
+        let action = if let Some((id, old_hash, user_overridden)) = existing {
+            if old_hash == content_hash {
+                if user_overridden == 0 {
+                    conn.execute(
+                        "UPDATE ai_skills
+                         SET name = ?1, description = ?2, scopes = ?3, trigger_words = ?4,
+                             tags = ?5, priority = ?6, missing = 0, source_path = ?7,
+                             updated_at = datetime('now', 'localtime')
+                         WHERE id = ?8",
+                        params![
+                            name,
+                            description,
+                            scopes_json,
+                            trigger_words_json,
+                            tags_json,
+                            priority,
+                            source_path,
+                            id
+                        ],
+                    )?;
+                } else {
+                    conn.execute(
+                        "UPDATE ai_skills
+                         SET missing = 0, source_path = ?1, updated_at = datetime('now', 'localtime')
+                         WHERE id = ?2",
+                        params![source_path, id],
+                    )?;
+                }
+                "unchanged".to_string()
+            } else {
+                if user_overridden == 0 {
+                    conn.execute(
+                        "UPDATE ai_skills
+                         SET name = ?1, description = ?2, content = ?3, scopes = ?4,
+                             trigger_words = ?5, tags = ?6, priority = ?7,
+                             source_path = ?8, content_hash = ?9, builtin_content = ?10,
+                             missing = 0, updated_at = datetime('now', 'localtime')
+                         WHERE id = ?11",
+                        params![
+                            name,
+                            description,
+                            content,
+                            scopes_json,
+                            trigger_words_json,
+                            tags_json,
+                            priority,
+                            source_path,
+                            content_hash,
+                            content,
+                            id
+                        ],
+                    )?;
+                } else {
+                    conn.execute(
+                        "UPDATE ai_skills
+                         SET builtin_content = ?1, content_hash = ?2, source_path = ?3,
+                             missing = 0, updated_at = datetime('now', 'localtime')
+                         WHERE id = ?4",
+                        params![content, content_hash, source_path, id],
+                    )?;
+                }
+                "updated".to_string()
+            }
+        } else {
+            conn.execute(
+                "INSERT INTO ai_skills
+                 (skill_key, name, description, content, scopes, trigger_words, tags, priority,
+                  enabled, builtin, source, source_path, content_hash, missing, builtin_version,
+                  builtin_content, user_overridden, allow_mcp, updated_at, deleted_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, 1, 'builtin', ?9, ?10, 0, 1,
+                         ?11, 0, 1, datetime('now', 'localtime'), NULL)",
+                params![
+                    skill_key,
+                    name,
+                    description,
+                    content,
+                    scopes_json,
+                    trigger_words_json,
+                    tags_json,
+                    priority,
+                    source_path,
+                    content_hash,
+                    content
+                ],
+            )?;
+            "inserted".to_string()
+        };
+        Ok(action)
+    }
+
+    pub fn mark_missing_builtin_ai_skills(&self, source_paths: &[String]) -> Result<i64, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT source_path FROM ai_skills
+             WHERE builtin = 1 AND deleted_at IS NULL",
+        )?;
+        let existing = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut missing = 0;
+        for path in existing {
+            if !source_paths.iter().any(|item| item == &path) {
+                missing += conn.execute(
+                    "UPDATE ai_skills
+                     SET missing = 1, enabled = 0, updated_at = datetime('now', 'localtime')
+                     WHERE source_path = ?1 AND builtin = 1",
+                    [path],
+                )?;
+            }
+        }
+        Ok(missing as i64)
+    }
+
+    pub fn set_ai_skill_enabled(&self, id: i64, enabled: bool) -> Result<AiSkill, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE ai_skills
+             SET enabled = ?1, updated_at = datetime('now', 'localtime')
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![if enabled { 1 } else { 0 }, id],
+        )?;
+        drop(conn);
+        self.get_ai_skill_by_id(id)?
+            .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)))
+    }
+
+    pub fn delete_ai_skill(&self, id: i64) -> Result<(), AppError> {
+        let existing = self
+            .get_ai_skill_by_id(id)?
+            .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)))?;
+        if existing.builtin {
+            return Err(AppError::InvalidInput(
+                "内置 Skill 不允许删除，只能停用".into(),
+            ));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE ai_skills
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND builtin = 0",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    pub fn restore_builtin_ai_skill(&self, id: i64) -> Result<AiSkill, AppError> {
+        let existing = self
+            .get_ai_skill_by_id(id)?
+            .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)))?;
+        if !existing.builtin {
+            return Err(AppError::InvalidInput("只有内置 Skill 可以恢复默认".into()));
+        }
+        let builtin_content = self
+            .get_ai_skill_builtin_content(&existing.skill_key)?
+            .unwrap_or_default();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE ai_skills
+             SET content = ?1, user_overridden = 0, enabled = 1,
+                 updated_at = datetime('now', 'localtime')
+             WHERE id = ?2 AND builtin = 1",
+            params![builtin_content, id],
+        )?;
+        drop(conn);
+        self.get_ai_skill_by_id(id)?
+            .ok_or_else(|| AppError::NotFound(format!("Skill {} 不存在", id)))
+    }
+
+    pub fn list_ai_experiences(
+        &self,
+        keyword: Option<&str>,
+    ) -> Result<Vec<AiExperience>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, experience_key, title, symptom, cause, solution, scenario, source,
+                    tags, references_json, markdown_path, enabled, created_at, updated_at
+             FROM ai_experiences
+             WHERE deleted_at IS NULL
+             ORDER BY updated_at DESC, id DESC",
+        )?;
+        let mut items = stmt
+            .query_map([], |row| self.map_ai_experience_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(keyword) = keyword.map(str::trim).filter(|v| !v.is_empty()) {
+            let lowered = keyword.to_lowercase();
+            items.retain(|item| {
+                item.title.to_lowercase().contains(&lowered)
+                    || item.symptom.to_lowercase().contains(&lowered)
+                    || item.cause.to_lowercase().contains(&lowered)
+                    || item.solution.to_lowercase().contains(&lowered)
+                    || item
+                        .tags
+                        .iter()
+                        .any(|tag| tag.to_lowercase().contains(&lowered))
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn upsert_ai_experience(
+        &self,
+        input: &UpsertAiExperienceInput,
+    ) -> Result<AiExperience, AppError> {
+        let experience_key = input
+            .experience_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| Self::slugify_key(&input.title));
+        let tags_json = serde_json::to_string(&input.tags.clone().unwrap_or_default())?;
+        let references_json = input
+            .references_json
+            .clone()
+            .unwrap_or_else(|| "[]".to_string());
+        let markdown_path = input.markdown_path.clone().unwrap_or_default();
+        let enabled = if input.enabled.unwrap_or(true) { 1 } else { 0 };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        if let Some(id) = input.id {
+            conn.execute(
+                "UPDATE ai_experiences
+                 SET title = ?1, symptom = ?2, cause = ?3, solution = ?4, scenario = ?5,
+                     source = ?6, tags = ?7, references_json = ?8, markdown_path = ?9,
+                     enabled = ?10, updated_at = datetime('now', 'localtime')
+                 WHERE id = ?11 AND deleted_at IS NULL",
+                params![
+                    input.title,
+                    input.symptom.clone().unwrap_or_default(),
+                    input.cause.clone().unwrap_or_default(),
+                    input.solution.clone().unwrap_or_default(),
+                    input.scenario.clone().unwrap_or_default(),
+                    input.source.clone().unwrap_or_else(|| "user".into()),
+                    tags_json,
+                    references_json,
+                    markdown_path,
+                    enabled,
+                    id
+                ],
+            )?;
+            drop(conn);
+            return self.get_ai_experience_by_id(id);
+        }
+        conn.execute(
+            "INSERT INTO ai_experiences
+             (experience_key, title, symptom, cause, solution, scenario, source, tags,
+              references_json, markdown_path, enabled, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(experience_key) DO UPDATE SET
+               title = excluded.title,
+               symptom = excluded.symptom,
+               cause = excluded.cause,
+               solution = excluded.solution,
+               scenario = excluded.scenario,
+               source = excluded.source,
+               tags = excluded.tags,
+               references_json = excluded.references_json,
+               markdown_path = excluded.markdown_path,
+               enabled = excluded.enabled,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                experience_key,
+                input.title,
+                input.symptom.clone().unwrap_or_default(),
+                input.cause.clone().unwrap_or_default(),
+                input.solution.clone().unwrap_or_default(),
+                input.scenario.clone().unwrap_or_default(),
+                input.source.clone().unwrap_or_else(|| "user".into()),
+                tags_json,
+                references_json,
+                markdown_path,
+                enabled
+            ],
+        )?;
+        drop(conn);
+        self.get_ai_experience_by_key(&experience_key)
+    }
+
+    pub fn delete_ai_experience(&self, id: i64) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE ai_experiences
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_ai_runbooks(&self, keyword: Option<&str>) -> Result<Vec<AiRunbook>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, runbook_key, name, description, scenario, tags, steps_json,
+                    enabled, allow_mcp, created_at, updated_at
+             FROM ai_runbooks
+             WHERE deleted_at IS NULL
+             ORDER BY updated_at DESC, id DESC",
+        )?;
+        let mut items = stmt
+            .query_map([], |row| self.map_ai_runbook_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(keyword) = keyword.map(str::trim).filter(|v| !v.is_empty()) {
+            let lowered = keyword.to_lowercase();
+            items.retain(|item| {
+                item.name.to_lowercase().contains(&lowered)
+                    || item.description.to_lowercase().contains(&lowered)
+                    || item.scenario.to_lowercase().contains(&lowered)
+                    || item
+                        .tags
+                        .iter()
+                        .any(|tag| tag.to_lowercase().contains(&lowered))
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn upsert_ai_runbook(&self, input: &UpsertAiRunbookInput) -> Result<AiRunbook, AppError> {
+        let runbook_key = input
+            .runbook_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| Self::slugify_key(&input.name));
+        let tags_json = serde_json::to_string(&input.tags.clone().unwrap_or_default())?;
+        let steps_json = serde_json::to_string(&input.steps.clone().unwrap_or_default())?;
+        let enabled = if input.enabled.unwrap_or(true) { 1 } else { 0 };
+        let allow_mcp = if input.allow_mcp.unwrap_or(false) {
+            1
+        } else {
+            0
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        if let Some(id) = input.id {
+            conn.execute(
+                "UPDATE ai_runbooks
+                 SET name = ?1, description = ?2, scenario = ?3, tags = ?4, steps_json = ?5,
+                     enabled = ?6, allow_mcp = ?7, updated_at = datetime('now', 'localtime')
+                 WHERE id = ?8 AND deleted_at IS NULL",
+                params![
+                    input.name,
+                    input.description.clone().unwrap_or_default(),
+                    input.scenario.clone().unwrap_or_default(),
+                    tags_json,
+                    steps_json,
+                    enabled,
+                    allow_mcp,
+                    id
+                ],
+            )?;
+            drop(conn);
+            return self.get_ai_runbook_by_id(id);
+        }
+        conn.execute(
+            "INSERT INTO ai_runbooks
+             (runbook_key, name, description, scenario, tags, steps_json, enabled, allow_mcp,
+              updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(runbook_key) DO UPDATE SET
+               name = excluded.name,
+               description = excluded.description,
+               scenario = excluded.scenario,
+               tags = excluded.tags,
+               steps_json = excluded.steps_json,
+               enabled = excluded.enabled,
+               allow_mcp = excluded.allow_mcp,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                runbook_key,
+                input.name,
+                input.description.clone().unwrap_or_default(),
+                input.scenario.clone().unwrap_or_default(),
+                tags_json,
+                steps_json,
+                enabled,
+                allow_mcp
+            ],
+        )?;
+        drop(conn);
+        self.get_ai_runbook_by_key(&runbook_key)
+    }
+
+    pub fn delete_ai_runbook(&self, id: i64) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE ai_runbooks
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    fn get_ai_experience_by_id(&self, id: i64) -> Result<AiExperience, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, experience_key, title, symptom, cause, solution, scenario, source,
+                    tags, references_json, markdown_path, enabled, created_at, updated_at
+             FROM ai_experiences
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |row| self.map_ai_experience_row(row),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("经验 {} 不存在", id)))
+    }
+
+    fn get_ai_experience_by_key(&self, key: &str) -> Result<AiExperience, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, experience_key, title, symptom, cause, solution, scenario, source,
+                    tags, references_json, markdown_path, enabled, created_at, updated_at
+             FROM ai_experiences
+             WHERE experience_key = ?1 AND deleted_at IS NULL",
+            [key],
+            |row| self.map_ai_experience_row(row),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("经验 '{}' 不存在", key)))
+    }
+
+    fn get_ai_runbook_by_id(&self, id: i64) -> Result<AiRunbook, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, runbook_key, name, description, scenario, tags, steps_json,
+                    enabled, allow_mcp, created_at, updated_at
+             FROM ai_runbooks
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |row| self.map_ai_runbook_row(row),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("Runbook {} 不存在", id)))
+    }
+
+    fn get_ai_runbook_by_key(&self, key: &str) -> Result<AiRunbook, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, runbook_key, name, description, scenario, tags, steps_json,
+                    enabled, allow_mcp, created_at, updated_at
+             FROM ai_runbooks
+             WHERE runbook_key = ?1 AND deleted_at IS NULL",
+            [key],
+            |row| self.map_ai_runbook_row(row),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::NotFound(format!("Runbook '{}' 不存在", key)))
+    }
+
+    fn slugify_key(value: &str) -> String {
+        let mut out = String::new();
+        for ch in value.trim().to_lowercase().chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch);
+            } else if ch.is_whitespace() || ch == '-' || ch == '_' || ch == '.' {
+                if !out.ends_with('-') {
+                    out.push('-');
+                }
+            }
+        }
+        let trimmed = out.trim_matches('-').to_string();
+        if trimmed.is_empty() {
+            format!("item-{}", chrono::Utc::now().timestamp_millis())
+        } else {
+            trimmed
+        }
+    }
+
+    fn parse_json_vec<T: serde::de::DeserializeOwned>(value: &str) -> Vec<T> {
+        serde_json::from_str(value).unwrap_or_default()
+    }
+
+    fn map_ai_skill_row(&self, row: &rusqlite::Row<'_>) -> Result<AiSkill, rusqlite::Error> {
+        let scopes_json: String = row.get(5)?;
+        let trigger_words_json: String = row.get(6)?;
+        let tags_json: String = row.get(7)?;
+        Ok(AiSkill {
+            id: row.get(0)?,
+            skill_key: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            content: row.get(4)?,
+            scopes: Self::parse_json_vec(&scopes_json),
+            trigger_words: Self::parse_json_vec(&trigger_words_json),
+            tags: Self::parse_json_vec(&tags_json),
+            priority: row.get(8)?,
+            enabled: row.get::<_, i64>(9)? != 0,
+            builtin: row.get::<_, i64>(10)? != 0,
+            source: row.get(11)?,
+            source_path: row.get(12)?,
+            content_hash: row.get(13)?,
+            missing: row.get::<_, i64>(14)? != 0,
+            builtin_version: row.get(15)?,
+            user_overridden: row.get::<_, i64>(16)? != 0,
+            allow_mcp: row.get::<_, i64>(17)? != 0,
+            created_at: row.get(18)?,
+            updated_at: row.get(19)?,
+        })
+    }
+
+    fn map_ai_experience_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<AiExperience, rusqlite::Error> {
+        let tags_json: String = row.get(8)?;
+        Ok(AiExperience {
+            id: row.get(0)?,
+            experience_key: row.get(1)?,
+            title: row.get(2)?,
+            symptom: row.get(3)?,
+            cause: row.get(4)?,
+            solution: row.get(5)?,
+            scenario: row.get(6)?,
+            source: row.get(7)?,
+            tags: Self::parse_json_vec(&tags_json),
+            references_json: row.get(9)?,
+            markdown_path: row.get(10)?,
+            enabled: row.get::<_, i64>(11)? != 0,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
+        })
+    }
+
+    fn map_ai_runbook_row(&self, row: &rusqlite::Row<'_>) -> Result<AiRunbook, rusqlite::Error> {
+        let tags_json: String = row.get(5)?;
+        let steps_json: String = row.get(6)?;
+        Ok(AiRunbook {
+            id: row.get(0)?,
+            runbook_key: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            scenario: row.get(4)?,
+            tags: Self::parse_json_vec(&tags_json),
+            steps: Self::parse_json_vec::<AiRunbookStep>(&steps_json),
+            enabled: row.get::<_, i64>(7)? != 0,
+            allow_mcp: row.get::<_, i64>(8)? != 0,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
+        })
+    }
+
     fn map_ai_provider_row(&self, row: &rusqlite::Row<'_>) -> Result<AiProvider, rusqlite::Error> {
         let capabilities_json: String = row.get(11)?;
         let models_json: String = row.get(12)?;
@@ -1185,6 +2260,41 @@ impl Database {
             enabled: row.get::<_, i64>(6)? != 0,
             rotated_at: row.get(7)?,
             updated_at: row.get(8)?,
+        })
+    }
+
+    fn map_database_connection_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<DatabaseConnection, rusqlite::Error> {
+        let has_password: bool = row.get(11)?;
+        Ok(DatabaseConnection {
+            key: row.get(0)?,
+            name: row.get(1)?,
+            group_name: row.get(2)?,
+            db_type: row.get(3)?,
+            connection_mode: row.get(4)?,
+            host: row.get(5)?,
+            port: row.get(6)?,
+            database_name: row.get(7)?,
+            username: row.get(8)?,
+            auth_type: row.get(9)?,
+            credential_ref: row.get(10)?,
+            password_masked: if has_password {
+                Some("••••••••".into())
+            } else {
+                None
+            },
+            has_password,
+            ssh_server_alias: row.get(12)?,
+            security_mode: row.get(13)?,
+            ai_policy: row.get(14)?,
+            page_size: row.get(15)?,
+            status: row.get(16)?,
+            enabled: row.get::<_, i64>(17)? != 0,
+            last_connected_at: row.get(18)?,
+            notes: row.get(19)?,
+            updated_at: row.get(20)?,
         })
     }
 

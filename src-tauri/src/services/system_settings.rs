@@ -9,6 +9,7 @@ const KEY_AUTO_UPDATE: &str = "settings.auto_update";
 const KEY_AUDIT_RETENTION_DAYS: &str = "settings.audit_retention_days";
 const KEY_LOG_LEVEL: &str = "settings.log_level";
 const KEY_BACKUP_DIR: &str = "settings.backup_dir";
+const KEY_DATABASE_DOWNLOAD_DIR: &str = "settings.database_download_dir";
 const KEY_PLATFORM: &str = "settings.platform";
 const KEY_CLOSE_BEHAVIOR: &str = "settings.close_behavior";
 const KEY_LANGUAGE: &str = "settings.language";
@@ -21,6 +22,11 @@ impl SystemSettingsService {
             audit_retention_days: get_i64(db, KEY_AUDIT_RETENTION_DAYS, 90)?,
             log_level: get_value(db, KEY_LOG_LEVEL, "info")?,
             backup_dir: get_value(db, KEY_BACKUP_DIR, "应用数据目录 / backups")?,
+            database_download_dir: get_value(
+                db,
+                KEY_DATABASE_DOWNLOAD_DIR,
+                &default_database_download_dir(),
+            )?,
             platform: get_value(db, KEY_PLATFORM, "macos-windows")?,
             close_behavior: get_value(db, KEY_CLOSE_BEHAVIOR, "minimize")?,
             language: get_value(db, KEY_LANGUAGE, "zh-CN")?,
@@ -41,6 +47,7 @@ impl SystemSettingsService {
         )?;
         db.set_config(KEY_LOG_LEVEL, &input.log_level)?;
         db.set_config(KEY_BACKUP_DIR, &input.backup_dir)?;
+        db.set_config(KEY_DATABASE_DOWNLOAD_DIR, &input.database_download_dir)?;
         db.set_config(KEY_PLATFORM, &input.platform)?;
         db.set_config(KEY_CLOSE_BEHAVIOR, &input.close_behavior)?;
         db.set_config(KEY_LANGUAGE, &input.language)?;
@@ -56,6 +63,7 @@ impl SystemSettingsService {
                 audit_retention_days: 90,
                 log_level: "info".into(),
                 backup_dir: "应用数据目录 / backups".into(),
+                database_download_dir: default_database_download_dir(),
                 platform: "macos-windows".into(),
                 close_behavior: "minimize".into(),
                 language: "zh-CN".into(),
@@ -79,6 +87,7 @@ fn normalize(input: &mut UpdateSystemSettingsInput) {
     input.theme = input.theme.trim().to_string();
     input.log_level = input.log_level.trim().to_lowercase();
     input.backup_dir = input.backup_dir.trim().to_string();
+    input.database_download_dir = input.database_download_dir.trim().to_string();
     input.platform = input.platform.trim().to_string();
     input.close_behavior = input.close_behavior.trim().to_lowercase();
     input.language = input.language.trim().to_string();
@@ -98,6 +107,9 @@ fn validate(input: &UpdateSystemSettingsInput) -> Result<(), AppError> {
     }
     if input.backup_dir.is_empty() {
         return Err(AppError::InvalidInput("备份位置不能为空".into()));
+    }
+    if input.database_download_dir.is_empty() {
+        return Err(AppError::InvalidInput("数据库导出下载目录不能为空".into()));
     }
     if input.platform != "macos-windows" {
         return Err(AppError::InvalidInput(
@@ -137,4 +149,17 @@ fn bool_text(value: bool) -> &'static str {
     } else {
         "false"
     }
+}
+
+fn default_database_download_dir() -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    if !home.trim().is_empty() {
+        return std::path::Path::new(&home)
+            .join("Downloads")
+            .to_string_lossy()
+            .to_string();
+    }
+    "应用数据目录 / database-downloads".into()
 }
