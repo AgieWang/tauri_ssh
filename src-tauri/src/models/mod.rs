@@ -502,6 +502,357 @@ pub struct RotateCredentialInput {
     pub secret: String,
 }
 
+/// AI/MCP 安全凭证元数据。敏感值只在 Rust 后端短暂解密，永不返回前端。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredential {
+    pub id: i64,
+    pub credential_key: String,
+    pub display_name: String,
+    pub provider: String,
+    pub credential_type: String,
+    pub account_name: String,
+    pub base_url: String,
+    pub scopes: Vec<String>,
+    pub tags: Vec<String>,
+    pub folder: String,
+    pub description: String,
+    pub status: String,
+    pub enabled: bool,
+    pub allow_mcp: bool,
+    pub approval_policy: String,
+    pub expires_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub usage_count: i64,
+    pub has_secret: bool,
+    pub secret_masked: Option<String>,
+    pub rotated_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSecureCredentialsInput {
+    pub keyword: Option<String>,
+    pub provider: Option<String>,
+    pub status: Option<String>,
+    pub allow_mcp: Option<bool>,
+}
+
+/// 新增/更新安全凭证输入。secret 只用于本次写入，不会回显。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSecureCredentialInput {
+    pub id: Option<i64>,
+    pub credential_key: String,
+    pub display_name: String,
+    pub provider: String,
+    pub credential_type: String,
+    pub account_name: Option<String>,
+    pub base_url: Option<String>,
+    pub scopes: Vec<String>,
+    pub tags: Vec<String>,
+    pub folder: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub enabled: Option<bool>,
+    pub allow_mcp: Option<bool>,
+    pub approval_policy: Option<String>,
+    pub expires_at: Option<String>,
+    pub secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateSecureCredentialInput {
+    pub credential_key: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSecureCredentialEnabledInput {
+    pub credential_key: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialPolicySettings {
+    pub default_session_ttl_minutes: i64,
+    pub max_response_items: i64,
+    pub allow_readonly_auto: bool,
+    pub require_approval_for_all: bool,
+    pub allow_http_custom_headers: bool,
+    pub http_allowed_domains: Vec<String>,
+    pub rate_limit_per_minute: i64,
+    pub max_concurrent_sessions: i64,
+    pub allow_default_branch_commits: bool,
+    pub allow_high_risk_repo_ops: bool,
+    pub allow_delete_branch: bool,
+    pub allow_delete_tag: bool,
+    pub allow_delete_release: bool,
+    pub allow_update_ref: bool,
+    pub allow_update_repo_settings: bool,
+    pub updated_at: Option<String>,
+}
+
+impl Default for SecureCredentialPolicySettings {
+    fn default() -> Self {
+        Self {
+            default_session_ttl_minutes: 30,
+            max_response_items: 100,
+            allow_readonly_auto: true,
+            require_approval_for_all: false,
+            allow_http_custom_headers: false,
+            http_allowed_domains: Vec::new(),
+            rate_limit_per_minute: 60,
+            max_concurrent_sessions: 5,
+            allow_default_branch_commits: false,
+            allow_high_risk_repo_ops: false,
+            allow_delete_branch: false,
+            allow_delete_tag: false,
+            allow_delete_release: false,
+            allow_update_ref: false,
+            allow_update_repo_settings: false,
+            updated_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSecureCredentialPolicySettingsInput {
+    pub default_session_ttl_minutes: i64,
+    pub max_response_items: i64,
+    pub allow_readonly_auto: bool,
+    pub require_approval_for_all: bool,
+    pub allow_http_custom_headers: bool,
+    pub http_allowed_domains: Vec<String>,
+    pub rate_limit_per_minute: i64,
+    pub max_concurrent_sessions: i64,
+    pub allow_default_branch_commits: bool,
+    pub allow_high_risk_repo_ops: bool,
+    pub allow_delete_branch: bool,
+    pub allow_delete_tag: bool,
+    pub allow_delete_release: bool,
+    pub allow_update_ref: bool,
+    pub allow_update_repo_settings: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialOverview {
+    pub total: i64,
+    pub active: i64,
+    pub disabled: i64,
+    pub mcp_enabled: i64,
+    pub expiring_soon: i64,
+    pub weekly_calls: i64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialAuditLog {
+    pub id: i64,
+    pub actor: String,
+    pub source: String,
+    pub provider: String,
+    pub credential_key: String,
+    pub action: String,
+    pub risk: String,
+    pub result: String,
+    pub duration_ms: i64,
+    pub request_id: String,
+    pub approval_id: Option<i64>,
+    pub detail_json: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSecureCredentialAuditLogsInput {
+    pub keyword: Option<String>,
+    pub source: Option<String>,
+    pub provider: Option<String>,
+    pub credential_key: Option<String>,
+    pub actor: Option<String>,
+    pub action: Option<String>,
+    pub risk: Option<String>,
+    pub result: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSecureCredentialAuditLogInput {
+    pub actor: String,
+    pub source: String,
+    pub provider: String,
+    pub credential_key: String,
+    pub action: String,
+    pub risk: String,
+    pub result: String,
+    pub duration_ms: i64,
+    pub request_id: Option<String>,
+    pub approval_id: Option<i64>,
+    pub detail_json: Option<String>,
+}
+
+/// 安全凭证短期会话。AI/MCP 只能拿 session_id，不能反查凭证明文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialSession {
+    pub id: i64,
+    pub session_id: String,
+    pub credential_key: String,
+    pub provider: String,
+    pub caller: String,
+    pub scopes: Vec<String>,
+    pub status: String,
+    pub expires_at: String,
+    pub created_at: String,
+    pub revoked_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub call_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSecureCredentialSessionsInput {
+    pub credential_key: Option<String>,
+    pub status: Option<String>,
+    pub caller: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSecureCredentialSessionInput {
+    pub credential_key: String,
+    pub caller: Option<String>,
+    pub scopes: Vec<String>,
+    pub ttl_minutes: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialSessionStatus {
+    pub session: SecureCredentialSession,
+    pub valid: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialProviderTestInput {
+    pub credential_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialProviderTestResult {
+    pub ok: bool,
+    pub credential_key: String,
+    pub provider: String,
+    pub account: String,
+    pub status_code: Option<u16>,
+    pub latency_ms: i64,
+    pub message: String,
+    pub detail: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialRepositoryListInput {
+    pub session_id: String,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialRepository {
+    pub id: String,
+    pub name: String,
+    pub full_name: String,
+    pub web_url: String,
+    pub visibility: String,
+    pub default_branch: String,
+    pub permissions: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialGitReadInput {
+    pub session_id: String,
+    pub resource: String,
+    pub repo: Option<String>,
+    pub path: Option<String>,
+    pub reference: Option<String>,
+    pub state: Option<String>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialProviderReadResult {
+    pub provider: String,
+    pub resource: String,
+    pub status_code: u16,
+    pub url: String,
+    pub body: serde_json::Value,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialHttpRequestInput {
+    pub session_id: String,
+    pub path: String,
+    pub query_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialHttpWriteInput {
+    pub session_id: String,
+    pub method: String,
+    pub path: String,
+    pub query_json: Option<serde_json::Value>,
+    pub body_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialHttpRequestResult {
+    pub status_code: u16,
+    pub url: String,
+    pub body: serde_json::Value,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialGitWriteInput {
+    pub session_id: String,
+    pub operation: String,
+    pub repo: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureCredentialGitWriteResult {
+    pub provider: String,
+    pub operation: String,
+    pub repo: String,
+    pub status_code: u16,
+    pub body: serde_json::Value,
+}
+
 /// 数据库连接配置。敏感密码只返回掩码状态，不返回明文。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1072,6 +1423,7 @@ pub struct ListResourceAlertEventsInput {
 pub struct SystemSettings {
     pub theme: String,
     pub auto_update: bool,
+    pub launch_on_startup: bool,
     pub audit_retention_days: i64,
     pub log_level: String,
     pub backup_dir: String,
@@ -1086,6 +1438,7 @@ pub struct SystemSettings {
 pub struct UpdateSystemSettingsInput {
     pub theme: String,
     pub auto_update: bool,
+    pub launch_on_startup: bool,
     pub audit_retention_days: i64,
     pub log_level: String,
     pub backup_dir: String,

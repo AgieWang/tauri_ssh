@@ -8,13 +8,18 @@ use crate::error::AppError;
 use crate::models::{
     AiExperience, AiProvider, AiProviderRoute, AiRunbook, AiRunbookStep, AiSkill, AiSkillStats,
     AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
-    CredentialVaultItem, DatabaseConnection, DecideApprovalRequestInput, JumpServerSession,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListResourceAlertEventsInput,
-    ListResourceAlertRulesInput, ResourceAlertEvent, ResourceAlertRule, ResourceMetricSnapshot,
-    ResourceMonitorTarget, ResourceSnapshotListInput, SshServer, UpsertAiExperienceInput,
+    CreateSecureCredentialAuditLogInput, CredentialVaultItem, DatabaseConnection,
+    DecideApprovalRequestInput, JumpServerSession, ListAiSkillsInput, ListApprovalRequestsInput,
+    ListAuditLogsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
+    ListSecureCredentialAuditLogsInput, ResourceAlertEvent, ResourceAlertRule,
+    ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput, SecureCredential,
+    SecureCredentialAuditLog, SecureCredentialOverview, SecureCredentialPolicySettings,
+    SecureCredentialSession, SetSecureCredentialEnabledInput, SshServer,
+    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput,
     UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertCredentialInput, UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput,
-    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSshServerInput,
+    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
+    UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -514,6 +519,646 @@ impl Database {
             [key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── 安全凭证 DAO ───────────────────────────────
+
+    pub fn list_secure_credentials(&self) -> Result<Vec<SecureCredential>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.credential_key, c.display_name, c.provider, c.credential_type,
+                    c.account_name, c.base_url, c.scope_json, c.tags_json, c.folder,
+                    c.description, c.status, c.enabled, c.allow_mcp, c.approval_policy,
+                    c.expires_at, c.last_used_at, c.usage_count,
+                    EXISTS(
+                        SELECT 1 FROM secure_credential_secrets s
+                        WHERE s.credential_key = c.credential_key AND s.active = 1
+                    ) AS has_secret,
+                    (
+                        SELECT MAX(s.rotated_at) FROM secure_credential_secrets s
+                        WHERE s.credential_key = c.credential_key AND s.active = 1
+                    ) AS rotated_at,
+                    c.created_at, c.updated_at
+             FROM secure_credentials c
+             WHERE c.deleted_at IS NULL
+             ORDER BY c.updated_at DESC, c.credential_key",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Self::map_secure_credential_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_secure_credential(
+        &self,
+        credential_key: &str,
+    ) -> Result<Option<SecureCredential>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT c.id, c.credential_key, c.display_name, c.provider, c.credential_type,
+                    c.account_name, c.base_url, c.scope_json, c.tags_json, c.folder,
+                    c.description, c.status, c.enabled, c.allow_mcp, c.approval_policy,
+                    c.expires_at, c.last_used_at, c.usage_count,
+                    EXISTS(
+                        SELECT 1 FROM secure_credential_secrets s
+                        WHERE s.credential_key = c.credential_key AND s.active = 1
+                    ) AS has_secret,
+                    (
+                        SELECT MAX(s.rotated_at) FROM secure_credential_secrets s
+                        WHERE s.credential_key = c.credential_key AND s.active = 1
+                    ) AS rotated_at,
+                    c.created_at, c.updated_at
+             FROM secure_credentials c
+             WHERE c.credential_key = ?1 AND c.deleted_at IS NULL",
+            [credential_key],
+            Self::map_secure_credential_row,
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn upsert_secure_credential(
+        &self,
+        input: &UpsertSecureCredentialInput,
+        encrypted_secret: Option<(&str, &str)>,
+    ) -> Result<SecureCredential, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let scopes_json = serde_json::to_string(&input.scopes)?;
+        let tags_json = serde_json::to_string(&input.tags)?;
+        let enabled = if input.enabled.unwrap_or(true) { 1 } else { 0 };
+        let allow_mcp = if input.allow_mcp.unwrap_or(false) {
+            1
+        } else {
+            0
+        };
+        let status = input.status.as_deref().unwrap_or("active");
+        let approval_policy = input
+            .approval_policy
+            .as_deref()
+            .unwrap_or("write_requires_approval");
+        conn.execute(
+            "INSERT INTO secure_credentials
+             (credential_key, display_name, provider, credential_type, account_name, base_url,
+              scope_json, tags_json, folder, description, status, enabled, allow_mcp,
+              approval_policy, expires_at, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     datetime('now', 'localtime'), NULL)
+             ON CONFLICT(credential_key) DO UPDATE SET
+               display_name = excluded.display_name,
+               provider = excluded.provider,
+               credential_type = excluded.credential_type,
+               account_name = excluded.account_name,
+               base_url = excluded.base_url,
+               scope_json = excluded.scope_json,
+               tags_json = excluded.tags_json,
+               folder = excluded.folder,
+               description = excluded.description,
+               status = excluded.status,
+               enabled = excluded.enabled,
+               allow_mcp = excluded.allow_mcp,
+               approval_policy = excluded.approval_policy,
+               expires_at = excluded.expires_at,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                input.credential_key,
+                input.display_name,
+                input.provider,
+                input.credential_type,
+                input.account_name.as_deref().unwrap_or(""),
+                input.base_url.as_deref().unwrap_or(""),
+                scopes_json,
+                tags_json,
+                input.folder.as_deref().unwrap_or(""),
+                input.description.as_deref().unwrap_or(""),
+                status,
+                enabled,
+                allow_mcp,
+                approval_policy,
+                input.expires_at
+            ],
+        )?;
+
+        if let Some((nonce, ciphertext)) = encrypted_secret {
+            conn.execute(
+                "UPDATE secure_credential_secrets
+                 SET active = 0
+                 WHERE credential_key = ?1 AND active = 1",
+                [input.credential_key.as_str()],
+            )?;
+            let next_version: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(secret_version), 0) + 1
+                 FROM secure_credential_secrets
+                 WHERE credential_key = ?1",
+                [input.credential_key.as_str()],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "INSERT INTO secure_credential_secrets
+                 (credential_key, secret_version, secret_nonce, secret_ciphertext, active)
+                 VALUES (?1, ?2, ?3, ?4, 1)",
+                params![input.credential_key, next_version, nonce, ciphertext],
+            )?;
+        }
+        drop(conn);
+
+        self.get_secure_credential(&input.credential_key)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("安全凭证 '{}' 不存在", input.credential_key))
+            })
+    }
+
+    pub fn rotate_secure_credential(
+        &self,
+        credential_key: &str,
+        encrypted_secret: (&str, &str),
+    ) -> Result<SecureCredential, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM secure_credentials WHERE credential_key = ?1 AND deleted_at IS NULL",
+                [credential_key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
+            return Err(AppError::NotFound(format!(
+                "安全凭证 '{}' 不存在",
+                credential_key
+            )));
+        }
+        conn.execute(
+            "UPDATE secure_credential_secrets
+             SET active = 0
+             WHERE credential_key = ?1 AND active = 1",
+            [credential_key],
+        )?;
+        let next_version: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(secret_version), 0) + 1
+             FROM secure_credential_secrets
+             WHERE credential_key = ?1",
+            [credential_key],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "INSERT INTO secure_credential_secrets
+             (credential_key, secret_version, secret_nonce, secret_ciphertext, active)
+             VALUES (?1, ?2, ?3, ?4, 1)",
+            params![
+                credential_key,
+                next_version,
+                encrypted_secret.0,
+                encrypted_secret.1
+            ],
+        )?;
+        conn.execute(
+            "UPDATE secure_credentials
+             SET status = 'active', updated_at = datetime('now', 'localtime')
+             WHERE credential_key = ?1 AND deleted_at IS NULL",
+            [credential_key],
+        )?;
+        drop(conn);
+
+        self.get_secure_credential(credential_key)?
+            .ok_or_else(|| AppError::NotFound(format!("安全凭证 '{}' 不存在", credential_key)))
+    }
+
+    pub fn set_secure_credential_enabled(
+        &self,
+        input: &SetSecureCredentialEnabledInput,
+    ) -> Result<SecureCredential, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let enabled = if input.enabled { 1 } else { 0 };
+        let status = if input.enabled { "active" } else { "disabled" };
+        let affected = conn.execute(
+            "UPDATE secure_credentials
+             SET enabled = ?2, status = ?3, updated_at = datetime('now', 'localtime')
+             WHERE credential_key = ?1 AND deleted_at IS NULL",
+            params![input.credential_key, enabled, status],
+        )?;
+        drop(conn);
+        if affected == 0 {
+            return Err(AppError::NotFound(format!(
+                "安全凭证 '{}' 不存在",
+                input.credential_key
+            )));
+        }
+        self.get_secure_credential(&input.credential_key)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("安全凭证 '{}' 不存在", input.credential_key))
+            })
+    }
+
+    pub fn delete_secure_credential(&self, credential_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE secure_credentials
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE credential_key = ?1 AND deleted_at IS NULL",
+            [credential_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn get_secure_credential_secret_row(
+        &self,
+        credential_key: &str,
+    ) -> Result<Option<CredentialSecretRow>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT secret_nonce, secret_ciphertext
+             FROM secure_credential_secrets
+             WHERE credential_key = ?1 AND active = 1
+             ORDER BY secret_version DESC
+             LIMIT 1",
+            [credential_key],
+            |row| {
+                Ok(CredentialSecretRow {
+                    secret_nonce: row.get(0)?,
+                    secret_ciphertext: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_secure_credential_overview(&self) -> Result<SecureCredentialOverview, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credentials WHERE deleted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let active: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credentials WHERE deleted_at IS NULL AND enabled = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let disabled: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credentials WHERE deleted_at IS NULL AND enabled = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        let mcp_enabled: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credentials WHERE deleted_at IS NULL AND enabled = 1 AND allow_mcp = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        let expiring_soon: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credentials
+             WHERE deleted_at IS NULL
+               AND expires_at IS NOT NULL
+               AND datetime(expires_at) <= datetime('now', '+14 days')",
+            [],
+            |row| row.get(0),
+        )?;
+        let weekly_calls: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credential_audit_logs
+             WHERE datetime(created_at) >= datetime('now', '-7 days')",
+            [],
+            |row| row.get(0),
+        )?;
+        let success_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM secure_credential_audit_logs
+             WHERE datetime(created_at) >= datetime('now', '-7 days') AND result = 'success'",
+            [],
+            |row| row.get(0),
+        )?;
+        let success_rate = if weekly_calls == 0 {
+            0.0
+        } else {
+            (success_count as f64 / weekly_calls as f64) * 100.0
+        };
+        Ok(SecureCredentialOverview {
+            total,
+            active,
+            disabled,
+            mcp_enabled,
+            expiring_soon,
+            weekly_calls,
+            success_rate,
+        })
+    }
+
+    pub fn list_secure_credential_audit_logs(
+        &self,
+        input: &ListSecureCredentialAuditLogsInput,
+    ) -> Result<Vec<SecureCredentialAuditLog>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let keyword = input
+            .keyword
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value));
+        let limit = input.limit.unwrap_or(200).clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT id, actor, source, provider, credential_key, action, risk, result,
+                    duration_ms, request_id, approval_id, detail_json, created_at
+             FROM secure_credential_audit_logs
+             WHERE (?1 IS NULL OR source = ?1)
+               AND (?2 IS NULL OR provider = ?2)
+               AND (?3 IS NULL OR credential_key = ?3)
+               AND (?4 IS NULL OR actor = ?4)
+               AND (?5 IS NULL OR action = ?5)
+               AND (?6 IS NULL OR risk = ?6)
+               AND (?7 IS NULL OR result = ?7)
+               AND (
+                 ?8 IS NULL
+                 OR actor LIKE ?8
+                 OR source LIKE ?8
+                 OR provider LIKE ?8
+                 OR credential_key LIKE ?8
+                 OR action LIKE ?8
+                 OR risk LIKE ?8
+                 OR result LIKE ?8
+                 OR request_id LIKE ?8
+                 OR detail_json LIKE ?8
+               )
+             ORDER BY id DESC
+             LIMIT ?9",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![
+                    input.source,
+                    input.provider,
+                    input.credential_key,
+                    input.actor,
+                    input.action,
+                    input.risk,
+                    input.result,
+                    keyword,
+                    limit
+                ],
+                |row| Self::map_secure_credential_audit_row(row),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn create_secure_credential_audit_log(
+        &self,
+        input: &CreateSecureCredentialAuditLogInput,
+    ) -> Result<SecureCredentialAuditLog, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let detail_json = input.detail_json.as_deref().unwrap_or("{}");
+        let request_id = input.request_id.as_deref().unwrap_or("");
+        conn.execute(
+            "INSERT INTO secure_credential_audit_logs
+             (actor, source, provider, credential_key, action, risk, result, duration_ms,
+              request_id, approval_id, detail_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                input.actor,
+                input.source,
+                input.provider,
+                input.credential_key,
+                input.action,
+                input.risk,
+                input.result,
+                input.duration_ms,
+                request_id,
+                input.approval_id,
+                detail_json
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        let audit = conn.query_row(
+            "SELECT id, actor, source, provider, credential_key, action, risk, result,
+                    duration_ms, request_id, approval_id, detail_json, created_at
+             FROM secure_credential_audit_logs
+             WHERE id = ?1",
+            [id],
+            Self::map_secure_credential_audit_row,
+        )?;
+        Ok(audit)
+    }
+
+    pub fn count_secure_credential_recent_calls(
+        &self,
+        credential_key: &str,
+        seconds: i64,
+    ) -> Result<i64, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let count = conn.query_row(
+            "SELECT COUNT(*)
+             FROM secure_credential_audit_logs
+             WHERE credential_key = ?1
+               AND datetime(created_at) >= datetime('now', ?2)",
+            params![credential_key, format!("-{} seconds", seconds.max(1))],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn get_secure_credential_policy_settings(
+        &self,
+    ) -> Result<SecureCredentialPolicySettings, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let row = conn
+            .query_row(
+                "SELECT policy_json, updated_at
+                 FROM secure_credential_policies
+                 WHERE policy_key = 'global' AND enabled = 1",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        match row {
+            Some((policy_json, updated_at)) => {
+                let mut settings = Self::parse_secure_credential_policy(&policy_json)?;
+                settings.updated_at = Some(updated_at);
+                Ok(settings)
+            }
+            None => Ok(SecureCredentialPolicySettings::default()),
+        }
+    }
+
+    pub fn update_secure_credential_policy_settings(
+        &self,
+        input: &UpdateSecureCredentialPolicySettingsInput,
+    ) -> Result<SecureCredentialPolicySettings, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let policy_json = serde_json::to_string(input)?;
+        conn.execute(
+            "INSERT INTO secure_credential_policies
+             (policy_key, policy_json, enabled, updated_at)
+             VALUES ('global', ?1, 1, datetime('now', 'localtime'))
+             ON CONFLICT(policy_key) DO UPDATE SET
+               policy_json = excluded.policy_json,
+               enabled = excluded.enabled,
+               updated_at = excluded.updated_at",
+            [policy_json],
+        )?;
+        drop(conn);
+        self.get_secure_credential_policy_settings()
+    }
+
+    pub fn expire_secure_credential_sessions(&self) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE secure_credential_sessions
+             SET status = 'expired'
+             WHERE status = 'active' AND datetime(expires_at) <= datetime('now', 'localtime')",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_secure_credential_sessions(
+        &self,
+    ) -> Result<Vec<SecureCredentialSession>, AppError> {
+        self.expire_secure_credential_sessions()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, credential_key, provider, caller, scope_json, status,
+                    expires_at, created_at, revoked_at, last_used_at, call_count
+             FROM secure_credential_sessions
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_secure_credential_session_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_secure_credential_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SecureCredentialSession>, AppError> {
+        self.expire_secure_credential_sessions()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, session_id, credential_key, provider, caller, scope_json, status,
+                    expires_at, created_at, revoked_at, last_used_at, call_count
+             FROM secure_credential_sessions
+             WHERE session_id = ?1",
+            [session_id],
+            Self::map_secure_credential_session_row,
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn create_secure_credential_session(
+        &self,
+        session_id: &str,
+        credential: &SecureCredential,
+        caller: &str,
+        scopes: &[String],
+        ttl_minutes: i64,
+    ) -> Result<SecureCredentialSession, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let scopes_json = serde_json::to_string(scopes)?;
+        conn.execute(
+            "INSERT INTO secure_credential_sessions
+             (session_id, credential_key, provider, caller, scope_json, status, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', datetime('now', ?6 || ' minutes', 'localtime'))",
+            params![
+                session_id,
+                credential.credential_key,
+                credential.provider,
+                caller,
+                scopes_json,
+                ttl_minutes
+            ],
+        )?;
+        drop(conn);
+
+        self.get_secure_credential_session(session_id)?
+            .ok_or_else(|| AppError::NotFound(format!("会话 '{}' 不存在", session_id)))
+    }
+
+    pub fn revoke_secure_credential_session(
+        &self,
+        session_id: &str,
+    ) -> Result<SecureCredentialSession, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE secure_credential_sessions
+             SET status = 'revoked', revoked_at = datetime('now', 'localtime')
+             WHERE session_id = ?1 AND status != 'revoked'",
+            [session_id],
+        )?;
+        drop(conn);
+        if affected == 0 {
+            return Err(AppError::NotFound(format!(
+                "会话 '{}' 不存在或已吊销",
+                session_id
+            )));
+        }
+        self.get_secure_credential_session(session_id)?
+            .ok_or_else(|| AppError::NotFound(format!("会话 '{}' 不存在", session_id)))
+    }
+
+    pub fn touch_secure_credential_session(&self, session_id: &str) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE secure_credential_sessions
+             SET last_used_at = datetime('now', 'localtime'), call_count = call_count + 1
+             WHERE session_id = ?1 AND status = 'active'",
+            [session_id],
+        )?;
+        Ok(())
     }
 
     // ─── 数据库管理 DAO ───────────────────────────────
@@ -2774,6 +3419,169 @@ impl Database {
             enabled: row.get::<_, i64>(6)? != 0,
             rotated_at: row.get(7)?,
             updated_at: row.get(8)?,
+        })
+    }
+
+    fn map_secure_credential_row(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<SecureCredential, rusqlite::Error> {
+        let scope_json: String = row.get(7)?;
+        let tags_json: String = row.get(8)?;
+        let scopes = serde_json::from_str(&scope_json).unwrap_or_else(|_| Vec::new());
+        let tags = serde_json::from_str(&tags_json).unwrap_or_else(|_| Vec::new());
+        let has_secret = row.get::<_, i64>(18)? != 0;
+        Ok(SecureCredential {
+            id: row.get(0)?,
+            credential_key: row.get(1)?,
+            display_name: row.get(2)?,
+            provider: row.get(3)?,
+            credential_type: row.get(4)?,
+            account_name: row.get(5)?,
+            base_url: row.get(6)?,
+            scopes,
+            tags,
+            folder: row.get(9)?,
+            description: row.get(10)?,
+            status: row.get(11)?,
+            enabled: row.get::<_, i64>(12)? != 0,
+            allow_mcp: row.get::<_, i64>(13)? != 0,
+            approval_policy: row.get(14)?,
+            expires_at: row.get(15)?,
+            last_used_at: row.get(16)?,
+            usage_count: row.get(17)?,
+            has_secret,
+            secret_masked: if has_secret {
+                Some("••••••••".into())
+            } else {
+                None
+            },
+            rotated_at: row.get(19)?,
+            created_at: row.get(20)?,
+            updated_at: row.get(21)?,
+        })
+    }
+
+    fn map_secure_credential_session_row(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<SecureCredentialSession, rusqlite::Error> {
+        let scope_json: String = row.get(5)?;
+        let scopes = serde_json::from_str(&scope_json).unwrap_or_else(|_| Vec::new());
+        Ok(SecureCredentialSession {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            credential_key: row.get(2)?,
+            provider: row.get(3)?,
+            caller: row.get(4)?,
+            scopes,
+            status: row.get(6)?,
+            expires_at: row.get(7)?,
+            created_at: row.get(8)?,
+            revoked_at: row.get(9)?,
+            last_used_at: row.get(10)?,
+            call_count: row.get(11)?,
+        })
+    }
+
+    fn map_secure_credential_audit_row(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<SecureCredentialAuditLog, rusqlite::Error> {
+        Ok(SecureCredentialAuditLog {
+            id: row.get(0)?,
+            actor: row.get(1)?,
+            source: row.get(2)?,
+            provider: row.get(3)?,
+            credential_key: row.get(4)?,
+            action: row.get(5)?,
+            risk: row.get(6)?,
+            result: row.get(7)?,
+            duration_ms: row.get(8)?,
+            request_id: row.get(9)?,
+            approval_id: row.get(10)?,
+            detail_json: row.get(11)?,
+            created_at: row.get(12)?,
+        })
+    }
+
+    fn parse_secure_credential_policy(
+        policy_json: &str,
+    ) -> Result<SecureCredentialPolicySettings, AppError> {
+        let value: serde_json::Value = serde_json::from_str(policy_json)?;
+        let defaults = SecureCredentialPolicySettings::default();
+        Ok(SecureCredentialPolicySettings {
+            default_session_ttl_minutes: value
+                .get("defaultSessionTtlMinutes")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(defaults.default_session_ttl_minutes)
+                .clamp(1, 240),
+            max_response_items: value
+                .get("maxResponseItems")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(defaults.max_response_items)
+                .clamp(1, 500),
+            allow_readonly_auto: value
+                .get("allowReadonlyAuto")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(defaults.allow_readonly_auto),
+            require_approval_for_all: value
+                .get("requireApprovalForAll")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(defaults.require_approval_for_all),
+            allow_http_custom_headers: value
+                .get("allowHttpCustomHeaders")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(defaults.allow_http_custom_headers),
+            http_allowed_domains: value
+                .get("httpAllowedDomains")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|item| !item.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or(defaults.http_allowed_domains),
+            rate_limit_per_minute: value
+                .get("rateLimitPerMinute")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(defaults.rate_limit_per_minute)
+                .clamp(1, 600),
+            max_concurrent_sessions: value
+                .get("maxConcurrentSessions")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(defaults.max_concurrent_sessions)
+                .clamp(1, 100),
+            allow_default_branch_commits: value
+                .get("allowDefaultBranchCommits")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(defaults.allow_default_branch_commits),
+            allow_high_risk_repo_ops: value
+                .get("allowHighRiskRepoOps")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            allow_delete_branch: value
+                .get("allowDeleteBranch")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            allow_delete_tag: value
+                .get("allowDeleteTag")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            allow_delete_release: value
+                .get("allowDeleteRelease")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            allow_update_ref: value
+                .get("allowUpdateRef")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            allow_update_repo_settings: value
+                .get("allowUpdateRepoSettings")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            updated_at: None,
         })
     }
 

@@ -31,6 +31,10 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         // ─── 应用初始化 ─────────────────────────────
         .setup(|app| {
             // 初始化数据库（存放在应用数据目录）
@@ -131,6 +135,26 @@ pub fn run() {
             commands::credential_vault::authorize_credential,
             commands::credential_vault::rotate_credential,
             commands::credential_vault::delete_credential,
+            // 安全凭证模块
+            commands::secure_credential::get_secure_credential_overview,
+            commands::secure_credential::list_secure_credential_audit_logs,
+            commands::secure_credential::get_secure_credential_policy_settings,
+            commands::secure_credential::update_secure_credential_policy_settings,
+            commands::secure_credential::list_secure_credentials,
+            commands::secure_credential::upsert_secure_credential,
+            commands::secure_credential::rotate_secure_credential,
+            commands::secure_credential::set_secure_credential_enabled,
+            commands::secure_credential::delete_secure_credential,
+            commands::secure_credential::list_secure_credential_sessions,
+            commands::secure_credential::create_secure_credential_session,
+            commands::secure_credential::get_secure_credential_session_status,
+            commands::secure_credential::revoke_secure_credential_session,
+            commands::secure_credential::test_secure_credential_provider,
+            commands::secure_credential::list_secure_credential_repositories,
+            commands::secure_credential::secure_credential_git_readonly_request,
+            commands::secure_credential::secure_credential_http_readonly_request,
+            commands::secure_credential::secure_credential_http_write_request,
+            commands::secure_credential::execute_secure_credential_git_write,
             // 数据库管理模块
             commands::database_ops::list_database_connections,
             commands::database_ops::upsert_database_connection,

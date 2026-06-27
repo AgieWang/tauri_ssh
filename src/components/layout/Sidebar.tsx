@@ -5,16 +5,19 @@ import {
   BookOpen,
   Activity,
   Database,
+  Clock3,
   FolderTree,
   KeyRound,
   Landmark,
   LayoutDashboard,
+  LockKeyhole,
   Logs,
   PlugZap,
   ScrollText,
   Server,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Terminal,
 } from "lucide-react";
 import { useAppStore } from "@/store";
@@ -32,6 +35,19 @@ const menuItems = [
     children: [
       { key: "/servers", icon: <Server size={16} />, label: "服务器" },
       { key: "/vault", icon: <KeyRound size={16} />, label: "凭据保险库" },
+    ],
+  },
+  {
+    key: "secure-credentials",
+    icon: <LockKeyhole size={18} />,
+    label: "安全凭证",
+    children: [
+      { key: "/secure-credentials/overview", icon: <LayoutDashboard size={16} />, label: "概览" },
+      { key: "/secure-credentials/vault", icon: <KeyRound size={16} />, label: "凭证库" },
+      { key: "/secure-credentials/sessions", icon: <Clock3 size={16} />, label: "会话" },
+      { key: "/secure-credentials/mcp", icon: <PlugZap size={16} />, label: "MCP 接入" },
+      { key: "/secure-credentials/audit", icon: <ScrollText size={16} />, label: "审计" },
+      { key: "/secure-credentials/policies", icon: <SlidersHorizontal size={16} />, label: "策略" },
     ],
   },
   {
@@ -86,18 +102,23 @@ export function Sidebar() {
       >
         {collapsed ? "SSH" : "Tauri SSH"}
       </div>
-      <Menu
-        mode="inline"
-        selectedKeys={[location.pathname === "/" ? "/dashboard" : location.pathname]}
-        defaultOpenKeys={collapsed ? [] : ["assets", "ops", "ai", "governance"]}
-        items={menuItems}
-        onClick={({ key }) => {
-          if (String(key).startsWith("/")) {
-            navigate(key);
-          }
-        }}
-        style={{ border: "none", flex: 1 }}
-      />
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        style={{ scrollbarGutter: "stable" }}
+      >
+        <Menu
+          mode="inline"
+          selectedKeys={[location.pathname === "/" ? "/dashboard" : location.pathname]}
+          defaultOpenKeys={collapsed ? [] : ["assets", "secure-credentials", "ops", "ai", "governance"]}
+          items={menuItems}
+          onClick={({ key }) => {
+            if (String(key).startsWith("/")) {
+              navigate(key);
+            }
+          }}
+          style={{ border: "none" }}
+        />
+      </div>
     </div>
   );
 }

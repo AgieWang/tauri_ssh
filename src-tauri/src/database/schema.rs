@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 15;
+pub const SCHEMA_VERSION: i32 = 16;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -45,6 +45,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             12 => migrate_v12_to_v13(conn)?,
             13 => migrate_v13_to_v14(conn)?,
             14 => migrate_v14_to_v15(conn)?,
+            15 => migrate_v15_to_v16(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -53,6 +54,114 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v15 -> v16: AI/MCP 安全凭证代理
+fn migrate_v15_to_v16(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v15 -> v16（安全凭证）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS secure_credentials (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            credential_key      TEXT NOT NULL UNIQUE,
+            display_name        TEXT NOT NULL,
+            provider            TEXT NOT NULL,
+            credential_type     TEXT NOT NULL,
+            account_name        TEXT NOT NULL DEFAULT '',
+            base_url            TEXT NOT NULL DEFAULT '',
+            scope_json          TEXT NOT NULL DEFAULT '[]',
+            tags_json           TEXT NOT NULL DEFAULT '[]',
+            folder              TEXT NOT NULL DEFAULT '',
+            description         TEXT NOT NULL DEFAULT '',
+            status              TEXT NOT NULL DEFAULT 'active',
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            allow_mcp           INTEGER NOT NULL DEFAULT 0,
+            approval_policy     TEXT NOT NULL DEFAULT 'write_requires_approval',
+            expires_at          TEXT DEFAULT NULL,
+            last_used_at        TEXT DEFAULT NULL,
+            usage_count         INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at          TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_secure_credentials_provider
+            ON secure_credentials(provider);
+        CREATE INDEX IF NOT EXISTS idx_secure_credentials_status
+            ON secure_credentials(status);
+        CREATE INDEX IF NOT EXISTS idx_secure_credentials_allow_mcp
+            ON secure_credentials(allow_mcp, enabled);
+
+        CREATE TABLE IF NOT EXISTS secure_credential_secrets (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            credential_key      TEXT NOT NULL,
+            secret_version      INTEGER NOT NULL DEFAULT 1,
+            secret_nonce        TEXT NOT NULL,
+            secret_ciphertext   TEXT NOT NULL,
+            secret_hint         TEXT NOT NULL DEFAULT '',
+            active              INTEGER NOT NULL DEFAULT 1,
+            rotated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (credential_key) REFERENCES secure_credentials(credential_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_secure_credential_secrets_key
+            ON secure_credential_secrets(credential_key, active);
+
+        CREATE TABLE IF NOT EXISTS secure_credential_sessions (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id          TEXT NOT NULL UNIQUE,
+            credential_key      TEXT NOT NULL,
+            provider            TEXT NOT NULL,
+            caller              TEXT NOT NULL DEFAULT 'local-user',
+            scope_json          TEXT NOT NULL DEFAULT '[]',
+            status              TEXT NOT NULL DEFAULT 'active',
+            expires_at          TEXT NOT NULL,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            revoked_at          TEXT DEFAULT NULL,
+            last_used_at        TEXT DEFAULT NULL,
+            call_count          INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (credential_key) REFERENCES secure_credentials(credential_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_secure_credential_sessions_status
+            ON secure_credential_sessions(status, expires_at);
+
+        CREATE TABLE IF NOT EXISTS secure_credential_policies (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_key          TEXT NOT NULL UNIQUE,
+            policy_json         TEXT NOT NULL,
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS secure_credential_audit_logs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor               TEXT NOT NULL DEFAULT 'local-user',
+            source              TEXT NOT NULL DEFAULT 'secure_credential',
+            provider            TEXT NOT NULL DEFAULT '',
+            credential_key      TEXT NOT NULL DEFAULT '',
+            action              TEXT NOT NULL,
+            risk                TEXT NOT NULL DEFAULT 'readonly',
+            result              TEXT NOT NULL,
+            duration_ms         INTEGER NOT NULL DEFAULT 0,
+            request_id          TEXT NOT NULL DEFAULT '',
+            approval_id         INTEGER DEFAULT NULL,
+            detail_json         TEXT NOT NULL DEFAULT '{}',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_secure_credential_audit_logs_created
+            ON secure_credential_audit_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_secure_credential_audit_logs_credential
+            ON secure_credential_audit_logs(credential_key, created_at DESC);
+        ",
+    )?;
+
+    set_version(conn, 16)?;
     Ok(())
 }
 

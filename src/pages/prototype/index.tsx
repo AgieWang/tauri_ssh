@@ -5416,6 +5416,14 @@ export function PrototypeSettingsPage() {
             <Form.Item label="自动更新" name="autoUpdate" valuePropName="checked">
               <Switch checkedChildren="开启" unCheckedChildren="关闭" />
             </Form.Item>
+            <Form.Item
+              label="随系统启动"
+              name="launchOnStartup"
+              valuePropName="checked"
+              tooltip="支持 macOS 和 Windows；开启后应用会在系统登录后自动启动。"
+            >
+              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+            </Form.Item>
             <Form.Item label="审计保留天数" name="auditRetentionDays" rules={[{ required: true, message: "请输入审计保留天数" }]}>
               <InputNumber className="w-full" min={1} max={3650} addonAfter="天" />
             </Form.Item>
@@ -5449,6 +5457,7 @@ export function PrototypeSettingsPage() {
         <Descriptions column={3} size="small" bordered>
           <Descriptions.Item label="主题">{settings?.theme ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="自动更新">{settings?.autoUpdate ? "开启" : "关闭"}</Descriptions.Item>
+          <Descriptions.Item label="随系统启动">{settings?.launchOnStartup ? "开启" : "关闭"}</Descriptions.Item>
           <Descriptions.Item label="审计保留">{settings ? `${settings.auditRetentionDays} 天` : "-"}</Descriptions.Item>
           <Descriptions.Item label="日志级别">{settings?.logLevel ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="备份位置">{settings?.backupDir ?? "-"}</Descriptions.Item>

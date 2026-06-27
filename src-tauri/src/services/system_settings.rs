@@ -1,11 +1,13 @@
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{SystemSettings, SystemSettingsExportResult, UpdateSystemSettingsInput};
+use tauri_plugin_autostart::ManagerExt;
 
 pub struct SystemSettingsService;
 
 const KEY_THEME: &str = "settings.theme";
 const KEY_AUTO_UPDATE: &str = "settings.auto_update";
+const KEY_LAUNCH_ON_STARTUP: &str = "settings.launch_on_startup";
 const KEY_AUDIT_RETENTION_DAYS: &str = "settings.audit_retention_days";
 const KEY_LOG_LEVEL: &str = "settings.log_level";
 const KEY_BACKUP_DIR: &str = "settings.backup_dir";
@@ -19,6 +21,7 @@ impl SystemSettingsService {
         Ok(SystemSettings {
             theme: get_value(db, KEY_THEME, "system")?,
             auto_update: get_bool(db, KEY_AUTO_UPDATE, true)?,
+            launch_on_startup: get_bool(db, KEY_LAUNCH_ON_STARTUP, false)?,
             audit_retention_days: get_i64(db, KEY_AUDIT_RETENTION_DAYS, 90)?,
             log_level: get_value(db, KEY_LOG_LEVEL, "info")?,
             backup_dir: get_value(db, KEY_BACKUP_DIR, "应用数据目录 / backups")?,
@@ -41,6 +44,7 @@ impl SystemSettingsService {
         validate(&input)?;
         db.set_config(KEY_THEME, &input.theme)?;
         db.set_config(KEY_AUTO_UPDATE, bool_text(input.auto_update))?;
+        db.set_config(KEY_LAUNCH_ON_STARTUP, bool_text(input.launch_on_startup))?;
         db.set_config(
             KEY_AUDIT_RETENTION_DAYS,
             &input.audit_retention_days.to_string(),
@@ -60,6 +64,7 @@ impl SystemSettingsService {
             UpdateSystemSettingsInput {
                 theme: "system".into(),
                 auto_update: true,
+                launch_on_startup: false,
                 audit_retention_days: 90,
                 log_level: "info".into(),
                 backup_dir: "应用数据目录 / backups".into(),
@@ -80,6 +85,58 @@ impl SystemSettingsService {
             ),
             content: serde_json::to_string_pretty(&settings)?,
         })
+    }
+
+    pub fn get_with_autostart(
+        db: &Database,
+        app: &tauri::AppHandle,
+    ) -> Result<SystemSettings, AppError> {
+        let mut settings = Self::get(db)?;
+        settings.launch_on_startup = Self::is_launch_on_startup_enabled(app)?;
+        db.set_config(
+            KEY_LAUNCH_ON_STARTUP,
+            bool_text(settings.launch_on_startup),
+        )?;
+        Ok(settings)
+    }
+
+    pub fn update_with_autostart(
+        db: &Database,
+        app: &tauri::AppHandle,
+        mut input: UpdateSystemSettingsInput,
+    ) -> Result<SystemSettings, AppError> {
+        input.launch_on_startup = Self::set_launch_on_startup(app, input.launch_on_startup)?;
+        Self::update(db, input)
+    }
+
+    pub fn reset_with_autostart(
+        db: &Database,
+        app: &tauri::AppHandle,
+    ) -> Result<SystemSettings, AppError> {
+        Self::set_launch_on_startup(app, false)?;
+        Self::reset(db)
+    }
+
+    fn is_launch_on_startup_enabled(app: &tauri::AppHandle) -> Result<bool, AppError> {
+        app.autolaunch()
+            .is_enabled()
+            .map_err(|e| AppError::Custom(format!("读取开机自启动状态失败: {}", e)))
+    }
+
+    fn set_launch_on_startup(app: &tauri::AppHandle, enabled: bool) -> Result<bool, AppError> {
+        let manager = app.autolaunch();
+        if enabled {
+            manager
+                .enable()
+                .map_err(|e| AppError::Custom(format!("启用开机自启动失败: {}", e)))?;
+        } else {
+            manager
+                .disable()
+                .map_err(|e| AppError::Custom(format!("关闭开机自启动失败: {}", e)))?;
+        }
+        manager
+            .is_enabled()
+            .map_err(|e| AppError::Custom(format!("读取开机自启动状态失败: {}", e)))
     }
 }
 

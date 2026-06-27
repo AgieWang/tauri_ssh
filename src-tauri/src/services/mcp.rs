@@ -63,7 +63,7 @@ impl McpService {
     }
 
     pub fn tools() -> Vec<McpToolPermission> {
-        vec![
+        let mut tools = vec![
             McpToolPermission {
                 tool: "mcp_status".into(),
                 policy: "只读".into(),
@@ -113,6 +113,66 @@ impl McpService {
                 tool: "ai_providers_list".into(),
                 policy: "只读，返回 Provider 状态不含密钥".into(),
                 audit: "记录客户端与数量".into(),
+            },
+            McpToolPermission {
+                tool: "secure_credentials_list".into(),
+                policy: "只读，返回安全凭证脱敏元数据".into(),
+                audit: "记录客户端、筛选条件和数量".into(),
+            },
+            McpToolPermission {
+                tool: "secure_session_create".into(),
+                policy: "仅为 allow_mcp=true 的凭证创建短期会话，不返回密钥".into(),
+                audit: "记录调用方、凭证 Key、授权范围和过期时间".into(),
+            },
+            McpToolPermission {
+                tool: "secure_session_status".into(),
+                policy: "只读校验短期会话状态".into(),
+                audit: "记录 sessionId 和有效性".into(),
+            },
+            McpToolPermission {
+                tool: "secure_session_revoke".into(),
+                policy: "吊销短期会话，不触碰原始凭据".into(),
+                audit: "记录 sessionId 和吊销结果".into(),
+            },
+            McpToolPermission {
+                tool: "secure_provider_test".into(),
+                policy: "通过短期 session 测试 Provider 连接，响应脱敏".into(),
+                audit: "记录 session、Provider 和测试结果".into(),
+            },
+            McpToolPermission {
+                tool: "secure_git_repositories_list".into(),
+                policy: "只读读取 GitHub/GitLab/GitCode 仓库列表，不返回 Token".into(),
+                audit: "记录 sessionId、Provider 和仓库数量".into(),
+            },
+            McpToolPermission {
+                tool: "secure_git_readonly_request".into(),
+                policy: "只读读取 repo/branch/file/commit/PR/MR/issue/tag/release 等 Git 资源，不返回 Token".into(),
+                audit: "记录 sessionId、资源类型、仓库和状态码".into(),
+            },
+            McpToolPermission {
+                tool: "secure_http_readonly_request".into(),
+                policy: "仅允许 HTTP API GET 相对路径请求，响应脱敏".into(),
+                audit: "记录 sessionId、path、状态码和截断状态".into(),
+            },
+            McpToolPermission {
+                tool: "secure_git_write_controlled".into(),
+                policy: "Git 写操作只创建审批请求，固化 requestHash".into(),
+                audit: "记录仓库、操作、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "secure_git_write_approved".into(),
+                policy: "仅执行 approved 且 requestHash 匹配的 Git 写操作；高风险操作受策略页开关限制".into(),
+                audit: "记录审批 ID、仓库、操作和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "secure_http_write_controlled".into(),
+                policy: "HTTP API 非 GET 请求只创建审批请求，固化 requestHash".into(),
+                audit: "记录 method、path、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "secure_http_write_approved".into(),
+                policy: "仅执行 approved 且 requestHash 匹配的 HTTP API 非 GET 请求".into(),
+                audit: "记录审批 ID、method、path 和执行结果".into(),
             },
             McpToolPermission {
                 tool: "database_connections_list".into(),
@@ -368,7 +428,9 @@ impl McpService {
                 policy: "只读审批状态；即使通过也不返回凭据明文".into(),
                 audit: "记录审批 ID 和状态".into(),
             },
-        ]
+        ];
+        tools.extend(secure_credential_semantic_tool_permissions());
+        tools
     }
 
     pub fn configure(input: ConfigureMcpClientInput) -> Result<ConfigureMcpClientResult, AppError> {
@@ -434,6 +496,110 @@ impl McpService {
             },
         ]
     }
+}
+
+fn secure_credential_semantic_tool_permissions() -> Vec<McpToolPermission> {
+    let mut tools = Vec::new();
+    for tool in [
+        "secure_credential_detail",
+        "secure_credential_audit_list",
+    ] {
+        tools.push(McpToolPermission {
+            tool: tool.into(),
+            policy: "只读，返回安全凭证脱敏详情或审计记录".into(),
+            audit: "记录筛选条件和返回数量".into(),
+        });
+    }
+    for tool in [
+        "github_repos_list",
+        "github_repo_detail",
+        "github_branches_list",
+        "github_file_read",
+        "github_commits_list",
+        "github_pull_requests_list",
+        "github_issues_list",
+        "github_releases_list",
+        "github_tags_list",
+        "gitlab_projects_list",
+        "gitlab_project_detail",
+        "gitlab_branches_list",
+        "gitlab_file_read",
+        "gitlab_commits_list",
+        "gitlab_issues_list",
+        "gitlab_merge_requests_list",
+        "gitlab_releases_list",
+        "gitlab_tags_list",
+        "gitcode_repos_list",
+        "gitcode_repo_detail",
+        "gitcode_branches_list",
+        "gitcode_file_read",
+        "gitcode_commits_list",
+        "gitcode_merge_requests_list",
+        "http_api_request_readonly",
+    ] {
+        tools.push(McpToolPermission {
+            tool: tool.into(),
+            policy: "只读，必须提供 sessionId，后端代调用 Provider，不返回 Token".into(),
+            audit: "记录 sessionId、Provider、资源类型和调用结果".into(),
+        });
+    }
+    for tool in [
+        "github_issue_create_controlled",
+        "github_branch_create_controlled",
+        "github_file_commit_controlled",
+        "github_pull_request_create_controlled",
+        "github_pull_request_update_controlled",
+        "github_pull_request_merge_controlled",
+        "github_tag_create_controlled",
+        "github_release_create_controlled",
+        "github_workflow_dispatch_controlled",
+        "gitlab_issue_create_controlled",
+        "gitlab_branch_create_controlled",
+        "gitlab_file_commit_controlled",
+        "gitlab_merge_request_create_controlled",
+        "gitlab_merge_request_update_controlled",
+        "gitlab_merge_request_merge_controlled",
+        "gitlab_tag_create_controlled",
+        "gitlab_release_create_controlled",
+        "gitlab_pipeline_trigger_controlled",
+        "gitcode_issue_create_controlled",
+        "gitcode_branch_create_controlled",
+        "gitcode_file_commit_controlled",
+        "gitcode_merge_request_create_controlled",
+        "gitcode_merge_request_merge_controlled",
+        "gitcode_tag_create_controlled",
+        "gitcode_release_create_controlled",
+        "http_api_request_controlled",
+        "secure_credential_rotate_request",
+    ] {
+        tools.push(McpToolPermission {
+            tool: tool.into(),
+            policy: "受控写操作，只创建审批请求，不直接执行真实写入".into(),
+            audit: "记录 payload requestHash、审批 ID 和资源摘要".into(),
+        });
+    }
+    for tool in [
+        "github_branch_delete_controlled",
+        "github_tag_delete_controlled",
+        "github_release_delete_controlled",
+        "github_ref_update_controlled",
+        "github_repository_settings_update_controlled",
+        "gitlab_branch_delete_controlled",
+        "gitlab_tag_delete_controlled",
+        "gitlab_release_delete_controlled",
+        "gitlab_project_settings_update_controlled",
+        "gitcode_branch_delete_controlled",
+        "gitcode_tag_delete_controlled",
+        "gitcode_release_delete_controlled",
+        "gitcode_repository_settings_update_controlled",
+    ] {
+        tools.push(McpToolPermission {
+            tool: tool.into(),
+            policy: "高风险仓库操作，只创建审批请求；approved 后仍受策略页开关限制".into(),
+            audit: "记录高风险动作、requestHash、审批 ID 和策略拒绝原因".into(),
+        });
+    }
+    tools
 }
 
 fn client_templates() -> Vec<McpClientTemplate> {

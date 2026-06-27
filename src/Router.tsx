@@ -7,6 +7,14 @@ import DatabasePage from "@/pages/database";
 import SkillsPage from "@/pages/skills";
 import ResourceMonitorPage from "@/pages/resource-monitor";
 import {
+  SecureCredentialAuditPage,
+  SecureCredentialMcpPage,
+  SecureCredentialOverviewPage,
+  SecureCredentialPoliciesPage,
+  SecureCredentialSessionsPage,
+  SecureCredentialVaultPage,
+} from "@/pages/secure-credentials";
+import {
   ApprovalPage,
   AuditPage,
   CoveragePage,
@@ -41,6 +49,12 @@ const router = createBrowserRouter([
       { path: "server-form", element: <ServerFormPage /> },
       { path: "ssh-import", element: <SshImportPage /> },
       { path: "vault", element: <VaultPage /> },
+      { path: "secure-credentials/overview", element: <SecureCredentialOverviewPage /> },
+      { path: "secure-credentials/vault", element: <SecureCredentialVaultPage /> },
+      { path: "secure-credentials/sessions", element: <SecureCredentialSessionsPage /> },
+      { path: "secure-credentials/mcp", element: <SecureCredentialMcpPage /> },
+      { path: "secure-credentials/audit", element: <SecureCredentialAuditPage /> },
+      { path: "secure-credentials/policies", element: <SecureCredentialPoliciesPage /> },
       { path: "terminal", element: <TerminalPage /> },
       { path: "approval", element: <ApprovalPage /> },
       { path: "logs", element: <LogsPage /> },

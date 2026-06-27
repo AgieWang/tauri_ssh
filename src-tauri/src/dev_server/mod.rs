@@ -14,12 +14,18 @@ use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
     AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
-    CreateApprovalRequestInput, CreateAuditLogInput, DecideApprovalRequestInput, ListAiSkillsInput,
-    ListApprovalRequestsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
-    ResourceSnapshotListInput, RunAiRunbookInput, UpdateSystemSettingsInput,
-    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
-    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertDatabaseConnectionInput,
-    UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput,
+    CreateApprovalRequestInput, CreateAuditLogInput, CreateSecureCredentialSessionInput,
+    DecideApprovalRequestInput, ListAiSkillsInput, ListApprovalRequestsInput,
+    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
+    ListSecureCredentialSessionsInput, ListSecureCredentialsInput, ResourceSnapshotListInput,
+    RotateSecureCredentialInput, RunAiRunbookInput, SecureCredentialGitReadInput,
+    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
+    SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
+    SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
+    UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
+    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
+    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
 };
 use crate::services::ai_provider::AiProviderService;
 use crate::services::ai_skill::AiSkillService;
@@ -30,6 +36,7 @@ use crate::services::database_ops::DatabaseOpsService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
 use crate::services::resource_monitor::ResourceMonitorService;
+use crate::services::secure_credential::SecureCredentialService;
 use crate::services::sftp::SftpService;
 use crate::services::ssh_server::SshServerService;
 use crate::services::system_settings::SystemSettingsService;
@@ -177,6 +184,82 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .route("/dev-api/credentials/rotate", post(rotate_credential))
         .route("/dev-api/credentials/:key", delete(delete_credential))
         .route(
+            "/dev-api/secure-credentials/overview",
+            get(get_secure_credential_overview),
+        )
+        .route(
+            "/dev-api/secure-credentials/policies",
+            get(get_secure_credential_policy_settings),
+        )
+        .route(
+            "/dev-api/secure-credentials/policies",
+            post(update_secure_credential_policy_settings),
+        )
+        .route(
+            "/dev-api/secure-credentials/list",
+            post(list_secure_credentials),
+        )
+        .route(
+            "/dev-api/secure-credentials/audit-logs",
+            post(list_secure_credential_audit_logs),
+        )
+        .route(
+            "/dev-api/secure-credentials",
+            post(upsert_secure_credential),
+        )
+        .route(
+            "/dev-api/secure-credentials/rotate",
+            post(rotate_secure_credential),
+        )
+        .route(
+            "/dev-api/secure-credentials/enabled",
+            post(set_secure_credential_enabled),
+        )
+        .route(
+            "/dev-api/secure-credentials/:credential_key",
+            delete(delete_secure_credential),
+        )
+        .route(
+            "/dev-api/secure-credentials/sessions/list",
+            post(list_secure_credential_sessions),
+        )
+        .route(
+            "/dev-api/secure-credentials/sessions",
+            post(create_secure_credential_session),
+        )
+        .route(
+            "/dev-api/secure-credentials/sessions/:session_id/status",
+            get(get_secure_credential_session_status),
+        )
+        .route(
+            "/dev-api/secure-credentials/sessions/:session_id/revoke",
+            post(revoke_secure_credential_session),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/test",
+            post(test_secure_credential_provider),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/repositories",
+            post(list_secure_credential_repositories),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/git-readonly",
+            post(secure_credential_git_readonly_request),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/http-readonly",
+            post(secure_credential_http_readonly_request),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/http-write",
+            post(secure_credential_http_write_request),
+        )
+        .route(
+            "/dev-api/secure-credentials/provider/git-write",
+            post(execute_secure_credential_git_write),
+        )
+        .route(
             "/dev-api/database/connections",
             get(list_database_connections),
         )
@@ -312,7 +395,10 @@ async fn get_system_settings(
     State(ctx): State<DevApiState>,
 ) -> DevApiResult<crate::models::SystemSettings> {
     let state = app_state(&ctx);
-    Ok(Json(SystemSettingsService::get(&state.db)?))
+    Ok(Json(SystemSettingsService::get_with_autostart(
+        &state.db,
+        &ctx.app_handle,
+    )?))
 }
 
 async fn update_system_settings(
@@ -320,14 +406,21 @@ async fn update_system_settings(
     Json(input): Json<UpdateSystemSettingsInput>,
 ) -> DevApiResult<crate::models::SystemSettings> {
     let state = app_state(&ctx);
-    Ok(Json(SystemSettingsService::update(&state.db, input)?))
+    Ok(Json(SystemSettingsService::update_with_autostart(
+        &state.db,
+        &ctx.app_handle,
+        input,
+    )?))
 }
 
 async fn reset_system_settings(
     State(ctx): State<DevApiState>,
 ) -> DevApiResult<crate::models::SystemSettings> {
     let state = app_state(&ctx);
-    Ok(Json(SystemSettingsService::reset(&state.db)?))
+    Ok(Json(SystemSettingsService::reset_with_autostart(
+        &state.db,
+        &ctx.app_handle,
+    )?))
 }
 
 async fn export_system_settings(
@@ -533,7 +626,7 @@ async fn handle_mcp_rpc(ctx: &DevApiState, payload: serde_json::Value) -> serde_
 }
 
 fn mcp_tool_schemas() -> Vec<serde_json::Value> {
-    vec![
+    let mut tools = vec![
         serde_json::json!({
             "name": "mcp_status",
             "description": "读取 Tauri SSH MCP Server 本地端点状态。",
@@ -632,6 +725,168 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             "name": "ai_providers_list",
             "description": "列出已配置 AI Provider 状态，不返回 API Key。",
             "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "secure_credentials_list",
+            "description": "列出安全凭证脱敏元数据，不返回 Token、密码或密文明文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string" },
+                    "provider": { "type": "string", "enum": ["github", "gitlab", "gitcode", "http_api", "custom"] },
+                    "status": { "type": "string", "enum": ["active", "disabled", "rotation_due", "expired", "test_failed"] },
+                    "allowMcp": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_session_create",
+            "description": "为允许 MCP 使用的安全凭证创建短期会话，只返回 sessionId，不返回凭证明文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "credentialKey": { "type": "string" },
+                    "caller": { "type": "string" },
+                    "scopes": { "type": "array", "items": { "type": "string" } },
+                    "ttlMinutes": { "type": "number" }
+                },
+                "required": ["credentialKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_session_status",
+            "description": "校验安全凭证短期会话是否仍有效。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "sessionId": { "type": "string" } },
+                "required": ["sessionId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_session_revoke",
+            "description": "吊销安全凭证短期会话。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "sessionId": { "type": "string" } },
+                "required": ["sessionId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_provider_test",
+            "description": "通过安全会话测试 GitHub/GitLab/GitCode/HTTP API 连接，返回脱敏账号摘要。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "sessionId": { "type": "string" } },
+                "required": ["sessionId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_git_repositories_list",
+            "description": "通过安全会话读取 GitHub/GitLab/GitCode 仓库列表，不返回 Token。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "page": { "type": "number" },
+                    "perPage": { "type": "number" }
+                },
+                "required": ["sessionId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_git_readonly_request",
+            "description": "通过安全会话读取 GitHub/GitLab/GitCode repo/detail/branch/file/commit/PR/MR/issue/tag/release 等只读资源，不返回 Token。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "resource": { "type": "string", "enum": ["repos", "repo_detail", "branches", "file", "commits", "pull_requests", "issues", "releases", "tags"] },
+                    "repo": { "type": "string" },
+                    "path": { "type": "string" },
+                    "reference": { "type": "string" },
+                    "state": { "type": "string" },
+                    "page": { "type": "number" },
+                    "perPage": { "type": "number" }
+                },
+                "required": ["sessionId", "resource"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_http_readonly_request",
+            "description": "通过安全会话发起 HTTP API GET 只读请求，path 必须是相对路径，响应会脱敏。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "path": { "type": "string" },
+                    "queryJson": { "type": "object" }
+                },
+                "required": ["sessionId", "path"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_git_write_controlled",
+            "description": "为 GitHub/GitLab/GitCode 写操作创建审批请求。支持 issue、branch、file commit、PR/MR、tag、release、workflow/pipeline。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "operation": { "type": "string", "enum": ["create_issue", "create_branch", "commit_file", "create_pr", "update_pr", "merge_pr", "create_tag", "create_release", "trigger_workflow", "delete_branch", "delete_tag", "delete_release", "update_ref", "update_repo_settings"] },
+                    "repo": { "type": "string" },
+                    "payload": { "type": "object" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["sessionId", "operation", "repo", "payload"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_git_write_approved",
+            "description": "执行已批准的 GitHub/GitLab/GitCode 写操作，approvalId 必须匹配同一 payload hash。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "sessionId": { "type": "string" },
+                    "operation": { "type": "string" },
+                    "repo": { "type": "string" },
+                    "payload": { "type": "object" }
+                },
+                "required": ["approvalId", "sessionId", "operation", "repo", "payload"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_http_write_controlled",
+            "description": "为 HTTP API 非 GET 请求创建审批请求。只允许相对 path，审批通过后才能执行。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "method": { "type": "string", "enum": ["POST", "PUT", "PATCH", "DELETE"] },
+                    "path": { "type": "string" },
+                    "queryJson": { "type": "object" },
+                    "bodyJson": { "type": "object" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["sessionId", "method", "path"]
+            }
+        }),
+        serde_json::json!({
+            "name": "secure_http_write_approved",
+            "description": "执行已批准的 HTTP API 非 GET 请求，approvalId 必须匹配同一 payload hash。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "sessionId": { "type": "string" },
+                    "method": { "type": "string", "enum": ["POST", "PUT", "PATCH", "DELETE"] },
+                    "path": { "type": "string" },
+                    "queryJson": { "type": "object" },
+                    "bodyJson": { "type": "object" }
+                },
+                "required": ["approvalId", "sessionId", "method", "path"]
+            }
         }),
         serde_json::json!({
             "name": "database_connections_list",
@@ -1273,7 +1528,176 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                 "required": ["approvalId"]
             }
         }),
-    ]
+    ];
+    tools.extend(secure_credential_plan_tool_schemas());
+    tools
+}
+
+fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
+    let mut tools = Vec::new();
+    for name in [
+        "secure_credential_detail",
+        "secure_credential_audit_list",
+    ] {
+        tools.push(serde_json::json!({
+            "name": name,
+            "description": "安全凭证治理工具，返回脱敏元数据或审计记录，不返回凭证明文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "credentialKey": { "type": "string" },
+                    "keyword": { "type": "string" },
+                    "provider": { "type": "string" },
+                    "result": { "type": "string" },
+                    "limit": { "type": "number" }
+                }
+            }
+        }));
+    }
+    for name in [
+        "github_repos_list",
+        "github_repo_detail",
+        "github_branches_list",
+        "github_file_read",
+        "github_commits_list",
+        "github_pull_requests_list",
+        "github_issues_list",
+        "github_releases_list",
+        "github_tags_list",
+        "gitlab_projects_list",
+        "gitlab_project_detail",
+        "gitlab_branches_list",
+        "gitlab_file_read",
+        "gitlab_commits_list",
+        "gitlab_issues_list",
+        "gitlab_merge_requests_list",
+        "gitlab_releases_list",
+        "gitlab_tags_list",
+        "gitcode_repos_list",
+        "gitcode_repo_detail",
+        "gitcode_branches_list",
+        "gitcode_file_read",
+        "gitcode_commits_list",
+        "gitcode_merge_requests_list",
+    ] {
+        tools.push(serde_json::json!({
+            "name": name,
+            "description": "通过安全凭证 sessionId 读取 Git Provider 只读资源，不返回 Token。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "repo": { "type": "string" },
+                    "path": { "type": "string" },
+                    "reference": { "type": "string" },
+                    "state": { "type": "string" },
+                    "page": { "type": "number" },
+                    "perPage": { "type": "number" }
+                },
+                "required": ["sessionId"]
+            }
+        }));
+    }
+    tools.push(serde_json::json!({
+        "name": "http_api_request_readonly",
+        "description": "通过安全凭证 sessionId 发起 HTTP API GET 只读请求，path 必须是相对路径。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sessionId": { "type": "string" },
+                "path": { "type": "string" },
+                "queryJson": { "type": "object" }
+            },
+            "required": ["sessionId", "path"]
+        }
+    }));
+    for name in [
+        "github_issue_create_controlled",
+        "github_branch_create_controlled",
+        "github_file_commit_controlled",
+        "github_pull_request_create_controlled",
+        "github_pull_request_update_controlled",
+        "github_pull_request_merge_controlled",
+        "github_tag_create_controlled",
+        "github_release_create_controlled",
+        "github_workflow_dispatch_controlled",
+        "gitlab_issue_create_controlled",
+        "gitlab_branch_create_controlled",
+        "gitlab_file_commit_controlled",
+        "gitlab_merge_request_create_controlled",
+        "gitlab_merge_request_update_controlled",
+        "gitlab_merge_request_merge_controlled",
+        "gitlab_tag_create_controlled",
+        "gitlab_release_create_controlled",
+        "gitlab_pipeline_trigger_controlled",
+        "gitcode_issue_create_controlled",
+        "gitcode_branch_create_controlled",
+        "gitcode_file_commit_controlled",
+        "gitcode_merge_request_create_controlled",
+        "gitcode_merge_request_merge_controlled",
+        "gitcode_tag_create_controlled",
+        "gitcode_release_create_controlled",
+        "github_branch_delete_controlled",
+        "github_tag_delete_controlled",
+        "github_release_delete_controlled",
+        "github_ref_update_controlled",
+        "github_repository_settings_update_controlled",
+        "gitlab_branch_delete_controlled",
+        "gitlab_tag_delete_controlled",
+        "gitlab_release_delete_controlled",
+        "gitlab_project_settings_update_controlled",
+        "gitcode_branch_delete_controlled",
+        "gitcode_tag_delete_controlled",
+        "gitcode_release_delete_controlled",
+        "gitcode_repository_settings_update_controlled",
+    ] {
+        tools.push(serde_json::json!({
+            "name": name,
+            "description": "为 Git Provider 写操作创建审批请求，审批通过后由安全凭证后端代执行。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" },
+                    "repo": { "type": "string" },
+                    "payload": { "type": "object" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["sessionId", "repo", "payload"]
+            }
+        }));
+    }
+    tools.push(serde_json::json!({
+        "name": "http_api_request_controlled",
+        "description": "为 HTTP API 非 GET 请求创建审批请求，审批通过后由安全凭证后端代执行。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sessionId": { "type": "string" },
+                "method": { "type": "string", "enum": ["POST", "PUT", "PATCH", "DELETE"] },
+                "path": { "type": "string" },
+                "queryJson": { "type": "object" },
+                "bodyJson": { "type": "object" },
+                "requester": { "type": "string" },
+                "reason": { "type": "string" }
+            },
+            "required": ["sessionId", "method", "path"]
+        }
+    }));
+    tools.push(serde_json::json!({
+        "name": "secure_credential_rotate_request",
+        "description": "为安全凭证轮换创建审批请求，不接收也不返回新密钥明文。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "credentialKey": { "type": "string" },
+                "requester": { "type": "string" },
+                "reason": { "type": "string" }
+            },
+            "required": ["credentialKey"]
+        }
+    }));
+    tools
 }
 
 async fn call_mcp_tool(
@@ -1483,6 +1907,434 @@ async fn call_mcp_tool_inner(
                 })
                 .collect::<Vec<_>>();
             Ok(serde_json::json!({ "providers": providers }))
+        }
+        "secure_credentials_list" => {
+            let state = app_state(ctx);
+            let credentials = SecureCredentialService::list(
+                &state.db,
+                Some(crate::models::ListSecureCredentialsInput {
+                    keyword: optional_string(&arguments, "keyword"),
+                    provider: optional_string(&arguments, "provider"),
+                    status: optional_string(&arguments, "status"),
+                    allow_mcp: optional_bool(&arguments, "allowMcp"),
+                }),
+            )?
+            .into_iter()
+            .map(|item| {
+                serde_json::json!({
+                    "credentialKey": item.credential_key,
+                    "displayName": item.display_name,
+                    "provider": item.provider,
+                    "credentialType": item.credential_type,
+                    "accountName": item.account_name,
+                    "scopes": item.scopes,
+                    "tags": item.tags,
+                    "folder": item.folder,
+                    "status": item.status,
+                    "enabled": item.enabled,
+                    "allowMcp": item.allow_mcp,
+                    "approvalPolicy": item.approval_policy,
+                    "hasSecret": item.has_secret,
+                    "expiresAt": item.expires_at,
+                    "lastUsedAt": item.last_used_at,
+                    "usageCount": item.usage_count,
+                    "updatedAt": item.updated_at
+                })
+            })
+            .collect::<Vec<_>>();
+            Ok(serde_json::json!({ "credentials": credentials }))
+        }
+        "secure_credential_detail" => {
+            let state = app_state(ctx);
+            let credential_key = required_string(&arguments, "credentialKey")?;
+            let credential = SecureCredentialService::list(
+                &state.db,
+                Some(crate::models::ListSecureCredentialsInput {
+                    keyword: Some(credential_key.clone()),
+                    provider: None,
+                    status: None,
+                    allow_mcp: None,
+                }),
+            )?
+            .into_iter()
+            .find(|item| item.credential_key == credential_key)
+            .ok_or_else(|| AppError::NotFound(format!("安全凭证 '{}' 不存在", credential_key)))?;
+            Ok(serde_json::json!({
+                "credentialKey": credential.credential_key,
+                "displayName": credential.display_name,
+                "provider": credential.provider,
+                "credentialType": credential.credential_type,
+                "accountName": credential.account_name,
+                "baseUrl": credential.base_url,
+                "scopes": credential.scopes,
+                "tags": credential.tags,
+                "status": credential.status,
+                "enabled": credential.enabled,
+                "allowMcp": credential.allow_mcp,
+                "approvalPolicy": credential.approval_policy,
+                "hasSecret": credential.has_secret,
+                "expiresAt": credential.expires_at,
+                "lastUsedAt": credential.last_used_at,
+                "usageCount": credential.usage_count,
+                "updatedAt": credential.updated_at
+            }))
+        }
+        "secure_credential_audit_list" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::list_audit_logs(
+                    &state.db,
+                    Some(crate::models::ListSecureCredentialAuditLogsInput {
+                        keyword: optional_string(&arguments, "keyword"),
+                        source: optional_string(&arguments, "source"),
+                        provider: optional_string(&arguments, "provider"),
+                        credential_key: optional_string(&arguments, "credentialKey"),
+                        actor: optional_string(&arguments, "actor"),
+                        action: optional_string(&arguments, "action"),
+                        risk: optional_string(&arguments, "risk"),
+                        result: optional_string(&arguments, "result"),
+                        limit: optional_i64(&arguments, "limit"),
+                    }),
+                )?,
+            )?)
+        }
+        "secure_session_create" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::create_session(
+                    &state.db,
+                    crate::models::CreateSecureCredentialSessionInput {
+                        credential_key: required_string(&arguments, "credentialKey")?,
+                        caller: optional_string(&arguments, "caller"),
+                        scopes: optional_string_array(&arguments, "scopes"),
+                        ttl_minutes: optional_i64(&arguments, "ttlMinutes"),
+                    },
+                )?,
+            )?)
+        }
+        "secure_session_status" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::session_status(
+                    &state.db,
+                    &required_string(&arguments, "sessionId")?,
+                )?,
+            )?)
+        }
+        "secure_session_revoke" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::revoke_session(
+                    &state.db,
+                    &required_string(&arguments, "sessionId")?,
+                )?,
+            )?)
+        }
+        "secure_provider_test" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::test_provider_by_session(
+                    &state.db,
+                    &required_string(&arguments, "sessionId")?,
+                )
+                .await?,
+            )?)
+        }
+        "secure_git_repositories_list" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::list_repositories(
+                    &state.db,
+                    crate::models::SecureCredentialRepositoryListInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        page: optional_i64(&arguments, "page"),
+                        per_page: optional_i64(&arguments, "perPage"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "secure_git_readonly_request" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::git_readonly_request(
+                    &state.db,
+                    crate::models::SecureCredentialGitReadInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        resource: required_string(&arguments, "resource")?,
+                        repo: optional_string(&arguments, "repo"),
+                        path: optional_string(&arguments, "path"),
+                        reference: optional_string(&arguments, "reference"),
+                        state: optional_string(&arguments, "state"),
+                        page: optional_i64(&arguments, "page"),
+                        per_page: optional_i64(&arguments, "perPage"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        name if secure_git_read_alias(name).is_some() => {
+            let state = app_state(ctx);
+            let (provider, resource) = secure_git_read_alias(name).expect("checked alias");
+            ensure_secure_session_provider(
+                &state.db,
+                &required_string(&arguments, "sessionId")?,
+                provider,
+            )?;
+            Ok(serde_json::to_value(
+                SecureCredentialService::git_readonly_request(
+                    &state.db,
+                    crate::models::SecureCredentialGitReadInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        resource: resource.into(),
+                        repo: optional_string(&arguments, "repo"),
+                        path: optional_string(&arguments, "path"),
+                        reference: optional_string(&arguments, "reference"),
+                        state: optional_string(&arguments, "state"),
+                        page: optional_i64(&arguments, "page"),
+                        per_page: optional_i64(&arguments, "perPage"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "secure_http_readonly_request" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::http_readonly_request(
+                    &state.db,
+                    crate::models::SecureCredentialHttpRequestInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        path: required_string(&arguments, "path")?,
+                        query_json: arguments.get("queryJson").cloned(),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "http_api_request_readonly" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                SecureCredentialService::http_readonly_request(
+                    &state.db,
+                    crate::models::SecureCredentialHttpRequestInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        path: required_string(&arguments, "path")?,
+                        query_json: arguments.get("queryJson").cloned(),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "secure_git_write_controlled" => {
+            let state = app_state(ctx);
+            let operation = required_string(&arguments, "operation")?;
+            let repo = required_string(&arguments, "repo")?;
+            let payload = arguments
+                .get("payload")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let action = format!("secure_git_{}", operation);
+            let resource = format!("{}:{}", repo, operation);
+            let execution_payload = secure_git_execution_payload(&arguments)?;
+            let request_hash = secure_request_hash(&execution_payload);
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "secure_credential".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: action.clone(),
+                    risk: "high".into(),
+                    command: request_hash.clone(),
+                    resource: resource.clone(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "Git 写操作需审批".into()),
+                    summary: format!("{} {}", operation, repo),
+                    payload_json: Some(
+                        serde_json::json!({
+                            "tool": "secure_git_write_controlled",
+                            "requestHash": request_hash,
+                            "sessionId": required_string(&arguments, "sessionId")?,
+                            "operation": operation,
+                            "repo": repo,
+                            "payload": payload
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(serde_json::json!({
+                "status": "approval_required",
+                "approvalId": approval.id,
+                "action": approval.action,
+                "resource": approval.resource,
+                "requestHash": approval.command,
+                "message": "已创建审批请求，请在审批队列确认后调用 secure_git_write_approved"
+            }))
+        }
+        name if secure_git_write_alias(name).is_some() => {
+            let state = app_state(ctx);
+            let (provider, operation) = secure_git_write_alias(name).expect("checked alias");
+            ensure_secure_session_provider(
+                &state.db,
+                &required_string(&arguments, "sessionId")?,
+                provider,
+            )?;
+            create_secure_git_write_approval(ctx, &arguments, operation, name)
+        }
+        "secure_git_write_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let operation = required_string(&arguments, "operation")?;
+            let repo = required_string(&arguments, "repo")?;
+            let action = format!("secure_git_{}", operation);
+            let resource = format!("{}:{}", repo, operation);
+            let execution_payload = secure_git_execution_payload(&arguments)?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                &action,
+                "",
+                Some(&request_hash),
+                Some(&resource),
+            )?;
+            Ok(serde_json::to_value(
+                SecureCredentialService::execute_git_write(
+                    &state.db,
+                    crate::models::SecureCredentialGitWriteInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        operation,
+                        repo,
+                        payload: arguments
+                            .get("payload")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({})),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "secure_http_write_controlled" => {
+            let state = app_state(ctx);
+            let method = required_string(&arguments, "method")?.to_ascii_uppercase();
+            let path = required_string(&arguments, "path")?;
+            let action = format!("secure_http_{}", method.to_ascii_lowercase());
+            let execution_payload = secure_http_execution_payload(&arguments)?;
+            let request_hash = secure_request_hash(&execution_payload);
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "secure_credential".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: action.clone(),
+                    risk: "high".into(),
+                    command: request_hash.clone(),
+                    resource: path.clone(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "HTTP API 非 GET 请求需审批".into()),
+                    summary: format!("{} {}", method, path),
+                    payload_json: Some(
+                        serde_json::json!({
+                            "tool": "secure_http_write_controlled",
+                            "requestHash": request_hash,
+                            "sessionId": required_string(&arguments, "sessionId")?,
+                            "method": method,
+                            "path": path,
+                            "queryJson": arguments.get("queryJson").cloned().unwrap_or_else(|| serde_json::json!({})),
+                            "bodyJson": arguments.get("bodyJson").cloned().unwrap_or_else(|| serde_json::json!({}))
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(serde_json::json!({
+                "status": "approval_required",
+                "approvalId": approval.id,
+                "action": approval.action,
+                "resource": approval.resource,
+                "requestHash": approval.command,
+                "message": "已创建审批请求，请在审批队列确认后调用 secure_http_write_approved"
+            }))
+        }
+        "http_api_request_controlled" => create_secure_http_write_approval(ctx, &arguments),
+        "secure_credential_rotate_request" => {
+            let state = app_state(ctx);
+            let credential_key = required_string(&arguments, "credentialKey")?;
+            let request_payload = serde_json::json!({
+                "tool": "secure_credential_rotate_request",
+                "credentialKey": credential_key
+            });
+            let request_hash = secure_request_hash(&request_payload);
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "secure_credential".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: "secure_credential_rotate".into(),
+                    risk: "high".into(),
+                    command: request_hash.clone(),
+                    resource: credential_key.clone(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "安全凭证轮换需审批".into()),
+                    summary: format!("rotate credential {}", credential_key),
+                    payload_json: Some(
+                        serde_json::json!({
+                            "tool": "secure_credential_rotate_request",
+                            "requestHash": request_hash,
+                            "credentialKey": credential_key
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(serde_json::json!({
+                "status": "approval_required",
+                "approvalId": approval.id,
+                "action": approval.action,
+                "resource": approval.resource,
+                "requestHash": approval.command,
+                "message": "已创建凭证轮换审批请求，审批通过后请在应用内输入新密钥完成轮换"
+            }))
+        }
+        "secure_http_write_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let method = required_string(&arguments, "method")?.to_ascii_uppercase();
+            let path = required_string(&arguments, "path")?;
+            let action = format!("secure_http_{}", method.to_ascii_lowercase());
+            let execution_payload = secure_http_execution_payload(&arguments)?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                &action,
+                "",
+                Some(&request_hash),
+                Some(&path),
+            )?;
+            Ok(serde_json::to_value(
+                SecureCredentialService::http_write_request(
+                    &state.db,
+                    crate::models::SecureCredentialHttpWriteInput {
+                        session_id: required_string(&arguments, "sessionId")?,
+                        method,
+                        path,
+                        query_json: arguments.get("queryJson").cloned(),
+                        body_json: arguments.get("bodyJson").cloned(),
+                    },
+                )
+                .await?,
+            )?)
         }
         "database_connections_list" => {
             let state = app_state(ctx);
@@ -2939,6 +3791,252 @@ fn required_i64(arguments: &serde_json::Value, key: &str) -> Result<i64, AppErro
         .ok_or_else(|| AppError::InvalidInput(format!("参数 '{}' 必须是正整数", key)))
 }
 
+fn secure_git_execution_payload(
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    Ok(serde_json::json!({
+        "sessionId": required_string(arguments, "sessionId")?,
+        "operation": required_string(arguments, "operation")?,
+        "repo": required_string(arguments, "repo")?,
+        "payload": arguments
+            .get("payload")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    }))
+}
+
+fn secure_git_read_alias(tool: &str) -> Option<(&'static str, &'static str)> {
+    match tool {
+        "github_repos_list" => Some(("github", "repos")),
+        "github_repo_detail" => Some(("github", "repo_detail")),
+        "github_branches_list" => Some(("github", "branches")),
+        "github_file_read" => Some(("github", "file")),
+        "github_commits_list" => Some(("github", "commits")),
+        "github_pull_requests_list" => Some(("github", "pull_requests")),
+        "github_issues_list" => Some(("github", "issues")),
+        "github_releases_list" => Some(("github", "releases")),
+        "github_tags_list" => Some(("github", "tags")),
+        "gitlab_projects_list" => Some(("gitlab", "repos")),
+        "gitlab_project_detail" => Some(("gitlab", "repo_detail")),
+        "gitlab_branches_list" => Some(("gitlab", "branches")),
+        "gitlab_file_read" => Some(("gitlab", "file")),
+        "gitlab_commits_list" => Some(("gitlab", "commits")),
+        "gitlab_issues_list" => Some(("gitlab", "issues")),
+        "gitlab_merge_requests_list" => Some(("gitlab", "pull_requests")),
+        "gitlab_releases_list" => Some(("gitlab", "releases")),
+        "gitlab_tags_list" => Some(("gitlab", "tags")),
+        "gitcode_repos_list" => Some(("gitcode", "repos")),
+        "gitcode_repo_detail" => Some(("gitcode", "repo_detail")),
+        "gitcode_branches_list" => Some(("gitcode", "branches")),
+        "gitcode_file_read" => Some(("gitcode", "file")),
+        "gitcode_commits_list" => Some(("gitcode", "commits")),
+        "gitcode_merge_requests_list" => Some(("gitcode", "pull_requests")),
+        _ => None,
+    }
+}
+
+fn secure_git_write_alias(tool: &str) -> Option<(&'static str, &'static str)> {
+    match tool {
+        "github_issue_create_controlled" => Some(("github", "create_issue")),
+        "github_branch_create_controlled" => Some(("github", "create_branch")),
+        "github_file_commit_controlled" => Some(("github", "commit_file")),
+        "github_pull_request_create_controlled" => Some(("github", "create_pr")),
+        "github_pull_request_update_controlled" => Some(("github", "update_pr")),
+        "github_pull_request_merge_controlled" => Some(("github", "merge_pr")),
+        "github_tag_create_controlled" => Some(("github", "create_tag")),
+        "github_release_create_controlled" => Some(("github", "create_release")),
+        "github_workflow_dispatch_controlled" => Some(("github", "trigger_workflow")),
+        "github_branch_delete_controlled" => Some(("github", "delete_branch")),
+        "github_tag_delete_controlled" => Some(("github", "delete_tag")),
+        "github_release_delete_controlled" => Some(("github", "delete_release")),
+        "github_ref_update_controlled" => Some(("github", "update_ref")),
+        "github_repository_settings_update_controlled" => Some(("github", "update_repo_settings")),
+        "gitlab_issue_create_controlled" => Some(("gitlab", "create_issue")),
+        "gitlab_branch_create_controlled" => Some(("gitlab", "create_branch")),
+        "gitlab_file_commit_controlled" => Some(("gitlab", "commit_file")),
+        "gitlab_merge_request_create_controlled" => Some(("gitlab", "create_pr")),
+        "gitlab_merge_request_update_controlled" => Some(("gitlab", "update_pr")),
+        "gitlab_merge_request_merge_controlled" => Some(("gitlab", "merge_pr")),
+        "gitlab_tag_create_controlled" => Some(("gitlab", "create_tag")),
+        "gitlab_release_create_controlled" => Some(("gitlab", "create_release")),
+        "gitlab_pipeline_trigger_controlled" => Some(("gitlab", "trigger_workflow")),
+        "gitlab_branch_delete_controlled" => Some(("gitlab", "delete_branch")),
+        "gitlab_tag_delete_controlled" => Some(("gitlab", "delete_tag")),
+        "gitlab_release_delete_controlled" => Some(("gitlab", "delete_release")),
+        "gitlab_project_settings_update_controlled" => Some(("gitlab", "update_repo_settings")),
+        "gitcode_issue_create_controlled" => Some(("gitcode", "create_issue")),
+        "gitcode_branch_create_controlled" => Some(("gitcode", "create_branch")),
+        "gitcode_file_commit_controlled" => Some(("gitcode", "commit_file")),
+        "gitcode_merge_request_create_controlled" => Some(("gitcode", "create_pr")),
+        "gitcode_merge_request_merge_controlled" => Some(("gitcode", "merge_pr")),
+        "gitcode_tag_create_controlled" => Some(("gitcode", "create_tag")),
+        "gitcode_release_create_controlled" => Some(("gitcode", "create_release")),
+        "gitcode_branch_delete_controlled" => Some(("gitcode", "delete_branch")),
+        "gitcode_tag_delete_controlled" => Some(("gitcode", "delete_tag")),
+        "gitcode_release_delete_controlled" => Some(("gitcode", "delete_release")),
+        "gitcode_repository_settings_update_controlled" => Some(("gitcode", "update_repo_settings")),
+        _ => None,
+    }
+}
+
+fn ensure_secure_session_provider(
+    db: &crate::database::Database,
+    session_id: &str,
+    expected_provider: &str,
+) -> Result<(), AppError> {
+    let status = SecureCredentialService::session_status(db, session_id)?;
+    if !status.valid {
+        return Err(AppError::InvalidInput(status.reason));
+    }
+    if status.session.provider != expected_provider {
+        return Err(AppError::InvalidInput(format!(
+            "工具要求 {} session，当前 session 属于 {}",
+            expected_provider, status.session.provider
+        )));
+    }
+    Ok(())
+}
+
+fn create_secure_git_write_approval(
+    ctx: &DevApiState,
+    arguments: &serde_json::Value,
+    operation: &str,
+    tool_name: &str,
+) -> Result<serde_json::Value, AppError> {
+    let state = app_state(ctx);
+    let session_id = required_string(arguments, "sessionId")?;
+    let repo = required_string(arguments, "repo")?;
+    let payload = arguments
+        .get("payload")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut normalized = arguments.clone();
+    if let Some(object) = normalized.as_object_mut() {
+        object.insert(
+            "operation".into(),
+            serde_json::Value::String(operation.to_string()),
+        );
+    }
+    let action = format!("secure_git_{}", operation);
+    let resource = format!("{}:{}", repo, operation);
+    let execution_payload = secure_git_execution_payload(&normalized)?;
+    let request_hash = secure_request_hash(&execution_payload);
+    let approval = ApprovalService::create(
+        &state.db,
+        CreateApprovalRequestInput {
+            source: "secure_credential".into(),
+            requester: optional_string(arguments, "requester").unwrap_or_else(|| "mcp-client".into()),
+            server_alias: String::new(),
+            action: action.clone(),
+            risk: if matches!(
+                operation,
+                "delete_branch" | "delete_tag" | "delete_release" | "update_repo_settings" | "update_ref"
+            ) {
+                "high".into()
+            } else {
+                "medium".into()
+            },
+            command: request_hash.clone(),
+            resource: resource.clone(),
+            reason: optional_string(arguments, "reason").unwrap_or_else(|| "Git 写操作需审批".into()),
+            summary: format!("{} {}", operation, repo),
+            payload_json: Some(
+                serde_json::json!({
+                    "tool": tool_name,
+                    "requestHash": request_hash,
+                    "sessionId": session_id,
+                    "operation": operation,
+                    "repo": repo,
+                    "payload": payload
+                })
+                .to_string(),
+            ),
+            expires_at: None,
+        },
+    )?;
+    Ok(serde_json::json!({
+        "status": "approval_required",
+        "approvalId": approval.id,
+        "action": approval.action,
+        "resource": approval.resource,
+        "requestHash": approval.command,
+        "message": "已创建审批请求，请在审批队列确认后调用 secure_git_write_approved"
+    }))
+}
+
+fn create_secure_http_write_approval(
+    ctx: &DevApiState,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let state = app_state(ctx);
+    let method = required_string(arguments, "method")?.to_ascii_uppercase();
+    let path = required_string(arguments, "path")?;
+    let action = format!("secure_http_{}", method.to_ascii_lowercase());
+    let execution_payload = secure_http_execution_payload(arguments)?;
+    let request_hash = secure_request_hash(&execution_payload);
+    let approval = ApprovalService::create(
+        &state.db,
+        CreateApprovalRequestInput {
+            source: "secure_credential".into(),
+            requester: optional_string(arguments, "requester").unwrap_or_else(|| "mcp-client".into()),
+            server_alias: String::new(),
+            action: action.clone(),
+            risk: if method == "DELETE" { "high".into() } else { "medium".into() },
+            command: request_hash.clone(),
+            resource: path.clone(),
+            reason: optional_string(arguments, "reason")
+                .unwrap_or_else(|| "HTTP API 非 GET 请求需审批".into()),
+            summary: format!("{} {}", method, path),
+            payload_json: Some(
+                serde_json::json!({
+                    "tool": "http_api_request_controlled",
+                    "requestHash": request_hash,
+                    "sessionId": required_string(arguments, "sessionId")?,
+                    "method": method,
+                    "path": path,
+                    "queryJson": arguments.get("queryJson").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "bodyJson": arguments.get("bodyJson").cloned().unwrap_or_else(|| serde_json::json!({}))
+                })
+                .to_string(),
+            ),
+            expires_at: None,
+        },
+    )?;
+    Ok(serde_json::json!({
+        "status": "approval_required",
+        "approvalId": approval.id,
+        "action": approval.action,
+        "resource": approval.resource,
+        "requestHash": approval.command,
+        "message": "已创建审批请求，请在审批队列确认后调用 secure_http_write_approved"
+    }))
+}
+
+fn secure_http_execution_payload(
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    Ok(serde_json::json!({
+        "sessionId": required_string(arguments, "sessionId")?,
+        "method": required_string(arguments, "method")?.to_ascii_uppercase(),
+        "path": required_string(arguments, "path")?,
+        "queryJson": arguments
+            .get("queryJson")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        "bodyJson": arguments
+            .get("bodyJson")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    }))
+}
+
+fn secure_request_hash(value: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(value).unwrap_or_else(|_| "{}".into());
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 fn optional_u64(arguments: &serde_json::Value, key: &str) -> Option<u64> {
     arguments.get(key).and_then(|value| {
         value
@@ -4096,6 +5194,185 @@ async fn delete_credential(
     let state = app_state(&ctx);
     CredentialVaultService::delete(&state.db, &key)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_secure_credential_overview(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::SecureCredentialOverview> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::overview(&state.db)?))
+}
+
+async fn get_secure_credential_policy_settings(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::SecureCredentialPolicySettings> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::policy_settings(&state.db)?))
+}
+
+async fn update_secure_credential_policy_settings(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpdateSecureCredentialPolicySettingsInput>,
+) -> DevApiResult<crate::models::SecureCredentialPolicySettings> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::update_policy_settings(
+        &state.db, input,
+    )?))
+}
+
+async fn list_secure_credentials(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<Option<ListSecureCredentialsInput>>,
+) -> DevApiResult<Vec<crate::models::SecureCredential>> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::list(&state.db, input)?))
+}
+
+async fn list_secure_credential_audit_logs(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<Option<ListSecureCredentialAuditLogsInput>>,
+) -> DevApiResult<Vec<crate::models::SecureCredentialAuditLog>> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::list_audit_logs(
+        &state.db, input,
+    )?))
+}
+
+async fn upsert_secure_credential(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertSecureCredentialInput>,
+) -> DevApiResult<crate::models::SecureCredential> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::upsert(&state.db, input)?))
+}
+
+async fn rotate_secure_credential(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<RotateSecureCredentialInput>,
+) -> DevApiResult<crate::models::SecureCredential> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::rotate(&state.db, input)?))
+}
+
+async fn set_secure_credential_enabled(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SetSecureCredentialEnabledInput>,
+) -> DevApiResult<crate::models::SecureCredential> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::set_enabled(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_secure_credential(
+    State(ctx): State<DevApiState>,
+    Path(credential_key): Path<String>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    SecureCredentialService::delete(&state.db, &credential_key)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_secure_credential_sessions(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<Option<ListSecureCredentialSessionsInput>>,
+) -> DevApiResult<Vec<crate::models::SecureCredentialSession>> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::list_sessions(
+        &state.db, input,
+    )?))
+}
+
+async fn create_secure_credential_session(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<CreateSecureCredentialSessionInput>,
+) -> DevApiResult<crate::models::SecureCredentialSession> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::create_session(
+        &state.db, input,
+    )?))
+}
+
+async fn get_secure_credential_session_status(
+    State(ctx): State<DevApiState>,
+    Path(session_id): Path<String>,
+) -> DevApiResult<crate::models::SecureCredentialSessionStatus> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::session_status(
+        &state.db,
+        &session_id,
+    )?))
+}
+
+async fn revoke_secure_credential_session(
+    State(ctx): State<DevApiState>,
+    Path(session_id): Path<String>,
+) -> DevApiResult<crate::models::SecureCredentialSession> {
+    let state = app_state(&ctx);
+    Ok(Json(SecureCredentialService::revoke_session(
+        &state.db,
+        &session_id,
+    )?))
+}
+
+async fn test_secure_credential_provider(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialProviderTestInput>,
+) -> DevApiResult<crate::models::SecureCredentialProviderTestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::test_provider(&state.db, input).await?,
+    ))
+}
+
+async fn list_secure_credential_repositories(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialRepositoryListInput>,
+) -> DevApiResult<Vec<crate::models::SecureCredentialRepository>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::list_repositories(&state.db, input).await?,
+    ))
+}
+
+async fn secure_credential_git_readonly_request(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialGitReadInput>,
+) -> DevApiResult<crate::models::SecureCredentialProviderReadResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::git_readonly_request(&state.db, input).await?,
+    ))
+}
+
+async fn secure_credential_http_readonly_request(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialHttpRequestInput>,
+) -> DevApiResult<crate::models::SecureCredentialHttpRequestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::http_readonly_request(&state.db, input).await?,
+    ))
+}
+
+async fn secure_credential_http_write_request(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialHttpWriteInput>,
+) -> DevApiResult<crate::models::SecureCredentialHttpRequestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::http_write_request(&state.db, input).await?,
+    ))
+}
+
+async fn execute_secure_credential_git_write(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SecureCredentialGitWriteInput>,
+) -> DevApiResult<crate::models::SecureCredentialGitWriteResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        SecureCredentialService::execute_git_write(&state.db, input).await?,
+    ))
 }
 
 async fn list_database_connections(

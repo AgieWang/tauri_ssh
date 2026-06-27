@@ -20,6 +20,7 @@ export { aiProviderApi } from "./aiProvider";
 export { aiSkillApi } from "./aiSkill";
 export { sshServerApi } from "./sshServer";
 export { credentialVaultApi } from "./credentialVault";
+export { secureCredentialApi } from "./secureCredential";
 export { databaseOpsApi } from "./databaseOps";
 export { terminalApi } from "./terminal";
 export { sftpApi } from "./sftp";
