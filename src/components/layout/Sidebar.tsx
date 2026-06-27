@@ -3,6 +3,7 @@ import { Menu } from "antd";
 import {
   Bot,
   BookOpen,
+  Activity,
   Database,
   FolderTree,
   KeyRound,
@@ -42,6 +43,7 @@ const menuItems = [
       { key: "/logs", icon: <Logs size={16} />, label: "日志监听" },
       { key: "/sftp", icon: <FolderTree size={16} />, label: "SFTP 文件" },
       { key: "/database", icon: <Database size={16} />, label: "数据库管理" },
+      { key: "/resource-monitor", icon: <Activity size={16} />, label: "资源监控" },
     ],
   },
   {

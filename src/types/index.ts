@@ -163,3 +163,22 @@ export type {
   CreateAuditLogInput,
   ListAuditLogsInput,
 } from "./audit";
+export type {
+  CollectResourceBatchInput,
+  CollectResourceBatchResult,
+  ListResourceAlertEventsInput,
+  ListResourceAlertRulesInput,
+  ResourceAlertEvent,
+  ResourceAlertOperator,
+  ResourceAlertRule,
+  ResourceAlertSeverity,
+  ResourceAlertStatus,
+  ResourceMetricSnapshot,
+  ResourceMonitorOverview,
+  ResourceMonitorTarget,
+  ResourceSnapshotListInput,
+  ResourceStatus,
+  ResourceTargetType,
+  UpsertResourceAlertRuleInput,
+  UpsertResourceMonitorTargetInput,
+} from "./resourceMonitor";

@@ -13,11 +13,13 @@ use tower_http::cors::CorsLayer;
 use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
-    AiSkillPromptPreviewInput, AiSkillTriggerInput, CreateApprovalRequestInput,
-    CreateAuditLogInput, DecideApprovalRequestInput, ListAiSkillsInput, ListApprovalRequestsInput,
-    RunAiRunbookInput, UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
-    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput,
+    AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
+    CreateApprovalRequestInput, CreateAuditLogInput, DecideApprovalRequestInput, ListAiSkillsInput,
+    ListApprovalRequestsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
+    ResourceSnapshotListInput, RunAiRunbookInput, UpdateSystemSettingsInput,
+    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
+    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertDatabaseConnectionInput,
+    UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput,
 };
 use crate::services::ai_provider::AiProviderService;
 use crate::services::ai_skill::AiSkillService;
@@ -27,6 +29,7 @@ use crate::services::credential_vault::CredentialVaultService;
 use crate::services::database_ops::DatabaseOpsService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
+use crate::services::resource_monitor::ResourceMonitorService;
 use crate::services::sftp::SftpService;
 use crate::services::ssh_server::SshServerService;
 use crate::services::system_settings::SystemSettingsService;
@@ -217,6 +220,62 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .route(
             "/dev-api/database/redis/value",
             post(get_redis_value_preview),
+        )
+        .route(
+            "/dev-api/resource-monitor/targets",
+            get(list_resource_monitor_targets),
+        )
+        .route(
+            "/dev-api/resource-monitor/targets",
+            post(upsert_resource_monitor_target),
+        )
+        .route(
+            "/dev-api/resource-monitor/targets/:target_type/:target_key",
+            delete(delete_resource_monitor_target),
+        )
+        .route(
+            "/dev-api/resource-monitor/overview",
+            get(get_resource_monitor_overview),
+        )
+        .route(
+            "/dev-api/resource-monitor/snapshots",
+            post(list_resource_metric_snapshots),
+        )
+        .route(
+            "/dev-api/resource-monitor/server/:alias/collect",
+            post(collect_server_resource_snapshot),
+        )
+        .route(
+            "/dev-api/resource-monitor/database/:connection_key/collect",
+            post(collect_database_resource_snapshot),
+        )
+        .route(
+            "/dev-api/resource-monitor/redis/:connection_key/collect",
+            post(collect_redis_resource_snapshot),
+        )
+        .route(
+            "/dev-api/resource-monitor/collect-batch",
+            post(collect_resource_snapshots_batch),
+        )
+        .route(
+            "/dev-api/resource-monitor/alert-rules/list",
+            post(list_resource_alert_rules),
+        )
+        .route(
+            "/dev-api/resource-monitor/alert-rules",
+            post(upsert_resource_alert_rule),
+        )
+        .route(
+            "/dev-api/resource-monitor/alert-rules/:id",
+            delete(delete_resource_alert_rule),
+        )
+        .route(
+            "/dev-api/resource-monitor/alert-events/list",
+            post(list_resource_alert_events),
+        )
+        .route(
+            "/dev-api/resource-monitor/alert-events/:id/resolve",
+            post(resolve_resource_alert_event),
         )
         .route("/dev-api/terminal/execute", post(execute_terminal_command))
         .route("/dev-api/terminal/ws", get(terminal_websocket))
@@ -4183,6 +4242,137 @@ async fn get_redis_value_preview(
     Ok(Json(
         DatabaseOpsService::get_redis_value_preview(&state.db, input).await?,
     ))
+}
+
+async fn list_resource_monitor_targets(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<Vec<crate::models::ResourceMonitorTarget>> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::list_targets(&state.db)?))
+}
+
+async fn upsert_resource_monitor_target(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertResourceMonitorTargetInput>,
+) -> DevApiResult<crate::models::ResourceMonitorTarget> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::upsert_target(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_resource_monitor_target(
+    State(ctx): State<DevApiState>,
+    Path((target_type, target_key)): Path<(String, String)>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    ResourceMonitorService::delete_target(&state.db, &target_type, &target_key)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_resource_monitor_overview(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::ResourceMonitorOverview> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::overview(&state.db)?))
+}
+
+async fn list_resource_metric_snapshots(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ResourceSnapshotListInput>,
+) -> DevApiResult<Vec<crate::models::ResourceMetricSnapshot>> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::list_snapshots(
+        &state.db, input,
+    )?))
+}
+
+async fn collect_server_resource_snapshot(
+    State(ctx): State<DevApiState>,
+    Path(alias): Path<String>,
+) -> DevApiResult<crate::models::ResourceMetricSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::collect_server(&state.db, &alias).await?,
+    ))
+}
+
+async fn collect_database_resource_snapshot(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<crate::models::ResourceMetricSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::collect_database(&state.db, &connection_key).await?,
+    ))
+}
+
+async fn collect_redis_resource_snapshot(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<crate::models::ResourceMetricSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::collect_redis(&state.db, &connection_key).await?,
+    ))
+}
+
+async fn collect_resource_snapshots_batch(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<CollectResourceBatchInput>,
+) -> DevApiResult<crate::models::CollectResourceBatchResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::collect_batch(&state.db, input).await?,
+    ))
+}
+
+async fn list_resource_alert_rules(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListResourceAlertRulesInput>,
+) -> DevApiResult<Vec<crate::models::ResourceAlertRule>> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::list_alert_rules(
+        &state.db, input,
+    )?))
+}
+
+async fn upsert_resource_alert_rule(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertResourceAlertRuleInput>,
+) -> DevApiResult<crate::models::ResourceAlertRule> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::upsert_alert_rule(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_resource_alert_rule(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    ResourceMonitorService::delete_alert_rule(&state.db, id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_resource_alert_events(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListResourceAlertEventsInput>,
+) -> DevApiResult<Vec<crate::models::ResourceAlertEvent>> {
+    let state = app_state(&ctx);
+    Ok(Json(ResourceMonitorService::list_alert_events(
+        &state.db, input,
+    )?))
+}
+
+async fn resolve_resource_alert_event(
+    State(ctx): State<DevApiState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    ResourceMonitorService::resolve_alert_event(&state.db, id)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn execute_terminal_command(

@@ -926,6 +926,147 @@ pub struct AuditLogExportResult {
     pub count: usize,
 }
 
+/// 资源监控目标，复用服务器别名或数据库连接 Key。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceMonitorTarget {
+    pub id: Option<i64>,
+    pub target_type: String,
+    pub target_key: String,
+    pub display_name: String,
+    pub group_name: String,
+    pub enabled: bool,
+    pub collect_interval_sec: i64,
+    pub last_status: String,
+    pub last_collected_at: Option<String>,
+    pub last_error: Option<String>,
+    pub latest_snapshot: Option<ResourceMetricSnapshot>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertResourceMonitorTargetInput {
+    pub target_type: String,
+    pub target_key: String,
+    pub display_name: Option<String>,
+    pub enabled: Option<bool>,
+    pub collect_interval_sec: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceMetricSnapshot {
+    pub id: i64,
+    pub target_type: String,
+    pub target_key: String,
+    pub status: String,
+    pub collected_at: String,
+    pub duration_ms: i64,
+    pub summary: serde_json::Value,
+    pub metrics: serde_json::Value,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceSnapshotListInput {
+    pub target_type: Option<String>,
+    pub target_key: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectResourceBatchInput {
+    pub target_type: Option<String>,
+    pub only_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectResourceBatchResult {
+    pub total: i64,
+    pub success: i64,
+    pub failed: i64,
+    pub snapshots: Vec<ResourceMetricSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceMonitorOverview {
+    pub total_targets: i64,
+    pub enabled_targets: i64,
+    pub healthy_targets: i64,
+    pub warning_targets: i64,
+    pub failed_targets: i64,
+    pub open_alerts: i64,
+    pub latest_collected_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceAlertRule {
+    pub id: i64,
+    pub target_type: String,
+    pub target_key: String,
+    pub metric_key: String,
+    pub operator: String,
+    pub threshold_value: f64,
+    pub severity: String,
+    pub enabled: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertResourceAlertRuleInput {
+    pub id: Option<i64>,
+    pub target_type: String,
+    pub target_key: Option<String>,
+    pub metric_key: String,
+    pub operator: String,
+    pub threshold_value: f64,
+    pub severity: String,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListResourceAlertRulesInput {
+    pub target_type: Option<String>,
+    pub target_key: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceAlertEvent {
+    pub id: i64,
+    pub rule_id: i64,
+    pub target_type: String,
+    pub target_key: String,
+    pub severity: String,
+    pub status: String,
+    pub metric_key: String,
+    pub metric_value: f64,
+    pub threshold_value: f64,
+    pub message: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    pub resolved_at: Option<String>,
+    pub snapshot_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListResourceAlertEventsInput {
+    pub status: Option<String>,
+    pub target_type: Option<String>,
+    pub target_key: Option<String>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemSettings {

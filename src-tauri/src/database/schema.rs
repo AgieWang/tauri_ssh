@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 15;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -43,6 +43,8 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             10 => migrate_v10_to_v11(conn)?,
             11 => migrate_v11_to_v12(conn)?,
             12 => migrate_v12_to_v13(conn)?,
+            13 => migrate_v13_to_v14(conn)?,
+            14 => migrate_v14_to_v15(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -51,6 +53,76 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v14 -> v15: 资源监控阈值规则与告警事件
+fn migrate_v14_to_v15(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v14 -> v15（资源监控告警）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS resource_alert_rules (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type     TEXT NOT NULL,
+            target_key      TEXT NOT NULL DEFAULT '*',
+            metric_key      TEXT NOT NULL,
+            operator        TEXT NOT NULL DEFAULT '>',
+            threshold_value REAL NOT NULL,
+            severity        TEXT NOT NULL DEFAULT 'warning',
+            enabled         INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at      TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_alert_rules_target
+            ON resource_alert_rules(target_type, target_key, enabled);
+
+        CREATE TABLE IF NOT EXISTS resource_alert_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id         INTEGER NOT NULL,
+            target_type     TEXT NOT NULL,
+            target_key      TEXT NOT NULL,
+            severity        TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'open',
+            metric_key      TEXT NOT NULL,
+            metric_value    REAL NOT NULL,
+            threshold_value REAL NOT NULL,
+            message         TEXT NOT NULL,
+            first_seen_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            last_seen_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            resolved_at     TEXT DEFAULT NULL,
+            snapshot_id     INTEGER DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_alert_events_status
+            ON resource_alert_events(status, last_seen_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_resource_alert_events_target
+            ON resource_alert_events(target_type, target_key, status);
+
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'server', '*', 'cpuUsagePercent', '>', 90, 'critical'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='server' AND metric_key='cpuUsagePercent' AND deleted_at IS NULL);
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'server', '*', 'memoryUsagePercent', '>', 90, 'critical'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='server' AND metric_key='memoryUsagePercent' AND deleted_at IS NULL);
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'server', '*', 'diskUsagePercent', '>', 90, 'critical'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='server' AND metric_key='diskUsagePercent' AND deleted_at IS NULL);
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'mysql', '*', 'connectionUsagePercent', '>', 80, 'warning'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='mysql' AND metric_key='connectionUsagePercent' AND deleted_at IS NULL);
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'postgresql', '*', 'lockWaits', '>', 0, 'warning'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='postgresql' AND metric_key='lockWaits' AND deleted_at IS NULL);
+        INSERT INTO resource_alert_rules (target_type, target_key, metric_key, operator, threshold_value, severity)
+        SELECT 'redis', '*', 'memoryUsagePercent', '>', 90, 'critical'
+        WHERE NOT EXISTS (SELECT 1 FROM resource_alert_rules WHERE target_type='redis' AND metric_key='memoryUsagePercent' AND deleted_at IS NULL);
+        ",
+    )?;
+
+    set_version(conn, 15)?;
     Ok(())
 }
 
@@ -145,6 +217,52 @@ fn migrate_v12_to_v13(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 13)?;
+    Ok(())
+}
+
+/// v13 -> v14: 服务器/数据库/Redis 资源监控目标与快照
+fn migrate_v13_to_v14(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v13 -> v14（资源监控）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS resource_monitor_targets (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type          TEXT NOT NULL,
+            target_key           TEXT NOT NULL,
+            display_name         TEXT NOT NULL,
+            enabled              INTEGER NOT NULL DEFAULT 1,
+            collect_interval_sec INTEGER NOT NULL DEFAULT 60,
+            last_status          TEXT NOT NULL DEFAULT 'unknown',
+            last_collected_at    TEXT DEFAULT NULL,
+            last_error           TEXT DEFAULT NULL,
+            created_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at           TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at           TEXT DEFAULT NULL,
+            UNIQUE(target_type, target_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_monitor_targets_type
+            ON resource_monitor_targets(target_type, enabled);
+
+        CREATE TABLE IF NOT EXISTS resource_metric_snapshots (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type    TEXT NOT NULL,
+            target_key     TEXT NOT NULL,
+            status         TEXT NOT NULL,
+            collected_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            duration_ms    INTEGER NOT NULL DEFAULT 0,
+            summary_json   TEXT NOT NULL,
+            metrics_json   TEXT NOT NULL,
+            error          TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_metric_target_time
+            ON resource_metric_snapshots(target_type, target_key, collected_at DESC);
+        ",
+    )?;
+
+    set_version(conn, 14)?;
     Ok(())
 }
 

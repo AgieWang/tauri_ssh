@@ -1300,7 +1300,12 @@ export function DashboardPage() {
 
   const dashboardAuditColumns: TableProps<AuditLog>["columns"] = [
     { title: "时间", dataIndex: "occurredAt", width: 130, render: (value: string) => formatDashboardTime(value) },
-    { title: "来源", dataIndex: "source", width: 120 },
+    {
+      title: "来源",
+      dataIndex: "source",
+      width: 170,
+      render: (value: string) => <Text style={{ whiteSpace: "nowrap" }}>{value}</Text>,
+    },
     { title: "服务器", dataIndex: "serverAlias", width: 150, render: (value: string) => value || "-" },
     { title: "动作", dataIndex: "action", width: 150 },
     { title: "结果", dataIndex: "result", width: 100, render: (value: string) => <Tag color={value === "success" ? "green" : value === "blocked" ? "red" : "orange"}>{value}</Tag> },

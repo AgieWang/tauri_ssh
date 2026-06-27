@@ -7,6 +7,7 @@ pub mod credential_vault;
 pub mod database_ops;
 pub mod jumpserver;
 pub mod mcp;
+pub mod resource_monitor;
 pub mod sftp;
 pub mod ssh_server;
 pub mod system;

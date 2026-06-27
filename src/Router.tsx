@@ -5,6 +5,7 @@ import SettingsPage from "@/pages/settings";
 import AboutPage from "@/pages/about";
 import DatabasePage from "@/pages/database";
 import SkillsPage from "@/pages/skills";
+import ResourceMonitorPage from "@/pages/resource-monitor";
 import {
   ApprovalPage,
   AuditPage,
@@ -45,6 +46,7 @@ const router = createBrowserRouter([
       { path: "logs", element: <LogsPage /> },
       { path: "sftp", element: <SftpPage /> },
       { path: "database", element: <DatabasePage /> },
+      { path: "resource-monitor", element: <ResourceMonitorPage /> },
       { path: "editor", element: <EditorPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "mcp", element: <McpPage /> },

@@ -1845,7 +1845,7 @@ impl DatabaseOpsService {
             .collect())
     }
 
-    fn mysql_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
+    pub(crate) fn mysql_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
         let username = percent_encode(&connection.username);
         let password = password.map(percent_encode).unwrap_or_default();
         let auth = if username.is_empty() {
@@ -1862,7 +1862,7 @@ impl DatabaseOpsService {
         )
     }
 
-    fn postgres_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
+    pub(crate) fn postgres_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
         let username = percent_encode(&connection.username);
         let password = password.map(percent_encode).unwrap_or_default();
         let auth = if username.is_empty() {
@@ -1879,7 +1879,7 @@ impl DatabaseOpsService {
         )
     }
 
-    fn redis_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
+    pub(crate) fn redis_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
         let db = connection.database_name.trim().parse::<u8>().unwrap_or(0);
         match password.filter(|value| !value.is_empty()) {
             Some(password) => format!(
@@ -1923,7 +1923,7 @@ impl DatabaseOpsService {
         }
     }
 
-    fn resolve_connection_password(
+    pub(crate) fn resolve_connection_password(
         db: &Database,
         connection: &DatabaseConnection,
         nonce: Option<&str>,

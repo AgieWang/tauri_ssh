@@ -9,10 +9,12 @@ use crate::models::{
     AiExperience, AiProvider, AiProviderRoute, AiRunbook, AiRunbookStep, AiSkill, AiSkillStats,
     AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
     CredentialVaultItem, DatabaseConnection, DecideApprovalRequestInput, JumpServerSession,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, SshServer,
-    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
-    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput, UpsertDatabaseConnectionInput,
-    UpsertJumpServerSessionInput, UpsertSshServerInput,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListResourceAlertEventsInput,
+    ListResourceAlertRulesInput, ResourceAlertEvent, ResourceAlertRule, ResourceMetricSnapshot,
+    ResourceMonitorTarget, ResourceSnapshotListInput, SshServer, UpsertAiExperienceInput,
+    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    UpsertCredentialInput, UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput,
+    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -958,6 +960,518 @@ impl Database {
             [key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── 资源监控 DAO ───────────────────────────────
+
+    pub fn upsert_resource_monitor_target(
+        &self,
+        input: &UpsertResourceMonitorTargetInput,
+        fallback_name: &str,
+    ) -> Result<ResourceMonitorTarget, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let display_name = input
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(fallback_name);
+        let enabled = input.enabled.unwrap_or(true);
+        let interval = input.collect_interval_sec.unwrap_or(60).clamp(30, 86400);
+        conn.execute(
+            "INSERT INTO resource_monitor_targets
+             (target_type, target_key, display_name, enabled, collect_interval_sec, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(target_type, target_key) DO UPDATE SET
+               display_name = excluded.display_name,
+               enabled = excluded.enabled,
+               collect_interval_sec = excluded.collect_interval_sec,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                input.target_type,
+                input.target_key,
+                display_name,
+                if enabled { 1 } else { 0 },
+                interval
+            ],
+        )?;
+        drop(conn);
+        self.get_resource_monitor_target(&input.target_type, &input.target_key)?
+            .ok_or_else(|| AppError::NotFound("资源监控目标不存在".into()))
+    }
+
+    pub fn ensure_resource_monitor_target(
+        &self,
+        target_type: &str,
+        target_key: &str,
+        display_name: &str,
+    ) -> Result<ResourceMonitorTarget, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO resource_monitor_targets
+             (target_type, target_key, display_name, enabled, collect_interval_sec)
+             VALUES (?1, ?2, ?3, 1, 60)
+             ON CONFLICT(target_type, target_key) DO UPDATE SET
+               display_name = CASE
+                 WHEN resource_monitor_targets.display_name = '' THEN excluded.display_name
+                 ELSE resource_monitor_targets.display_name
+               END,
+               deleted_at = NULL",
+            params![target_type, target_key, display_name],
+        )?;
+        drop(conn);
+        self.get_resource_monitor_target(target_type, target_key)?
+            .ok_or_else(|| AppError::NotFound("资源监控目标不存在".into()))
+    }
+
+    pub fn get_resource_monitor_target(
+        &self,
+        target_type: &str,
+        target_key: &str,
+    ) -> Result<Option<ResourceMonitorTarget>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, target_type, target_key, display_name, enabled, collect_interval_sec,
+                    last_status, last_collected_at, last_error, updated_at
+             FROM resource_monitor_targets
+             WHERE target_type = ?1 AND target_key = ?2 AND deleted_at IS NULL",
+            params![target_type, target_key],
+            |row| self.map_resource_monitor_target_row(row, "", None),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn list_resource_monitor_targets(&self) -> Result<Vec<ResourceMonitorTarget>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, target_type, target_key, display_name, enabled, collect_interval_sec,
+                    last_status, last_collected_at, last_error, updated_at
+             FROM resource_monitor_targets
+             WHERE deleted_at IS NULL
+             ORDER BY target_type, display_name",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                self.map_resource_monitor_target_row(row, "", None)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn delete_resource_monitor_target(
+        &self,
+        target_type: &str,
+        target_key: &str,
+    ) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE resource_monitor_targets
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE target_type = ?1 AND target_key = ?2 AND deleted_at IS NULL",
+            params![target_type, target_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn save_resource_metric_snapshot(
+        &self,
+        target_type: &str,
+        target_key: &str,
+        status: &str,
+        duration_ms: i64,
+        summary: &serde_json::Value,
+        metrics: &serde_json::Value,
+        error: Option<&str>,
+    ) -> Result<ResourceMetricSnapshot, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let summary_json = serde_json::to_string(summary)?;
+        let metrics_json = serde_json::to_string(metrics)?;
+        conn.execute(
+            "INSERT INTO resource_metric_snapshots
+             (target_type, target_key, status, duration_ms, summary_json, metrics_json, error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                target_type,
+                target_key,
+                status,
+                duration_ms,
+                summary_json,
+                metrics_json,
+                error
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        conn.execute(
+            "UPDATE resource_monitor_targets
+             SET last_status = ?3,
+                 last_collected_at = (SELECT collected_at FROM resource_metric_snapshots WHERE id = ?4),
+                 last_error = ?5,
+                 updated_at = datetime('now', 'localtime')
+             WHERE target_type = ?1 AND target_key = ?2 AND deleted_at IS NULL",
+            params![target_type, target_key, status, id, error],
+        )?;
+        drop(conn);
+        self.get_resource_metric_snapshot(id)?
+            .ok_or_else(|| AppError::NotFound(format!("资源快照 '{}' 不存在", id)))
+    }
+
+    pub fn get_resource_metric_snapshot(
+        &self,
+        id: i64,
+    ) -> Result<Option<ResourceMetricSnapshot>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, target_type, target_key, status, collected_at, duration_ms,
+                    summary_json, metrics_json, error
+             FROM resource_metric_snapshots
+             WHERE id = ?1",
+            [id],
+            |row| self.map_resource_metric_snapshot_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_latest_resource_metric_snapshot(
+        &self,
+        target_type: &str,
+        target_key: &str,
+    ) -> Result<Option<ResourceMetricSnapshot>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, target_type, target_key, status, collected_at, duration_ms,
+                    summary_json, metrics_json, error
+             FROM resource_metric_snapshots
+             WHERE target_type = ?1 AND target_key = ?2
+             ORDER BY id DESC
+             LIMIT 1",
+            params![target_type, target_key],
+            |row| self.map_resource_metric_snapshot_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn list_resource_metric_snapshots(
+        &self,
+        input: &ResourceSnapshotListInput,
+    ) -> Result<Vec<ResourceMetricSnapshot>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let limit = input.limit.unwrap_or(200).clamp(1, 5000);
+        let mut stmt = conn.prepare(
+            "SELECT id, target_type, target_key, status, collected_at, duration_ms,
+                    summary_json, metrics_json, error
+             FROM resource_metric_snapshots
+             WHERE (?1 IS NULL OR target_type = ?1)
+               AND (?2 IS NULL OR target_key = ?2)
+             ORDER BY id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(params![input.target_type, input.target_key, limit], |row| {
+                self.map_resource_metric_snapshot_row(row)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn list_resource_alert_rules(
+        &self,
+        input: &ListResourceAlertRulesInput,
+    ) -> Result<Vec<ResourceAlertRule>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let enabled = input.enabled.map(|value| if value { 1 } else { 0 });
+        let mut stmt = conn.prepare(
+            "SELECT id, target_type, target_key, metric_key, operator, threshold_value,
+                    severity, enabled, updated_at
+             FROM resource_alert_rules
+             WHERE deleted_at IS NULL
+               AND (?1 IS NULL OR target_type = ?1)
+               AND (?2 IS NULL OR target_key = ?2 OR target_key = '*')
+               AND (?3 IS NULL OR enabled = ?3)
+             ORDER BY target_type, target_key, metric_key",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![input.target_type, input.target_key, enabled],
+                |row| self.map_resource_alert_rule_row(row),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_resource_alert_rule(
+        &self,
+        input: &UpsertResourceAlertRuleInput,
+    ) -> Result<ResourceAlertRule, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let target_key = input.target_key.as_deref().unwrap_or("*");
+        let enabled = input.enabled.unwrap_or(true);
+        let id = input.id.unwrap_or(0);
+        if id > 0 {
+            conn.execute(
+                "UPDATE resource_alert_rules
+                 SET target_type = ?2, target_key = ?3, metric_key = ?4, operator = ?5,
+                     threshold_value = ?6, severity = ?7, enabled = ?8,
+                     updated_at = datetime('now', 'localtime')
+                 WHERE id = ?1 AND deleted_at IS NULL",
+                params![
+                    id,
+                    input.target_type,
+                    target_key,
+                    input.metric_key,
+                    input.operator,
+                    input.threshold_value,
+                    input.severity,
+                    if enabled { 1 } else { 0 }
+                ],
+            )?;
+        } else {
+            conn.execute(
+                "INSERT INTO resource_alert_rules
+                 (target_type, target_key, metric_key, operator, threshold_value, severity, enabled)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    input.target_type,
+                    target_key,
+                    input.metric_key,
+                    input.operator,
+                    input.threshold_value,
+                    input.severity,
+                    if enabled { 1 } else { 0 }
+                ],
+            )?;
+        }
+        let rule_id = if id > 0 { id } else { conn.last_insert_rowid() };
+        drop(conn);
+        self.get_resource_alert_rule(rule_id)?
+            .ok_or_else(|| AppError::NotFound(format!("告警规则 '{}' 不存在", rule_id)))
+    }
+
+    pub fn delete_resource_alert_rule(&self, id: i64) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE resource_alert_rules
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn get_resource_alert_rule(&self, id: i64) -> Result<Option<ResourceAlertRule>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, target_type, target_key, metric_key, operator, threshold_value,
+                    severity, enabled, updated_at
+             FROM resource_alert_rules
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |row| self.map_resource_alert_rule_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn open_or_update_resource_alert_event(
+        &self,
+        rule: &ResourceAlertRule,
+        target_type: &str,
+        target_key: &str,
+        metric_value: f64,
+        message: &str,
+        snapshot_id: i64,
+    ) -> Result<ResourceAlertEvent, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let existing_id = conn
+            .query_row(
+                "SELECT id FROM resource_alert_events
+                 WHERE rule_id = ?1 AND target_type = ?2 AND target_key = ?3 AND status = 'open'
+                 ORDER BY id DESC LIMIT 1",
+                params![rule.id, target_type, target_key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let id = if let Some(id) = existing_id {
+            conn.execute(
+                "UPDATE resource_alert_events
+                 SET metric_value = ?2, threshold_value = ?3, message = ?4,
+                     last_seen_at = datetime('now', 'localtime'), snapshot_id = ?5
+                 WHERE id = ?1",
+                params![id, metric_value, rule.threshold_value, message, snapshot_id],
+            )?;
+            id
+        } else {
+            conn.execute(
+                "INSERT INTO resource_alert_events
+                 (rule_id, target_type, target_key, severity, status, metric_key, metric_value,
+                  threshold_value, message, snapshot_id)
+                 VALUES (?1, ?2, ?3, ?4, 'open', ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    rule.id,
+                    target_type,
+                    target_key,
+                    rule.severity,
+                    rule.metric_key,
+                    metric_value,
+                    rule.threshold_value,
+                    message,
+                    snapshot_id
+                ],
+            )?;
+            conn.last_insert_rowid()
+        };
+        drop(conn);
+        self.get_resource_alert_event(id)?
+            .ok_or_else(|| AppError::NotFound(format!("告警事件 '{}' 不存在", id)))
+    }
+
+    pub fn auto_resolve_resource_alert_event(
+        &self,
+        rule_id: i64,
+        target_type: &str,
+        target_key: &str,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE resource_alert_events
+             SET status = 'resolved', resolved_at = datetime('now', 'localtime'),
+                 last_seen_at = datetime('now', 'localtime')
+             WHERE rule_id = ?1 AND target_type = ?2 AND target_key = ?3 AND status = 'open'",
+            params![rule_id, target_type, target_key],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_resource_alert_event(
+        &self,
+        id: i64,
+    ) -> Result<Option<ResourceAlertEvent>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, rule_id, target_type, target_key, severity, status, metric_key,
+                    metric_value, threshold_value, message, first_seen_at, last_seen_at,
+                    resolved_at, snapshot_id
+             FROM resource_alert_events
+             WHERE id = ?1",
+            [id],
+            |row| self.map_resource_alert_event_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn resolve_resource_alert_event(&self, id: i64) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE resource_alert_events
+             SET status = 'resolved', resolved_at = datetime('now', 'localtime'),
+                 last_seen_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND status = 'open'",
+            [id],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!(
+                "打开的告警事件 '{}' 不存在",
+                id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn list_resource_alert_events(
+        &self,
+        input: &ListResourceAlertEventsInput,
+    ) -> Result<Vec<ResourceAlertEvent>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let limit = input.limit.unwrap_or(100).clamp(1, 1000);
+        let mut stmt = conn.prepare(
+            "SELECT id, rule_id, target_type, target_key, severity, status, metric_key,
+                    metric_value, threshold_value, message, first_seen_at, last_seen_at,
+                    resolved_at, snapshot_id
+             FROM resource_alert_events
+             WHERE (?1 IS NULL OR status = ?1)
+               AND (?2 IS NULL OR target_type = ?2)
+               AND (?3 IS NULL OR target_key = ?3)
+             ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, last_seen_at DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![input.status, input.target_type, input.target_key, limit],
+                |row| self.map_resource_alert_event_row(row),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn count_open_resource_alert_events(&self) -> Result<i64, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM resource_alert_events WHERE status = 'open'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.into())
     }
 
     // ─── 审计日志 DAO ───────────────────────────────
@@ -2362,6 +2876,88 @@ impl Database {
             request_id: row.get(10)?,
             approval_id: row.get(11)?,
             created_at: row.get(12)?,
+        })
+    }
+
+    fn map_resource_monitor_target_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+        group_name: &str,
+        latest_snapshot: Option<ResourceMetricSnapshot>,
+    ) -> Result<ResourceMonitorTarget, rusqlite::Error> {
+        Ok(ResourceMonitorTarget {
+            id: row.get(0)?,
+            target_type: row.get(1)?,
+            target_key: row.get(2)?,
+            display_name: row.get(3)?,
+            group_name: group_name.to_string(),
+            enabled: row.get::<_, i64>(4)? != 0,
+            collect_interval_sec: row.get(5)?,
+            last_status: row.get(6)?,
+            last_collected_at: row.get(7)?,
+            last_error: row.get(8)?,
+            latest_snapshot,
+            updated_at: row.get(9)?,
+        })
+    }
+
+    fn map_resource_metric_snapshot_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<ResourceMetricSnapshot, rusqlite::Error> {
+        let summary_json: String = row.get(6)?;
+        let metrics_json: String = row.get(7)?;
+        let summary = serde_json::from_str(&summary_json).unwrap_or_else(|_| serde_json::json!({}));
+        let metrics = serde_json::from_str(&metrics_json).unwrap_or_else(|_| serde_json::json!({}));
+        Ok(ResourceMetricSnapshot {
+            id: row.get(0)?,
+            target_type: row.get(1)?,
+            target_key: row.get(2)?,
+            status: row.get(3)?,
+            collected_at: row.get(4)?,
+            duration_ms: row.get(5)?,
+            summary,
+            metrics,
+            error: row.get(8)?,
+        })
+    }
+
+    fn map_resource_alert_rule_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<ResourceAlertRule, rusqlite::Error> {
+        Ok(ResourceAlertRule {
+            id: row.get(0)?,
+            target_type: row.get(1)?,
+            target_key: row.get(2)?,
+            metric_key: row.get(3)?,
+            operator: row.get(4)?,
+            threshold_value: row.get(5)?,
+            severity: row.get(6)?,
+            enabled: row.get::<_, i64>(7)? != 0,
+            updated_at: row.get(8)?,
+        })
+    }
+
+    fn map_resource_alert_event_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<ResourceAlertEvent, rusqlite::Error> {
+        Ok(ResourceAlertEvent {
+            id: row.get(0)?,
+            rule_id: row.get(1)?,
+            target_type: row.get(2)?,
+            target_key: row.get(3)?,
+            severity: row.get(4)?,
+            status: row.get(5)?,
+            metric_key: row.get(6)?,
+            metric_value: row.get(7)?,
+            threshold_value: row.get(8)?,
+            message: row.get(9)?,
+            first_seen_at: row.get(10)?,
+            last_seen_at: row.get(11)?,
+            resolved_at: row.get(12)?,
+            snapshot_id: row.get(13)?,
         })
     }
 }
