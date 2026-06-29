@@ -180,6 +180,142 @@ function extractSqlFromAiAnswer(answer: string) {
   return candidate.trim();
 }
 
+function formatSqlAiProbeRows(rows: Array<Record<string, unknown>>) {
+  if (rows.length === 0) return "无返回行";
+  return rows
+    .slice(0, 3)
+    .map((row) =>
+      Object.entries(row)
+        .map(([key, value]) => `${key}=${value === null || value === undefined ? "NULL" : String(value)}`)
+        .join(", "),
+    )
+    .join("\n");
+}
+
+function normalizeMarkdownForPanel(markdown: string) {
+  return markdown
+    .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
+    .replace(/\s+(```[a-zA-Z0-9_-]*)/g, "\n\n$1")
+    .replace(/```([a-zA-Z0-9_-]+)\s+/g, "```$1\n")
+    .replace(/```\s+/g, "```\n")
+    .trim();
+}
+
+function renderInlineMarkdown(value: string) {
+  const segments = value.split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g).filter(Boolean);
+  return segments.map((segment, index) => {
+    if (segment.startsWith("`") && segment.endsWith("`")) {
+      return <code key={`${segment}-${index}`}>{segment.slice(1, -1)}</code>;
+    }
+    if ((segment.startsWith("**") && segment.endsWith("**")) || (segment.startsWith("__") && segment.endsWith("__"))) {
+      return <strong key={`${segment}-${index}`}>{segment.slice(2, -2)}</strong>;
+    }
+    if (segment.startsWith("*") && segment.endsWith("*")) {
+      return <em key={`${segment}-${index}`}>{segment.slice(1, -1)}</em>;
+    }
+    return <span key={`${segment}-${index}`}>{segment}</span>;
+  });
+}
+
+function renderMarkdownHeading(level: number, content: string) {
+  const HeadingTag = (level <= 2 ? "h4" : "h5") as "h4" | "h5";
+  return <HeadingTag>{renderInlineMarkdown(content)}</HeadingTag>;
+}
+
+function renderMarkdownTextBlock(block: string, blockIndex: number) {
+  const lines = block.split("\n").filter((line) => line.trim().length > 0);
+  const firstLine = lines[0]?.trim() ?? "";
+  const heading = firstLine.match(/^(#{1,6})\s+(.+)$/);
+  if (heading) {
+    const rest = lines.slice(1).join("\n");
+    return (
+      <section key={`${blockIndex}-${firstLine}`}>
+        {renderMarkdownHeading(heading[1].length, heading[2])}
+        {rest ? <SqlMarkdownAnswer content={rest} /> : null}
+      </section>
+    );
+  }
+  if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
+    return (
+      <ul key={`${blockIndex}-${firstLine}`}>
+        {lines.map((line, index) => (
+          <li key={`${line}-${index}`}>{renderInlineMarkdown(line.trim().replace(/^[-*]\s+/, ""))}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (lines.every((line) => /^\d+[.)]\s+/.test(line.trim()))) {
+    return (
+      <ol key={`${blockIndex}-${firstLine}`}>
+        {lines.map((line, index) => (
+          <li key={`${line}-${index}`}>{renderInlineMarkdown(line.trim().replace(/^\d+[.)]\s+/, ""))}</li>
+        ))}
+      </ol>
+    );
+  }
+  return (
+    <p key={`${blockIndex}-${firstLine}`}>
+      {renderInlineMarkdown(lines.join(" "))}
+    </p>
+  );
+}
+
+function SqlMarkdownAnswer({ content }: { content: string }) {
+  const normalized = normalizeMarkdownForPanel(content);
+  const blocks: Array<{ type: "text" | "code"; value: string; lang?: string }> = [];
+  let textBuffer: string[] = [];
+  let codeBuffer: string[] = [];
+  let codeLang = "";
+
+  normalized.split("\n").forEach((line) => {
+    const fence = line.match(/^```([a-zA-Z0-9_-]*)\s*$/);
+    if (fence) {
+      if (codeBuffer.length > 0 || codeLang) {
+        blocks.push({ type: "code", value: codeBuffer.join("\n").trimEnd(), lang: codeLang || "text" });
+        codeBuffer = [];
+        codeLang = "";
+      } else {
+        if (textBuffer.some((item) => item.trim())) {
+          blocks.push({ type: "text", value: textBuffer.join("\n").trim() });
+          textBuffer = [];
+        }
+        codeLang = fence[1] || "text";
+      }
+      return;
+    }
+    if (codeLang) {
+      codeBuffer.push(line);
+    } else {
+      textBuffer.push(line);
+    }
+  });
+  if (codeBuffer.length > 0 || codeLang) {
+    blocks.push({ type: "code", value: codeBuffer.join("\n").trimEnd(), lang: codeLang || "text" });
+  }
+  if (textBuffer.some((item) => item.trim())) {
+    blocks.push({ type: "text", value: textBuffer.join("\n").trim() });
+  }
+
+  return (
+    <div className="database-sql-ai-markdown">
+      {blocks.map((block, index) => {
+        if (block.type === "code") {
+          return (
+            <div className="database-sql-ai-code-block" key={`code-${index}`}>
+              <div className="database-sql-ai-code-lang">{block.lang}</div>
+              <pre><code>{block.value}</code></pre>
+            </div>
+          );
+        }
+        return block.value
+          .split(/\n{2,}/)
+          .filter(Boolean)
+          .map((textBlock, textIndex) => renderMarkdownTextBlock(textBlock, index * 100 + textIndex));
+      })}
+    </div>
+  );
+}
+
 function renderRedisTreeTitle(label: string, count: number) {
   const text = `${label}（${count}）`;
   return (
@@ -1380,6 +1516,10 @@ export default function DatabasePage() {
 
   async function runSqlAi(mode = sqlAiMode) {
     const freePrompt = sqlAiPrompt.trim();
+    if (!queryConnectionKey || !selectedSqlConnection) {
+      message.warning("请先选择 MySQL / PostgreSQL 数据库连接");
+      return;
+    }
     if (mode === "ask" && !freePrompt) {
       message.warning("请输入要问 AI 的问题");
       return;
@@ -1388,8 +1528,48 @@ export default function DatabasePage() {
       message.warning("请先输入 SQL");
       return;
     }
+    setSqlAiLoading(true);
+    setSqlAiAnswer("AI 思考中...");
+    setSqlAiMeta("");
     const failedResult = queryResults.find((item) => item.status === "error");
     const latestResult = queryResults[queryResults.length - 1];
+    const dialectLabel = dbTypeLabel[selectedSqlConnection.dbType];
+    const dialectRule = selectedSqlConnection.dbType === "mysql"
+      ? "只能生成 MySQL 语法，不要输出 PostgreSQL 的 pg_stat_activity、current_setting、:: 类型转换、RETURNING 等语法。"
+      : "只能生成 PostgreSQL 语法，不要输出 MySQL 的 information_schema.processlist、SHOW VARIABLES、反引号等语法。";
+    const statusText = statusMeta[selectedSqlConnection.status]?.text ?? selectedSqlConnection.status;
+    const versionProbeSql = selectedSqlConnection.dbType === "mysql"
+      ? "SELECT VERSION() AS version, @@version_comment AS version_comment, @@version_compile_os AS version_compile_os, @@max_connections AS max_connections;"
+      : "SELECT version() AS version, current_setting('server_version') AS server_version, current_database() AS current_database, current_schema() AS current_schema;";
+    let runtimeContext = "";
+    try {
+      const probeResults = await databaseOpsApi.executeSqlBatch({
+        connectionKey: selectedSqlConnection.key,
+        databaseName: queryDatabaseName,
+        sql: versionProbeSql,
+        page: 1,
+        pageSize: 5,
+      });
+      const probe = probeResults[0];
+      runtimeContext = probe && probe.status !== "error"
+        ? [
+          "数据库运行时探测：成功",
+          `版本/状态查询 SQL：${versionProbeSql}`,
+          `版本/状态查询结果：\n${formatSqlAiProbeRows(probe.rows)}`,
+          `探测耗时：${probe.durationMs}ms`,
+        ].join("\n")
+        : [
+          "数据库运行时探测：失败",
+          `版本/状态查询 SQL：${versionProbeSql}`,
+          `失败原因：${probe?.message ?? "未返回探测结果"}`,
+        ].join("\n");
+    } catch (error) {
+      runtimeContext = [
+        "数据库运行时探测：失败",
+        `版本/状态查询 SQL：${versionProbeSql}`,
+        `失败原因：${getErrorMessage(error)}`,
+      ].join("\n");
+    }
     const taskText: Record<SqlAiMode, string> = {
       ask: "回答用户关于当前数据库、SQL、表结构或查询结果的问题。",
       generate: "根据用户需求生成可直接执行的 SQL。只输出必要解释和 SQL 代码块。",
@@ -1398,8 +1578,16 @@ export default function DatabasePage() {
     };
     const promptParts = [
       `任务：${taskText[mode]}`,
-      `数据库类型：${selectedSqlConnection ? dbTypeLabel[selectedSqlConnection.dbType] : "未选择"}`,
+      `当前数据库类型：${dialectLabel}`,
+      `数据库方言硬约束：${dialectRule}`,
+      `连接名称：${selectedSqlConnection.name}`,
+      `连接状态：${statusText}（${selectedSqlConnection.status}）`,
+      `连接模式：${selectedSqlConnection.connectionMode === "ssh_tunnel" ? `SSH 隧道（${selectedSqlConnection.sshServerAlias || "未配置服务器"}）` : "直连"}`,
+      `连接端点：${selectedSqlConnection.host}:${selectedSqlConnection.port}`,
+      `连接用户：${selectedSqlConnection.username || "未填写"}`,
+      `默认库配置：${selectedSqlConnection.databaseName || "未配置"}`,
       `当前数据库：${queryDatabaseName ?? "未选择"}`,
+      runtimeContext,
       sqlAiSchemaSummary ? `当前库结构摘要：\n${sqlAiSchemaSummary}` : "当前库结构摘要：未加载",
       querySql.trim() ? `当前 SQL：\n${querySql.trim()}` : "当前 SQL：未输入",
       failedResult ? `最近错误：${failedResult.message}` : "",
@@ -1407,17 +1595,20 @@ export default function DatabasePage() {
         ? `最近执行结果：${latestResult.message}，列：${latestResult.columns.join(", ")}`
         : "",
       freePrompt ? `用户问题/需求：${freePrompt}` : "",
-      "要求：回答使用中文；SQL 使用 ```sql 代码块；如果会修改数据，必须明确提示风险；不要编造不存在的表字段。",
+      `要求：回答使用中文；SQL 使用 \`\`\`sql 代码块；所有 SQL 必须严格使用 ${dialectLabel} 方言；如果问题涉及其他数据库类型，必须先指出当前连接是 ${dialectLabel}，不能直接给其他数据库方言；如果会修改数据，必须明确提示风险；不要编造不存在的表字段。`,
     ].filter(Boolean);
-    setSqlAiLoading(true);
-    setSqlAiAnswer("AI 思考中...");
-    setSqlAiMeta("");
     try {
       const result = await aiProviderApi.ask({
         prompt: promptParts.join("\n\n"),
         skillScope: "sql",
         useSkillTrigger: true,
-        systemPrompt: "你是 Tauri SSH 数据库 SQL 助手，擅长 MySQL、PostgreSQL、SQL 诊断、查询生成和性能调优。",
+        systemPrompt: [
+          "你是 Tauri SSH 数据库 SQL 助手，擅长 SQL 诊断、查询生成和性能调优。",
+          `当前连接数据库类型已经确定为 ${dialectLabel}。`,
+          dialectRule,
+          "不要同时给多个数据库类型的答案，除非用户明确要求对比；默认只回答当前连接数据库类型。",
+          "所有 SQL 示例必须放在 ```sql 代码块中。",
+        ].join("\n"),
       });
       setSqlAiAnswer(result.answer);
       setSqlAiMeta(`${result.providerName} / ${result.model} / ${result.latencyMs}ms`);
@@ -2085,6 +2276,7 @@ export default function DatabasePage() {
                           type="primary"
                           icon={<Sparkles size={14} />}
                           loading={sqlAiLoading}
+                          disabled={!selectedSqlConnection}
                           onClick={() => runSqlAi()}
                         >
                           {sqlAiMode === "ask"
@@ -2110,10 +2302,10 @@ export default function DatabasePage() {
                         >
                           应用 SQL
                         </Button>
-                        <Button disabled={!querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("fix")}>
+                        <Button disabled={!selectedSqlConnection || !querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("fix")}>
                           纠错当前 SQL
                         </Button>
-                        <Button disabled={!querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("optimize")}>
+                        <Button disabled={!selectedSqlConnection || !querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("optimize")}>
                           调优当前 SQL
                         </Button>
                         <Button
@@ -2132,6 +2324,7 @@ export default function DatabasePage() {
                       />
                       {sqlAiAnswer && (
                         <div
+                          className="database-sql-ai-answer"
                           style={{
                             maxHeight: 300,
                             overflow: "auto",
@@ -2141,18 +2334,7 @@ export default function DatabasePage() {
                             background: "var(--bg-primary)",
                           }}
                         >
-                          <pre
-                            style={{
-                              margin: 0,
-                              whiteSpace: "pre-wrap",
-                              wordBreak: "break-word",
-                              fontFamily: "var(--font-mono)",
-                              fontSize: 13,
-                              lineHeight: 1.6,
-                            }}
-                          >
-                            {sqlAiAnswer}
-                          </pre>
+                          <SqlMarkdownAnswer content={sqlAiAnswer} />
                         </div>
                       )}
                     </Space>

@@ -15,11 +15,10 @@ use crate::models::{
     ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput, SecureCredential,
     SecureCredentialAuditLog, SecureCredentialOverview, SecureCredentialPolicySettings,
     SecureCredentialSession, SetSecureCredentialEnabledInput, SshServer,
-    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput,
-    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
-    UpsertCredentialInput, UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput,
-    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
-    UpsertSshServerInput,
+    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
+    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput,
+    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
+    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput, UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {

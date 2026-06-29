@@ -16,9 +16,10 @@ use crate::models::{
     ListSecureCredentialAuditLogsInput, ListSecureCredentialSessionsInput,
     ListSecureCredentialsInput, RotateSecureCredentialInput, SecureCredential,
     SecureCredentialAuditLog, SecureCredentialGitReadInput, SecureCredentialGitWriteInput,
-    SecureCredentialGitWriteResult, SecureCredentialHttpRequestInput, SecureCredentialHttpRequestResult,
-    SecureCredentialHttpWriteInput, SecureCredentialOverview, SecureCredentialPolicySettings,
-    SecureCredentialProviderReadResult, SecureCredentialProviderTestInput, SecureCredentialProviderTestResult,
+    SecureCredentialGitWriteResult, SecureCredentialHttpRequestInput,
+    SecureCredentialHttpRequestResult, SecureCredentialHttpWriteInput, SecureCredentialOverview,
+    SecureCredentialPolicySettings, SecureCredentialProviderReadResult,
+    SecureCredentialProviderTestInput, SecureCredentialProviderTestResult,
     SecureCredentialRepository, SecureCredentialRepositoryListInput, SecureCredentialSession,
     SecureCredentialSessionStatus, SetSecureCredentialEnabledInput,
     UpdateSecureCredentialPolicySettingsInput, UpsertSecureCredentialInput,
@@ -424,7 +425,7 @@ impl SecureCredentialService {
                 let req = client.get(&url).headers(Self::gitlab_headers(&secret)?);
                 (url, req)
             }
-            "gitcode" => {
+            "gitcode" | "gitee" => {
                 let url = format!("{}/user", Self::api_base_url(&credential)?);
                 let req = client.get(&url).headers(Self::bearer_headers(&secret)?);
                 (url, req)
@@ -538,7 +539,7 @@ impl SecureCredentialService {
                 let req = client.get(&url).headers(Self::gitlab_headers(&secret)?);
                 (url, req)
             }
-            "gitcode" => {
+            "gitcode" | "gitee" => {
                 let url = format!(
                     "{}/user/repos?page={}&per_page={}",
                     Self::api_base_url(&credential)?,
@@ -595,7 +596,7 @@ impl SecureCredentialService {
             .ok_or_else(|| {
                 AppError::NotFound(format!("安全凭证 '{}' 不存在", session.credential_key))
             })?;
-        if !["github", "gitlab", "gitcode"].contains(&credential.provider.as_str()) {
+        if !["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str()) {
             return Err(AppError::InvalidInput(format!(
                 "Provider '{}' 不支持 Git 只读工具",
                 credential.provider
@@ -613,9 +614,15 @@ impl SecureCredentialService {
             .clamp(1, settings.max_response_items.min(100));
         let url = Self::git_readonly_url(&credential, &input, page, per_page)?;
         let request = match credential.provider.as_str() {
-            "github" => Self::http_client()?.get(&url).headers(Self::github_headers(&secret)?),
-            "gitlab" => Self::http_client()?.get(&url).headers(Self::gitlab_headers(&secret)?),
-            "gitcode" => Self::http_client()?.get(&url).headers(Self::bearer_headers(&secret)?),
+            "github" => Self::http_client()?
+                .get(&url)
+                .headers(Self::github_headers(&secret)?),
+            "gitlab" => Self::http_client()?
+                .get(&url)
+                .headers(Self::gitlab_headers(&secret)?),
+            "gitcode" | "gitee" => Self::http_client()?
+                .get(&url)
+                .headers(Self::bearer_headers(&secret)?),
             _ => unreachable!(),
         };
         let response = request.send().await.map_err(Self::http_error)?;
@@ -804,7 +811,7 @@ impl SecureCredentialService {
             .ok_or_else(|| {
                 AppError::NotFound(format!("安全凭证 '{}' 不存在", session.credential_key))
             })?;
-        if !["github", "gitlab", "gitcode"].contains(&credential.provider.as_str()) {
+        if !["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str()) {
             return Err(AppError::InvalidInput(format!(
                 "Provider '{}' 不支持 Git 写操作",
                 credential.provider
@@ -826,7 +833,7 @@ impl SecureCredentialService {
         request = match credential.provider.as_str() {
             "github" => request.headers(Self::github_headers(&secret)?),
             "gitlab" => request.headers(Self::gitlab_headers(&secret)?),
-            "gitcode" => request.headers(Self::bearer_headers(&secret)?),
+            "gitcode" | "gitee" => request.headers(Self::bearer_headers(&secret)?),
             _ => request,
         };
         let response = request.json(&body).send().await.map_err(Self::http_error)?;
@@ -893,7 +900,8 @@ impl SecureCredentialService {
         if input.display_name.trim().is_empty() {
             return Err(AppError::InvalidInput("显示名称不能为空".into()));
         }
-        if !["github", "gitlab", "gitcode", "http_api", "custom"].contains(&input.provider.as_str())
+        if !["github", "gitlab", "gitcode", "gitee", "http_api", "custom"]
+            .contains(&input.provider.as_str())
         {
             return Err(AppError::InvalidInput("Provider 类型无效".into()));
         }
@@ -1019,6 +1027,15 @@ impl SecureCredentialService {
                     format!("{}/api/v5", configured)
                 }
             }
+            "gitee" => {
+                if configured.is_empty() {
+                    "https://gitee.com/api/v5".into()
+                } else if configured.ends_with("/api/v5") {
+                    configured
+                } else {
+                    format!("{}/api/v5", configured)
+                }
+            }
             "http_api" | "custom" => configured,
             _ => configured,
         };
@@ -1070,7 +1087,7 @@ impl SecureCredentialService {
     fn account_from_detail(provider: &str, detail: &Value) -> Option<String> {
         let object = detail.as_object()?;
         match provider {
-            "github" | "gitcode" => object
+            "github" | "gitcode" | "gitee" => object
                 .get("login")
                 .or_else(|| object.get("name"))
                 .and_then(Value::as_str)
@@ -1307,7 +1324,11 @@ impl SecureCredentialService {
     fn is_high_risk_git_operation(operation: &str) -> bool {
         matches!(
             operation,
-            "delete_branch" | "delete_tag" | "delete_release" | "update_ref" | "update_repo_settings"
+            "delete_branch"
+                | "delete_tag"
+                | "delete_release"
+                | "update_ref"
+                | "update_repo_settings"
         )
     }
 
@@ -1328,7 +1349,10 @@ impl SecureCredentialService {
         Ok(())
     }
 
-    fn ensure_base_url_allowed(db: &Database, credential: &SecureCredential) -> Result<(), AppError> {
+    fn ensure_base_url_allowed(
+        db: &Database,
+        credential: &SecureCredential,
+    ) -> Result<(), AppError> {
         let settings = db.get_secure_credential_policy_settings()?;
         if settings.http_allowed_domains.is_empty() {
             return Ok(());
@@ -1419,7 +1443,7 @@ impl SecureCredentialService {
         match credential.provider.as_str() {
             "github" => Self::github_write_request(&base, input),
             "gitlab" => Self::gitlab_write_request(&base, input),
-            "gitcode" => Self::gitcode_write_request(&base, input),
+            "gitcode" | "gitee" => Self::gitcode_write_request(&base, input),
             _ => Err(AppError::InvalidInput("不支持的 Git Provider".into())),
         }
     }
@@ -1435,7 +1459,7 @@ impl SecureCredentialService {
         let repo = input.repo.as_deref().unwrap_or("").trim();
         let state = input.state.as_deref().unwrap_or("open");
         match credential.provider.as_str() {
-            "github" | "gitcode" => {
+            "github" | "gitcode" | "gitee" => {
                 let repo_required = || {
                     if repo.is_empty() {
                         Err(AppError::InvalidInput("repo 不能为空".into()))
@@ -1444,7 +1468,10 @@ impl SecureCredentialService {
                     }
                 };
                 match resource {
-                    "repos" => Ok(format!("{}/user/repos?page={}&per_page={}", base, page, per_page)),
+                    "repos" => Ok(format!(
+                        "{}/user/repos?page={}&per_page={}",
+                        base, page, per_page
+                    )),
                     "repo_detail" => Ok(format!("{}/repos/{}", base, repo_required()?)),
                     "branches" => Ok(format!(
                         "{}/repos/{}/branches?page={}&per_page={}",

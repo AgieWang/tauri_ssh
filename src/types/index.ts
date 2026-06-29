@@ -8,6 +8,8 @@
 export type { AppConfig } from "./config";
 export type { SystemInfo } from "./system";
 export type {
+  AiUnrestrictedState,
+  EnableAiUnrestrictedInput,
   SystemCloseBehavior,
   SystemLanguage,
   SystemLogLevel,

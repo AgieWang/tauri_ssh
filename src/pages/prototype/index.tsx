@@ -6,7 +6,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { ArrowDownToLine, Bot, ChevronLeft, ChevronRight, ChevronsUp, Copy, Edit3, FilePlus2, Folder, FolderOpen, FolderPlus, Home, KeyRound, Link2, Maximize2, Minimize2, Pencil, PlugZap, RefreshCw, Scissors, Search, Trash2, Upload, UploadCloud } from "lucide-react";
+import { ArrowDownToLine, Bot, ChevronLeft, ChevronRight, ChevronsUp, Copy, Edit3, FilePlus2, Folder, FolderOpen, FolderPlus, Home, KeyRound, Link2, Maximize2, Minimize2, Pencil, PlugZap, Plus, RefreshCw, Scissors, Search, ShieldAlert, Trash2, Upload, UploadCloud } from "lucide-react";
 import {
   coverageRows,
   servers,
@@ -361,6 +361,12 @@ interface AiPolicyDecision {
   reason: string;
 }
 
+interface TerminalAiMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
 interface TerminalTabState {
   id: string;
   title: string;
@@ -370,6 +376,7 @@ interface TerminalTabState {
   connecting: boolean;
   risk: TerminalRiskLevel;
   transcript: string[];
+  aiMessages: TerminalAiMessage[];
 }
 
 interface TerminalContext {
@@ -694,9 +701,23 @@ function firstCommandToken(segment: string) {
   return (tokens[index] ?? "").replace(/^['"]|['"]$/g, "");
 }
 
-function classifyAiCommand(command: string, purpose = ""): ClassifiedCommand {
+function dangerousCommandPatternMatches(pattern: string, normalizedCommand: string) {
+  const value = pattern.trim();
+  if (!value) return false;
+  try {
+    return new RegExp(value, "i").test(normalizedCommand);
+  } catch {
+    return normalizedCommand.toLowerCase().includes(value.toLowerCase());
+  }
+}
+
+function classifyAiCommand(command: string, purpose = "", dangerousCommands: string[] = []): ClassifiedCommand {
   const normalized = normalizeShellCommand(command);
   const lowered = normalized.toLowerCase();
+  const dangerousPattern = dangerousCommands.find((item) => dangerousCommandPatternMatches(item, lowered));
+  if (dangerousPattern) {
+    return { command: normalized, purpose, risk: "blocked", reason: `命中危险命令黑名单：${dangerousPattern}` };
+  }
   const absoluteBlockedPatterns: Array<[RegExp, string]> = [
     [/\brm\s+.*(-[^\s]*[rf][^\s]*|--recursive|--force)/i, "包含强制或递归删除命令"],
     [/\b(mkfs|fdisk|parted|dd)\b/i, "涉及磁盘分区、格式化或块级写入"],
@@ -788,12 +809,15 @@ function classifyAiCommand(command: string, purpose = ""): ClassifiedCommand {
   return { command: normalized, purpose, risk: "review", reason: reviewReason || "不在只读命令白名单内" };
 }
 
-function decideAiCommandByPolicy(policy: SshServerPolicy, command: ClassifiedCommand): AiPolicyDecision {
-  if (policy === "blocked") {
-    return { action: "blocked", reason: "当前服务器 AI 权限为禁用" };
-  }
+function decideAiCommandByPolicy(policy: SshServerPolicy, command: ClassifiedCommand, aiUnrestricted = false): AiPolicyDecision {
   if (command.risk === "blocked") {
     return { action: "blocked", reason: `命令命中绝对禁止策略：${command.reason}` };
+  }
+  if (aiUnrestricted) {
+    return { action: "auto", reason: "AI 临时放行已开启，30 分钟内允许自动执行读写命令；危险命令仍会阻止" };
+  }
+  if (policy === "blocked") {
+    return { action: "blocked", reason: "当前服务器 AI 权限为禁用" };
   }
   if (command.risk === "readonly") {
     return { action: "auto", reason: "当前服务器 AI 权限允许自动执行只读命令" };
@@ -923,18 +947,57 @@ function parseAiCommandPlan(answer: string): AiCommandPlanItem[] {
   }).slice(0, 3);
 }
 
-function buildAiTerminalAnswer(question: string, lines: string[]) {
-  const text = `${question}\n${lines.join("\n")}`.toLowerCase();
-  if (text.includes("rm -rf") || text.includes("高风险") || text.includes("阻止")) {
-    return "该命令属于高风险删除/破坏类操作，建议保持阻止。可替代方案：先归档目标目录、确认路径变量，再用带明确范围和审批的清理命令执行。";
-  }
-  if (text.includes("systemctl status") || text.includes("服务状态")) {
-    return "这是只读服务状态检查，适合作为排障第一步。重点关注 Active、Main PID、最近日志和退出码；如果需要变更服务状态，应进入审批流程。";
-  }
-  if (text.includes("tail") || text.includes("日志")) {
-    return "建议把一次性 tail 升级为日志监听任务，并增加关键词过滤，例如 ERROR、Exception、timeout。这样可以持续观察同一服务器或多服务器日志。";
-  }
-  return "我会基于当前终端上下文给出建议：先确认命令风险级别，再优先执行只读检查；涉及写入、重启、删除或权限变更的命令应进入审批。";
+const dangerousCommandPresets = [
+  { pattern: String.raw`(?:^|[\s;&|])rm\s+-[a-z]*r[a-z]*f?[a-z]*\s+(?:/|~|\$home|\*)`, description: "rm -rf / ~" },
+  { pattern: String.raw`(?:^|[\s;&|])rm\s+-[a-z]*f[a-z]*r[a-z]*\s+(?:/|~|\$home|\*)`, description: "rm -fr 等价形态" },
+  { pattern: String.raw`\bmkfs[\.\w]*\b`, description: "mkfs.* 磁盘格式化" },
+  { pattern: String.raw`\bmke2fs\b`, description: "mke2fs 磁盘格式化" },
+  { pattern: String.raw`\bwipefs\b`, description: "wipefs 擦除文件系统签名" },
+  { pattern: String.raw`\bdd\b[^\n]*\bof=/dev/`, description: "dd of=/dev/ 直接写块设备" },
+  { pattern: String.raw`:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:`, description: "fork bomb :(){:|:&};:" },
+  { pattern: String.raw`>\s*/dev/sd[a-z]`, description: "重定向到 /dev/sd*" },
+  { pattern: String.raw`\bchmod\s+-r\s+0*777\s+/(?:\s|$)`, description: "chmod -R 777 /" },
+  { pattern: String.raw`\bchown\s+-r\s+\w+\s+/(?:\s|$)`, description: "chown -R x /" },
+  { pattern: String.raw`\bshutdown\b`, description: "shutdown 关机" },
+  { pattern: String.raw`\bpoweroff\b`, description: "poweroff 关机" },
+  { pattern: String.raw`\bhalt\b`, description: "halt 停机" },
+  { pattern: String.raw`\breboot\b`, description: "reboot 重启" },
+  { pattern: String.raw`\binit\s+0\b`, description: "init 0 关机" },
+  { pattern: String.raw`\biptables\s+-f\b`, description: "iptables -F 清空规则" },
+  { pattern: String.raw`\bfirewall-cmd\b.*--reload\b`, description: "firewall-cmd reload" },
+  { pattern: String.raw`\b(drop\s+database|drop\s+schema)\b`, description: "DROP DATABASE / SCHEMA" },
+  { pattern: String.raw`\bdrop\s+table\b`, description: "DROP TABLE" },
+  { pattern: String.raw`\btruncate\s+table\b`, description: "TRUNCATE TABLE" },
+  { pattern: String.raw`\bflushall\b`, description: "Redis FLUSHALL" },
+  { pattern: String.raw`\bflushdb\b`, description: "Redis FLUSHDB" },
+  { pattern: String.raw`\b(curl|wget)\b.*\|\s*(sh|bash|zsh)\b`, description: "下载脚本后直接执行" },
+  { pattern: String.raw`\b(find)\b.*\s-delete\b`, description: "find -delete 批量删除" },
+] as const;
+
+const dangerousPresetMap = new Map(dangerousCommandPresets.map((item) => [item.pattern, item.description]));
+
+interface DangerousCommandTableRow {
+  key: string;
+  pattern: string;
+  description: string;
+  source: "builtin" | "user";
+}
+
+function DangerousCommandsField(_props: { value?: string[]; onChange?: (value: string[]) => void }) {
+  return null;
+}
+
+function normalizeDangerousCommandList(commands: string[]) {
+  const seen = new Set<string>();
+  return commands
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 interface ProviderTemplate {
@@ -2061,6 +2124,7 @@ export function TerminalPage() {
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiAnswer, setAiAnswer] = useState("打开一个 SSH 终端后，可以让 AI 解释当前标签输出、判断风险或生成下一步排障建议。");
+  const [terminalAiAsking, setTerminalAiAsking] = useState(false);
   const [terminalExperienceSaving, setTerminalExperienceSaving] = useState(false);
   const terminalTabsRef = useRef<TerminalTabState[]>(terminalWorkspace.tabs);
   const activeTerminalIdRef = useRef<string | undefined>(terminalWorkspace.activeId);
@@ -2074,6 +2138,7 @@ export function TerminalPage() {
     ? terminalServers.find((server) => server.alias === activeTab.serverAlias)?.aiPolicy
     : undefined;
   const connectedCount = terminalTabs.filter((item) => item.connected).length;
+  const selectedAliasOpening = terminalTabs.some((item) => item.serverAlias === selectedAlias && item.connecting);
 
   function updateTerminalTab(tabId: string, patch: Partial<{
     title: string;
@@ -2082,6 +2147,7 @@ export function TerminalPage() {
     connecting: boolean;
     risk: TerminalRiskLevel;
     transcript: string[];
+    aiMessages: TerminalAiMessage[];
   }>) {
     setTerminalTabs((prev) => {
       const next = prev.map((tab) => (tab.id === tabId ? { ...tab, ...patch } : tab));
@@ -2112,6 +2178,56 @@ export function TerminalPage() {
     }
   }
 
+  function terminalAiDefaultAnswer() {
+    return "打开一个 SSH 终端后，可以让 AI 解释当前标签输出、判断风险或生成下一步排障建议。";
+  }
+
+  function normalizeTerminalAiMessages(tab?: TerminalTabState) {
+    return (tab?.aiMessages ?? []).slice(-12);
+  }
+
+  function formatTerminalAiHistory(messages: TerminalAiMessage[]) {
+    if (messages.length === 0) {
+      return "暂无历史对话。";
+    }
+    return messages
+      .map((item) => `${item.role === "user" ? "用户" : "AI"}：${truncateText(item.content, 1_200)}`)
+      .join("\n\n");
+  }
+
+  function appendTerminalAiExchange(tabId: string, question: string, answer: string) {
+    const now = new Date().toISOString();
+    setTerminalTabs((prev) => {
+      const next = prev.map((tab) => {
+        if (tab.id !== tabId) {
+          return tab;
+        }
+        return {
+          ...tab,
+          aiMessages: [
+            ...normalizeTerminalAiMessages(tab),
+            { role: "user" as const, content: question, createdAt: now },
+            { role: "assistant" as const, content: answer, createdAt: now },
+          ].slice(-12),
+        };
+      });
+      terminalTabsRef.current = next;
+      terminalWorkspace.tabs = next;
+      return next;
+    });
+  }
+
+  function buildTerminalAiConversationPrompt(tab: TerminalTabState, question: string) {
+    const recentTranscript = tab.transcript.slice(-80).join("\n");
+    return [
+      `服务器标签：${tab.serverAlias}`,
+      `当前终端状态：${tab.status}`,
+      `最近终端输出：\n${recentTranscript ? truncateText(recentTranscript, 8_000) : "暂无可用终端输出。"}`,
+      `本标签历史 AI 对话：\n${formatTerminalAiHistory(normalizeTerminalAiMessages(tab))}`,
+      `用户本轮问题：${question}`,
+    ].join("\n\n");
+  }
+
   function findTabIdBySession(sessionId: string) {
     for (const [tabId, context] of terminalContextsRef.current.entries()) {
       if (context.sessionId === sessionId) {
@@ -2128,14 +2244,24 @@ export function TerminalPage() {
     }
     const context = terminalContextsRef.current.get(tabId);
     const terminal = context?.terminal;
+    if (payload.kind === "connecting" && payload.message) {
+      updateTerminalTab(tabId, { status: payload.message, connected: false, connecting: true });
+      terminal?.writeln(`\r\n\x1b[36m${payload.message}\x1b[0m`);
+      return;
+    }
     if (payload.kind === "data" && payload.data) {
       terminal?.write(payload.data);
       appendTranscript(tabId, payload.data);
       return;
     }
     if (payload.kind === "status" && payload.message) {
-      updateTerminalTab(tabId, { status: payload.message });
+      updateTerminalTab(tabId, { status: payload.message, connected: true, connecting: false });
+      if (context) {
+        context.connected = true;
+      }
       terminal?.writeln(`\r\n\x1b[32m${payload.message}\x1b[0m`);
+      setAiAnswer("SSH 终端已连接。可以直接输入命令；Ctrl+C、方向键、Tab 补全等控制序列会进入远端 PTY。");
+      fitTerminal(tabId);
       return;
     }
     if (payload.kind === "error") {
@@ -2390,6 +2516,24 @@ export function TerminalPage() {
     }
     const server = terminalServers.find((item) => item.alias === tab.serverAlias);
     const serverPolicy = server?.aiPolicy ?? "blocked";
+    const [aiUnrestrictedState, currentSettings] = await Promise.all([
+      systemSettingsApi.getAiUnrestrictedState().catch(() => ({ active: false, until: null, remainingSeconds: 0 })),
+      systemSettingsApi.get().catch(() => null),
+    ]);
+    const aiUnrestricted = aiUnrestrictedState.active;
+    const dangerousCommands = currentSettings?.dangerousCommands ?? [];
+    const auditIfEnabled = (
+      action: string,
+      risk: AuditRisk,
+      result: string,
+      summary: string,
+      detail: Record<string, unknown>,
+    ) => {
+      if (aiUnrestricted) {
+        return;
+      }
+      createTerminalAiAudit(tab.serverAlias, action, risk, result, summary, detail);
+    };
     context.aiBusy = true;
     let stopThinking: (() => void) | null = null;
     const stopCurrentThinking = () => {
@@ -2401,20 +2545,25 @@ export function TerminalPage() {
       risk: "safe",
       transcript: [...tab.transcript.slice(-180), `AI> ${prompt}`].slice(-200),
     });
-    createTerminalAiAudit(tab.serverAlias, "terminal_ai_prompt", "ai", "成功", `终端 AI 请求：${truncateText(prompt, 120)}`, {
+    auditIfEnabled("terminal_ai_prompt", "ai", "成功", `终端 AI 请求：${truncateText(prompt, 120)}`, {
       serverAlias: tab.serverAlias,
       aiPolicy: serverPolicy,
+      aiUnrestricted,
       prompt: truncateText(prompt, 500),
     });
     try {
       stopThinking = startTerminalThinkingIndicator(context.terminal, "AI 思考中，正在生成只读检查计划");
       const planResult = await aiProviderApi.ask({
-        prompt,
+        prompt: [
+          "请基于下面的连续终端会话上下文，为用户本轮问题规划最多 3 条 SSH 命令。",
+          buildTerminalAiConversationPrompt(tab, prompt),
+        ].join("\n\n"),
         skillScope: "terminal",
         useSkillTrigger: true,
         systemPrompt: [
           "你是 Tauri SSH 的终端 AI 命令规划器。",
           `当前服务器标签是 ${tab.serverAlias}，服务器 AI 权限策略是 ${sshPolicyLabel[serverPolicy] ?? serverPolicy}。`,
+          aiUnrestricted ? "当前已开启 30 分钟 AI 临时放行：非危险命令可自动执行，危险命令黑名单仍必须标注 blocked。" : "",
           "优先规划 Linux 查询/诊断类命令，最多 3 条。若用户明确要求变更类操作，可以返回命令但必须标注风险。",
           "必须只返回 JSON 数组，不要 Markdown，不要解释文本。",
           "数组项字段：command 字符串、purpose 中文字符串、risk 只能是 readonly/review/high/blocked、readonly 布尔值。",
@@ -2426,11 +2575,11 @@ export function TerminalPage() {
       const parsedPlan = parseAiCommandPlan(planResult.answer);
       const heuristicPlan = parsedPlan.length > 0 ? [] : commandPlanFromHeuristic(prompt);
       const plan = (parsedPlan.length > 0 ? parsedPlan : heuristicPlan)
-        .map((item) => classifyAiCommand(item.command, item.purpose))
+        .map((item) => classifyAiCommand(item.command, item.purpose, dangerousCommands))
         .slice(0, 3);
       const policyPlan = plan.map((item) => ({
         item,
-        decision: decideAiCommandByPolicy(serverPolicy, item),
+        decision: decideAiCommandByPolicy(serverPolicy, item, aiUnrestricted),
       }));
       const autoPlan = policyPlan.filter(({ decision }) => decision.action === "auto").map(({ item }) => item);
       const reviewPlan = policyPlan.filter(({ decision }) => decision.action === "review");
@@ -2438,6 +2587,9 @@ export function TerminalPage() {
 
       writeWrappedTerminalLine(context.terminal, `AI 计划 (${planResult.providerName} / ${planResult.model}, ${planResult.latencyMs}ms)`, { color: "\x1b[36m" });
       writeWrappedTerminalLine(context.terminal, `服务器 AI 权限：${sshPolicyLabel[serverPolicy] ?? serverPolicy}`);
+      if (aiUnrestricted) {
+        writeWrappedTerminalLine(context.terminal, `AI 临时放行：已开启，剩余约 ${Math.ceil(aiUnrestrictedState.remainingSeconds / 60)} 分钟；本次跳过 AI 审计`, { color: "\x1b[33m" });
+      }
       if (plan.length === 0) {
         const intent = detectRiskIntent(prompt);
         const intentDecision = intent
@@ -2446,7 +2598,7 @@ export function TerminalPage() {
             purpose: prompt,
             risk: intent.risk,
             reason: intent.reason,
-          })
+          }, aiUnrestricted)
           : null;
         const answer = intent
           ? `${intentDecision?.action === "review" ? "需要审核" : "已禁止执行"}：当前请求未生成明确命令，且${intent.reason}。请先生成或输入明确命令后再按当前服务器 AI 权限级别处理。${intentDecision ? `策略判断：${intentDecision.reason}` : ""}`
@@ -2455,7 +2607,8 @@ export function TerminalPage() {
         writeWrappedTerminalBlock(context.terminal, answer, risk === "blocked" ? "\x1b[31m" : "\x1b[33m");
         updateTerminalTab(tabId, { status: intent ? answer : "AI 未生成可执行计划", risk });
         setAiAnswer(answer);
-        createTerminalAiAudit(tab.serverAlias, "terminal_ai_no_plan", risk === "blocked" ? "blocked" : "L2", "未执行", answer, {
+        appendTerminalAiExchange(tabId, prompt, answer);
+        auditIfEnabled("terminal_ai_no_plan", risk === "blocked" ? "blocked" : "L2", "未执行", answer, {
           prompt: truncateText(prompt, 500),
           reason: intent?.reason ?? "AI 未生成可执行命令",
         });
@@ -2481,7 +2634,7 @@ export function TerminalPage() {
         });
       });
 
-      if (serverPolicy === "blocked") {
+      if (serverPolicy === "blocked" && !aiUnrestricted) {
         const answer = [
           "当前服务器 AI 权限为禁用，禁止 AI 执行任何命令。",
           ...plan.map((item) => `- 已禁止：${item.command}；原因：服务器 AI 权限为禁用`),
@@ -2489,7 +2642,8 @@ export function TerminalPage() {
         writeWrappedTerminalBlock(context.terminal, answer, "\x1b[31m");
         updateTerminalTab(tabId, { status: answer, risk: "blocked" });
         setAiAnswer(answer);
-        createTerminalAiAudit(tab.serverAlias, "terminal_ai_blocked_by_policy", "blocked", "已禁止", answer, {
+        appendTerminalAiExchange(tabId, prompt, answer);
+        auditIfEnabled("terminal_ai_blocked_by_policy", "blocked", "已禁止", answer, {
           aiPolicy: serverPolicy,
           commandCount: plan.length,
           commands: plan.map((item) => truncateText(item.command, 300)),
@@ -2531,7 +2685,8 @@ export function TerminalPage() {
         writeWrappedTerminalBlock(context.terminal, answer, blockedPlan.length > 0 ? "\x1b[31m" : "\x1b[33m");
         updateTerminalTab(tabId, { status: answer || "未执行任何命令", risk: blockedPlan.length > 0 ? "blocked" : "review" });
         setAiAnswer(answer || "未执行任何命令。");
-        createTerminalAiAudit(tab.serverAlias, "terminal_ai_not_executed", blockedPlan.length > 0 ? "blocked" : "L2", "未执行", answer || "未执行任何命令。", {
+        appendTerminalAiExchange(tabId, prompt, answer || "未执行任何命令。");
+        auditIfEnabled("terminal_ai_not_executed", blockedPlan.length > 0 ? "blocked" : "L2", "未执行", answer || "未执行任何命令。", {
           blockedCommands: blockedPlan.map(({ item, decision }) => ({
             command: truncateText(item.command, 300),
             reason: decision.reason,
@@ -2558,6 +2713,7 @@ export function TerminalPage() {
             serverAlias: tab.serverAlias,
             command: item.command,
             timeoutSecs: 30,
+            initiatedByAi: true,
           });
           executions.push({ plan: item, result });
           if (result.stdout) {
@@ -2577,6 +2733,7 @@ export function TerminalPage() {
         const answer = "命令计划通过了策略，但实际执行失败，未获得可汇总的输出。";
         updateTerminalTab(tabId, { status: answer, risk: "review" });
         setAiAnswer(answer);
+        appendTerminalAiExchange(tabId, prompt, answer);
         return;
       }
 
@@ -2594,6 +2751,7 @@ export function TerminalPage() {
       stopThinking = startTerminalThinkingIndicator(context.terminal, "AI 思考中，正在汇总执行结果");
       const summaryResult = await aiProviderApi.ask({
         prompt: [
+          `本标签历史 AI 对话：\n${formatTerminalAiHistory(normalizeTerminalAiMessages(tab))}`,
           `用户请求：${prompt}`,
           `服务器：${tab.serverAlias}`,
           `AI 权限策略：${sshPolicyLabel[serverPolicy] ?? serverPolicy}`,
@@ -2608,6 +2766,7 @@ export function TerminalPage() {
       const header = `AI 汇总 (${summaryResult.providerName} / ${summaryResult.model}, ${summaryResult.latencyMs}ms)`;
       context.terminal.writeln(`\r\n\x1b[36m${header}\x1b[0m`);
       writeMarkdownToTerminal(context.terminal, summaryResult.answer);
+      appendTerminalAiExchange(tabId, prompt, summaryResult.answer);
       const transcriptLines = [
         `AI> ${prompt}`,
         ...executions.map(({ plan: item, result }) => `$ ${item.command}\n${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}`),
@@ -2717,6 +2876,13 @@ export function TerminalPage() {
   }, [activeTerminalId]);
 
   useEffect(() => {
+    const current = terminalTabs.find((tab) => tab.id === activeTerminalId);
+    const assistantMessages = normalizeTerminalAiMessages(current).filter((item) => item.role === "assistant");
+    const lastAnswer = assistantMessages[assistantMessages.length - 1]?.content;
+    setAiAnswer(lastAnswer ?? terminalAiDefaultAnswer());
+  }, [activeTerminalId, terminalTabs]);
+
+  useEffect(() => {
     if (terminalServers.length === 0) {
       return;
     }
@@ -2791,7 +2957,6 @@ export function TerminalPage() {
     if (!context || tab.connecting || tab.connected) {
       return;
     }
-    const server = terminalServers.find((item) => item.alias === tab.serverAlias);
     const cols = context.terminal.cols || 100;
     const rows = context.terminal.rows || 30;
     updateTerminalTab(tabId, {
@@ -2810,6 +2975,11 @@ export function TerminalPage() {
           rows,
         });
         context.sessionId = result.sessionId;
+        updateTerminalTab(tabId, {
+          connecting: true,
+          connected: false,
+          status: "SSH 终端会话已创建，正在后台连接服务器...",
+        });
       } else {
         const websocket = new WebSocket(terminalApi.devWebSocketUrl({
           serverAlias: tab.serverAlias,
@@ -2848,13 +3018,6 @@ export function TerminalPage() {
           websocket.onerror = () => reject(new Error("Dev WebSocket 终端连接失败"));
         });
       }
-      context.connected = true;
-      updateTerminalTab(tabId, {
-        connecting: false,
-        connected: true,
-        status: server ? `已连接 ${server.username}@${formatServerAddress(server)}` : `已连接 ${tab.serverAlias}`,
-      });
-      setAiAnswer("SSH 终端已连接。可以直接输入命令；Ctrl+C、方向键、Tab 补全等控制序列会进入远端 PTY。");
       fitTerminal(tabId);
     } catch (error) {
       const errorMessage = getErrorMessage(error);
@@ -2941,6 +3104,7 @@ export function TerminalPage() {
           connecting: false,
           risk: "safe",
           transcript: [],
+          aiMessages: [],
         },
       ];
       terminalTabsRef.current = next;
@@ -2956,14 +3120,42 @@ export function TerminalPage() {
     }, 0);
   }
 
-  function handleAskAi() {
+  async function handleAskAi() {
     const question = aiQuestion.trim();
     if (!question) {
       message.warning("请输入要问 AI 的问题");
       return;
     }
-    setAiAnswer(buildAiTerminalAnswer(question, activeTab?.transcript ?? []));
-    setAiQuestion("");
+    if (!activeTab) {
+      message.warning("请先打开一个终端标签");
+      return;
+    }
+    setTerminalAiAsking(true);
+    setAiAnswer("AI 思考中，正在结合当前终端输出和历史对话...");
+    try {
+      const result = await aiProviderApi.ask({
+        prompt: buildTerminalAiConversationPrompt(activeTab, question),
+        skillScope: "terminal",
+        useSkillTrigger: true,
+        systemPrompt: [
+          "你是 Tauri SSH 的终端 AI 对话助手。",
+          "你需要把“本标签历史 AI 对话”和“最近终端输出”视为同一个连续会话上下文。",
+          "回答用户本轮问题时，优先承接前文，不要把多轮问题当作彼此无关的新会话。",
+          "如果建议执行命令，必须说明命令风险；危险或写入类命令不要诱导自动执行。",
+          "用中文、Markdown 格式输出，保持简洁可操作。",
+        ].join("\n"),
+      });
+      const answer = result.answer.trim();
+      appendTerminalAiExchange(activeTab.id, question, answer);
+      setAiAnswer(answer);
+      setAiQuestion("");
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      setAiAnswer(`AI 调用失败：${errorMessage}`);
+      message.error(errorMessage);
+    } finally {
+      setTerminalAiAsking(false);
+    }
   }
 
   async function handleSaveTerminalExperience() {
@@ -3027,7 +3219,14 @@ export function TerminalPage() {
                 label: `${server.alias} (${server.groupName})`,
               }))}
             />
-            <Button type="primary" onClick={() => void openTerminalTab()}>打开终端</Button>
+            <Button
+              type="primary"
+              loading={selectedAliasOpening}
+              disabled={!selectedAlias}
+              onClick={() => void openTerminalTab()}
+            >
+              打开终端
+            </Button>
           </Space>
         }
       />
@@ -3157,8 +3356,9 @@ export function TerminalPage() {
                   value={aiQuestion}
                   placeholder="问 AI：解释上一条输出 / 下一步怎么排查"
                   enterButton="提问"
+                  loading={terminalAiAsking}
                   onChange={(event) => setAiQuestion(event.target.value)}
-                  onSearch={handleAskAi}
+                  onSearch={() => void handleAskAi()}
                 />
               </div>
             </AiInsightPanel>
@@ -5325,7 +5525,10 @@ export function PrototypeSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [dangerousRuleModalOpen, setDangerousRuleModalOpen] = useState(false);
+  const [dangerousRuleInput, setDangerousRuleInput] = useState("");
   const setTheme = useAppStore((state) => state.setTheme);
+  const watchedDangerousCommands = Form.useWatch("dangerousCommands", form);
 
   const applySettings = useCallback((next: SystemSettings) => {
     setSettings(next);
@@ -5366,7 +5569,7 @@ export function PrototypeSettingsPage() {
   const resetSettings = () => {
     Modal.confirm({
       title: "恢复默认设置？",
-      content: "将重置主题、更新、审计保留、日志级别和关闭行为等设置。",
+      content: "将重置主题、更新、审计保留、日志级别、危险命令黑名单和关闭行为等设置。",
       okText: "恢复默认",
       cancelText: "取消",
       async onOk() {
@@ -5395,6 +5598,89 @@ export function PrototypeSettingsPage() {
       setExporting(false);
     }
   };
+
+  const dangerousCommands = normalizeDangerousCommandList(
+    Array.isArray(watchedDangerousCommands)
+      ? watchedDangerousCommands
+      : settings?.dangerousCommands ?? dangerousCommandPresets.map((item) => item.pattern),
+  );
+  const dangerousRows: DangerousCommandTableRow[] = dangerousCommands.map((pattern) => {
+    const description = dangerousPresetMap.get(pattern);
+    return {
+      key: pattern,
+      pattern,
+      description: description ?? "用户自定义规则",
+      source: description ? "builtin" : "user",
+    };
+  });
+  const builtinDangerousCount = dangerousRows.filter((item) => item.source === "builtin").length;
+  const userDangerousCount = dangerousRows.length - builtinDangerousCount;
+
+  const setDangerousCommands = (commands: string[]) => {
+    form.setFieldValue("dangerousCommands", normalizeDangerousCommandList(commands));
+  };
+
+  const addDangerousRule = () => {
+    const value = dangerousRuleInput.trim();
+    if (!value) {
+      message.warning("请输入危险命令正则");
+      return;
+    }
+    const next = normalizeDangerousCommandList([...dangerousCommands, value]);
+    if (next.length === dangerousCommands.length) {
+      message.info("该规则已存在");
+      return;
+    }
+    setDangerousCommands(next);
+    setDangerousRuleInput("");
+    setDangerousRuleModalOpen(false);
+  };
+
+  const removeDangerousRule = (pattern: string) => {
+    if (dangerousPresetMap.has(pattern)) {
+      message.warning("内置危险命令规则不可删除");
+      return;
+    }
+    setDangerousCommands(dangerousCommands.filter((item) => item !== pattern));
+  };
+
+  const dangerousColumns: TableProps<DangerousCommandTableRow>["columns"] = [
+    {
+      title: "正则",
+      dataIndex: "pattern",
+      render: (value: string) => <Text code className="prototype-dangerous-command-pattern">{value}</Text>,
+    },
+    {
+      title: "说明",
+      dataIndex: "description",
+      width: 360,
+      render: (value: string) => <Text strong>{value}</Text>,
+    },
+    {
+      title: "来源",
+      dataIndex: "source",
+      width: 130,
+      render: (value: DangerousCommandTableRow["source"]) => (
+        <Tag color={value === "builtin" ? "default" : "blue"}>{value === "builtin" ? "内置" : "用户"}</Tag>
+      ),
+    },
+    {
+      title: "操作",
+      width: 96,
+      align: "center",
+      render: (_, row) => (
+        <Tooltip title={row.source === "builtin" ? "内置规则不可删除" : "删除规则"}>
+          <Button
+            type="text"
+            danger={row.source === "user"}
+            disabled={row.source === "builtin"}
+            icon={<Trash2 size={16} />}
+            onClick={() => removeDangerousRule(row.pattern)}
+          />
+        </Tooltip>
+      ),
+    },
+  ];
 
   return (
     <div className="prototype-page">
@@ -5451,8 +5737,67 @@ export function PrototypeSettingsPage() {
               <Select options={[{ value: "zh-CN", label: "简体中文" }, { value: "en-US", label: "English" }]} />
             </Form.Item>
           </SectionGrid>
+          <Form.Item
+            noStyle
+            name="dangerousCommands"
+            rules={[{ required: true, message: "请至少保留一条危险命令规则" }]}
+          >
+            <DangerousCommandsField />
+          </Form.Item>
         </Form>
       </Card>
+      <Card
+        className="prototype-dangerous-command-card"
+        title={(
+          <div className="prototype-dangerous-command-title">
+            <ShieldAlert size={18} />
+            <span>危险命令黑名单</span>
+          </div>
+        )}
+        extra={(
+          <Button
+            type="primary"
+            icon={<Plus size={16} />}
+            onClick={() => setDangerousRuleModalOpen(true)}
+          >
+            新增
+          </Button>
+        )}
+      >
+        <div className="prototype-dangerous-command-desc">
+          正则匹配，命中即 <Text code>blocked</Text>（所有策略档位都生效，含 <Text code>trusted</Text>）。
+          内置 <Text strong type="success">{builtinDangerousCount}</Text> 条 + 用户自加 <Text strong>{userDangerousCount}</Text> 条。
+        </div>
+        <Table<DangerousCommandTableRow>
+          className="prototype-dangerous-command-table"
+          rowKey="key"
+          columns={dangerousColumns}
+          dataSource={dangerousRows}
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          scroll={{ x: 980 }}
+        />
+      </Card>
+      <Modal
+        title="新增危险命令规则"
+        open={dangerousRuleModalOpen}
+        okText="新增"
+        cancelText="取消"
+        onOk={addDangerousRule}
+        onCancel={() => {
+          setDangerousRuleModalOpen(false);
+          setDangerousRuleInput("");
+        }}
+      >
+        <Space direction="vertical" className="w-full">
+          <Text type="secondary">请输入正则表达式。保存设置后，该规则会参与本地命令阻止。</Text>
+          <Input.TextArea
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            value={dangerousRuleInput}
+            onChange={(event) => setDangerousRuleInput(event.target.value)}
+            placeholder={String.raw`\brm\s+-rf\s+/tmp/important`}
+          />
+        </Space>
+      </Modal>
       <Card title="当前状态">
         <Descriptions column={3} size="small" bordered>
           <Descriptions.Item label="主题">{settings?.theme ?? "-"}</Descriptions.Item>
@@ -5463,6 +5808,10 @@ export function PrototypeSettingsPage() {
           <Descriptions.Item label="备份位置">{settings?.backupDir ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="数据库导出目录">{settings?.databaseDownloadDir ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="关闭行为">{settings?.closeBehavior === "exit" ? "直接退出" : "关闭到托盘"}</Descriptions.Item>
+          <Descriptions.Item label="AI 临时放行">
+            {settings?.aiUnrestrictedUntil ? `截至 ${new Date(settings.aiUnrestrictedUntil).toLocaleString()}` : "关闭"}
+          </Descriptions.Item>
+          <Descriptions.Item label="危险命令规则">{settings?.dangerousCommands.length ?? 0} 条</Descriptions.Item>
         </Descriptions>
       </Card>
     </div>

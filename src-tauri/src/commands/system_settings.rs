@@ -1,5 +1,8 @@
 use crate::error::CommandError;
-use crate::models::{SystemSettings, SystemSettingsExportResult, UpdateSystemSettingsInput};
+use crate::models::{
+    AiUnrestrictedState, EnableAiUnrestrictedInput, SystemSettings, SystemSettingsExportResult,
+    UpdateSystemSettingsInput,
+};
 use crate::services::system_settings::SystemSettingsService;
 use crate::state::AppState;
 
@@ -33,4 +36,26 @@ pub fn export_system_settings(
     state: tauri::State<'_, AppState>,
 ) -> Result<SystemSettingsExportResult, CommandError> {
     SystemSettingsService::export(&state.db).map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub fn get_ai_unrestricted_state(
+    state: tauri::State<'_, AppState>,
+) -> Result<AiUnrestrictedState, CommandError> {
+    SystemSettingsService::get_ai_unrestricted_state(&state.db).map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub fn enable_ai_unrestricted_mode(
+    state: tauri::State<'_, AppState>,
+    input: EnableAiUnrestrictedInput,
+) -> Result<AiUnrestrictedState, CommandError> {
+    SystemSettingsService::enable_ai_unrestricted_mode(&state.db, input).map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub fn disable_ai_unrestricted_mode(
+    state: tauri::State<'_, AppState>,
+) -> Result<AiUnrestrictedState, CommandError> {
+    SystemSettingsService::disable_ai_unrestricted_mode(&state.db).map_err(|e| e.into())
 }

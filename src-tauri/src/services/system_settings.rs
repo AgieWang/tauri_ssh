@@ -1,6 +1,12 @@
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{SystemSettings, SystemSettingsExportResult, UpdateSystemSettingsInput};
+use crate::models::{
+    AiUnrestrictedState, EnableAiUnrestrictedInput, SystemSettings, SystemSettingsExportResult,
+    UpdateSystemSettingsInput,
+};
+use chrono::{DateTime, Duration, Utc};
+use regex::Regex;
+use std::collections::HashSet;
 use tauri_plugin_autostart::ManagerExt;
 
 pub struct SystemSettingsService;
@@ -15,6 +21,18 @@ const KEY_DATABASE_DOWNLOAD_DIR: &str = "settings.database_download_dir";
 const KEY_PLATFORM: &str = "settings.platform";
 const KEY_CLOSE_BEHAVIOR: &str = "settings.close_behavior";
 const KEY_LANGUAGE: &str = "settings.language";
+const KEY_AI_UNRESTRICTED_UNTIL: &str = "settings.ai_unrestricted_until";
+const KEY_DANGEROUS_COMMANDS: &str = "settings.dangerous_commands";
+
+const IMMUTABLE_DANGEROUS_PATTERNS: &[&str] = &[
+    "rm -rf /",
+    "mkfs.",
+    ":(){:|:&};:",
+    "shutdown",
+    "poweroff",
+    "halt",
+    "dd if=",
+];
 
 impl SystemSettingsService {
     pub fn get(db: &Database) -> Result<SystemSettings, AppError> {
@@ -33,6 +51,8 @@ impl SystemSettingsService {
             platform: get_value(db, KEY_PLATFORM, "macos-windows")?,
             close_behavior: get_value(db, KEY_CLOSE_BEHAVIOR, "minimize")?,
             language: get_value(db, KEY_LANGUAGE, "zh-CN")?,
+            ai_unrestricted_until: get_optional_value(db, KEY_AI_UNRESTRICTED_UNTIL)?,
+            dangerous_commands: get_dangerous_commands(db)?,
         })
     }
 
@@ -55,6 +75,14 @@ impl SystemSettingsService {
         db.set_config(KEY_PLATFORM, &input.platform)?;
         db.set_config(KEY_CLOSE_BEHAVIOR, &input.close_behavior)?;
         db.set_config(KEY_LANGUAGE, &input.language)?;
+        db.set_config(
+            KEY_AI_UNRESTRICTED_UNTIL,
+            input.ai_unrestricted_until.as_deref().unwrap_or(""),
+        )?;
+        db.set_config(
+            KEY_DANGEROUS_COMMANDS,
+            &serde_json::to_string(&input.dangerous_commands)?,
+        )?;
         Self::get(db)
     }
 
@@ -72,6 +100,8 @@ impl SystemSettingsService {
                 platform: "macos-windows".into(),
                 close_behavior: "minimize".into(),
                 language: "zh-CN".into(),
+                ai_unrestricted_until: None,
+                dangerous_commands: default_dangerous_commands(),
             },
         )
     }
@@ -93,10 +123,7 @@ impl SystemSettingsService {
     ) -> Result<SystemSettings, AppError> {
         let mut settings = Self::get(db)?;
         settings.launch_on_startup = Self::is_launch_on_startup_enabled(app)?;
-        db.set_config(
-            KEY_LAUNCH_ON_STARTUP,
-            bool_text(settings.launch_on_startup),
-        )?;
+        db.set_config(KEY_LAUNCH_ON_STARTUP, bool_text(settings.launch_on_startup))?;
         Ok(settings)
     }
 
@@ -138,6 +165,52 @@ impl SystemSettingsService {
             .is_enabled()
             .map_err(|e| AppError::Custom(format!("读取开机自启动状态失败: {}", e)))
     }
+
+    pub fn get_ai_unrestricted_state(db: &Database) -> Result<AiUnrestrictedState, AppError> {
+        Ok(ai_unrestricted_state_from_until(get_optional_value(
+            db,
+            KEY_AI_UNRESTRICTED_UNTIL,
+        )?))
+    }
+
+    pub fn enable_ai_unrestricted_mode(
+        db: &Database,
+        input: EnableAiUnrestrictedInput,
+    ) -> Result<AiUnrestrictedState, AppError> {
+        let minutes = input.minutes.unwrap_or(30).clamp(1, 30);
+        let until = Utc::now() + Duration::minutes(minutes);
+        db.set_config(KEY_AI_UNRESTRICTED_UNTIL, &until.to_rfc3339())?;
+        Self::get_ai_unrestricted_state(db)
+    }
+
+    pub fn disable_ai_unrestricted_mode(db: &Database) -> Result<AiUnrestrictedState, AppError> {
+        db.set_config(KEY_AI_UNRESTRICTED_UNTIL, "")?;
+        Self::get_ai_unrestricted_state(db)
+    }
+
+    pub fn dangerous_command_match(
+        db: &Database,
+        command: &str,
+    ) -> Result<Option<String>, AppError> {
+        let normalized = command.trim().to_lowercase();
+        if normalized.is_empty() {
+            return Ok(None);
+        }
+        if normalized.contains("dd if=") && normalized.contains(" of=") {
+            return Ok(Some("dd if= ... of=".into()));
+        }
+        for pattern in IMMUTABLE_DANGEROUS_PATTERNS {
+            if dangerous_pattern_matches(pattern, &normalized) {
+                return Ok(Some((*pattern).into()));
+            }
+        }
+        for pattern in get_dangerous_commands(db)? {
+            if dangerous_pattern_matches(&pattern, &normalized) {
+                return Ok(Some(pattern));
+            }
+        }
+        Ok(None)
+    }
 }
 
 fn normalize(input: &mut UpdateSystemSettingsInput) {
@@ -148,6 +221,12 @@ fn normalize(input: &mut UpdateSystemSettingsInput) {
     input.platform = input.platform.trim().to_string();
     input.close_behavior = input.close_behavior.trim().to_lowercase();
     input.language = input.language.trim().to_string();
+    input.ai_unrestricted_until = input
+        .ai_unrestricted_until
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    input.dangerous_commands = normalize_dangerous_commands(&input.dangerous_commands);
 }
 
 fn validate(input: &UpdateSystemSettingsInput) -> Result<(), AppError> {
@@ -179,11 +258,25 @@ fn validate(input: &UpdateSystemSettingsInput) -> Result<(), AppError> {
     if !["zh-CN", "en-US"].contains(&input.language.as_str()) {
         return Err(AppError::InvalidInput("语言设置无效".into()));
     }
+    if let Some(until) = &input.ai_unrestricted_until {
+        DateTime::parse_from_rfc3339(until)
+            .map_err(|_| AppError::InvalidInput("AI 临时放行截止时间必须为 RFC3339 时间".into()))?;
+    }
+    if input.dangerous_commands.is_empty() {
+        return Err(AppError::InvalidInput("危险命令黑名单不能为空".into()));
+    }
     Ok(())
 }
 
 fn get_value(db: &Database, key: &str, fallback: &str) -> Result<String, AppError> {
     Ok(db.get_config(key)?.unwrap_or_else(|| fallback.into()))
+}
+
+fn get_optional_value(db: &Database, key: &str) -> Result<Option<String>, AppError> {
+    Ok(db
+        .get_config(key)?
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty()))
 }
 
 fn get_bool(db: &Database, key: &str, fallback: bool) -> Result<bool, AppError> {
@@ -219,4 +312,113 @@ fn default_database_download_dir() -> String {
             .to_string();
     }
     "应用数据目录 / database-downloads".into()
+}
+
+fn default_dangerous_commands() -> Vec<String> {
+    [
+        r"(?:^|[\s;&|])rm\s+-[a-z]*r[a-z]*f?[a-z]*\s+(?:/|~|\$home|\*)",
+        r"(?:^|[\s;&|])rm\s+-[a-z]*f[a-z]*r[a-z]*\s+(?:/|~|\$home|\*)",
+        r"\bmkfs[\.\w]*\b",
+        r"\bmke2fs\b",
+        r"\bwipefs\b",
+        r"\bdd\b[^\n]*\bof=/dev/",
+        r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
+        r">\s*/dev/sd[a-z]",
+        r"\bchmod\s+-r\s+0*777\s+/(?:\s|$)",
+        r"\bchown\s+-r\s+\w+\s+/(?:\s|$)",
+        r"\bshutdown\b",
+        r"\bpoweroff\b",
+        r"\bhalt\b",
+        r"\breboot\b",
+        r"\binit\s+0\b",
+        r"\biptables\s+-f\b",
+        r"\bfirewall-cmd\b.*--reload\b",
+        r"\b(drop\s+database|drop\s+schema)\b",
+        r"\bdrop\s+table\b",
+        r"\btruncate\s+table\b",
+        r"\bflushall\b",
+        r"\bflushdb\b",
+        r"\b(curl|wget)\b.*\|\s*(sh|bash|zsh)\b",
+        r"\b(find)\b.*\s-delete\b",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+fn get_dangerous_commands(db: &Database) -> Result<Vec<String>, AppError> {
+    let defaults = default_dangerous_commands();
+    let Some(raw) = db.get_config(KEY_DANGEROUS_COMMANDS)? else {
+        return Ok(defaults);
+    };
+    let parsed = serde_json::from_str::<Vec<String>>(&raw).unwrap_or_else(|_| {
+        raw.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(String::from)
+            .collect()
+    });
+    let mut merged = defaults;
+    merged.extend(parsed);
+    let normalized = normalize_dangerous_commands(&merged);
+    if normalized.is_empty() {
+        Ok(default_dangerous_commands())
+    } else {
+        Ok(normalized)
+    }
+}
+
+fn normalize_dangerous_commands(commands: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    commands
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .filter_map(|item| {
+            let key = item.to_lowercase();
+            if seen.insert(key) {
+                Some(item.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn dangerous_pattern_matches(pattern: &str, normalized_command: &str) -> bool {
+    let value = pattern.trim().to_lowercase();
+    if value.is_empty() {
+        return false;
+    }
+    Regex::new(&value)
+        .map(|regex| regex.is_match(normalized_command))
+        .unwrap_or_else(|_| normalized_command.contains(&value))
+}
+
+fn ai_unrestricted_state_from_until(until: Option<String>) -> AiUnrestrictedState {
+    let Some(until_text) = until else {
+        return AiUnrestrictedState {
+            active: false,
+            until: None,
+            remaining_seconds: 0,
+        };
+    };
+    let Ok(until_time) = DateTime::parse_from_rfc3339(&until_text) else {
+        return AiUnrestrictedState {
+            active: false,
+            until: None,
+            remaining_seconds: 0,
+        };
+    };
+    let remaining = until_time.with_timezone(&Utc) - Utc::now();
+    let remaining_seconds = remaining.num_seconds().max(0);
+    AiUnrestrictedState {
+        active: remaining_seconds > 0,
+        until: if remaining_seconds > 0 {
+            Some(until_text)
+        } else {
+            None
+        },
+        remaining_seconds,
+    }
 }

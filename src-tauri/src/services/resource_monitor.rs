@@ -147,6 +147,7 @@ impl ResourceMonitorService {
                 server_alias: alias.to_string(),
                 command,
                 timeout_secs: Some(12),
+                initiated_by_ai: None,
             },
         )
         .await;

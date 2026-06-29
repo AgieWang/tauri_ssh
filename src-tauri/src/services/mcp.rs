@@ -141,7 +141,7 @@ impl McpService {
             },
             McpToolPermission {
                 tool: "secure_git_repositories_list".into(),
-                policy: "只读读取 GitHub/GitLab/GitCode 仓库列表，不返回 Token".into(),
+                policy: "只读读取 GitHub/GitLab/GitCode/Gitee 仓库列表，不返回 Token".into(),
                 audit: "记录 sessionId、Provider 和仓库数量".into(),
             },
             McpToolPermission {
@@ -500,10 +500,7 @@ impl McpService {
 
 fn secure_credential_semantic_tool_permissions() -> Vec<McpToolPermission> {
     let mut tools = Vec::new();
-    for tool in [
-        "secure_credential_detail",
-        "secure_credential_audit_list",
-    ] {
+    for tool in ["secure_credential_detail", "secure_credential_audit_list"] {
         tools.push(McpToolPermission {
             tool: tool.into(),
             policy: "只读，返回安全凭证脱敏详情或审计记录".into(),
@@ -535,6 +532,15 @@ fn secure_credential_semantic_tool_permissions() -> Vec<McpToolPermission> {
         "gitcode_file_read",
         "gitcode_commits_list",
         "gitcode_merge_requests_list",
+        "gitee_repos_list",
+        "gitee_repo_detail",
+        "gitee_branches_list",
+        "gitee_file_read",
+        "gitee_commits_list",
+        "gitee_pull_requests_list",
+        "gitee_issues_list",
+        "gitee_releases_list",
+        "gitee_tags_list",
         "http_api_request_readonly",
     ] {
         tools.push(McpToolPermission {
@@ -569,6 +575,14 @@ fn secure_credential_semantic_tool_permissions() -> Vec<McpToolPermission> {
         "gitcode_merge_request_merge_controlled",
         "gitcode_tag_create_controlled",
         "gitcode_release_create_controlled",
+        "gitee_issue_create_controlled",
+        "gitee_branch_create_controlled",
+        "gitee_file_commit_controlled",
+        "gitee_pull_request_create_controlled",
+        "gitee_pull_request_update_controlled",
+        "gitee_pull_request_merge_controlled",
+        "gitee_tag_create_controlled",
+        "gitee_release_create_controlled",
         "http_api_request_controlled",
         "secure_credential_rotate_request",
     ] {
@@ -592,6 +606,10 @@ fn secure_credential_semantic_tool_permissions() -> Vec<McpToolPermission> {
         "gitcode_tag_delete_controlled",
         "gitcode_release_delete_controlled",
         "gitcode_repository_settings_update_controlled",
+        "gitee_branch_delete_controlled",
+        "gitee_tag_delete_controlled",
+        "gitee_release_delete_controlled",
+        "gitee_repository_settings_update_controlled",
     ] {
         tools.push(McpToolPermission {
             tool: tool.into(),

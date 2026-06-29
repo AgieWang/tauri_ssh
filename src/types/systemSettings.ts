@@ -16,6 +16,8 @@ export interface SystemSettings {
   platform: SystemPlatform;
   closeBehavior: SystemCloseBehavior;
   language: SystemLanguage;
+  aiUnrestrictedUntil: string | null;
+  dangerousCommands: string[];
 }
 
 export interface UpdateSystemSettingsInput extends SystemSettings {}
@@ -23,4 +25,14 @@ export interface UpdateSystemSettingsInput extends SystemSettings {}
 export interface SystemSettingsExportResult {
   fileName: string;
   content: string;
+}
+
+export interface AiUnrestrictedState {
+  active: boolean;
+  until: string | null;
+  remainingSeconds: number;
+}
+
+export interface EnableAiUnrestrictedInput {
+  minutes?: number;
 }

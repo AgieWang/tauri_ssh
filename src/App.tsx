@@ -52,6 +52,22 @@ function App() {
     document.documentElement.setAttribute("data-theme", resolved);
   }, [resolved]);
 
+  useEffect(() => {
+    const applyInputTextBehavior = () => {
+      document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach((element) => {
+        element.setAttribute("autocapitalize", "none");
+        element.setAttribute("autocorrect", "off");
+        element.setAttribute("autocomplete", "off");
+        element.spellcheck = false;
+      });
+    };
+
+    applyInputTextBehavior();
+    const observer = new MutationObserver(applyInputTextBehavior);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <ConfigProvider locale={zhCN} theme={getAntdTheme(resolved)}>
       <ErrorBoundary>

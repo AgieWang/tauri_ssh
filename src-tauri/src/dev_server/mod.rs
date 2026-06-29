@@ -15,15 +15,16 @@ use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
     AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
     CreateApprovalRequestInput, CreateAuditLogInput, CreateSecureCredentialSessionInput,
-    DecideApprovalRequestInput, ListAiSkillsInput, ListApprovalRequestsInput,
-    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
-    ListSecureCredentialSessionsInput, ListSecureCredentialsInput, ResourceSnapshotListInput,
-    RotateSecureCredentialInput, RunAiRunbookInput, SecureCredentialGitReadInput,
-    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
-    SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
-    SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
-    UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
-    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    DecideApprovalRequestInput, EnableAiUnrestrictedInput, ListAiSkillsInput,
+    ListApprovalRequestsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
+    ListSecureCredentialAuditLogsInput, ListSecureCredentialSessionsInput,
+    ListSecureCredentialsInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
+    RunAiRunbookInput, SecureCredentialGitReadInput, SecureCredentialGitWriteInput,
+    SecureCredentialHttpRequestInput, SecureCredentialHttpWriteInput,
+    SecureCredentialProviderTestInput, SecureCredentialRepositoryListInput,
+    SetSecureCredentialEnabledInput, UpdateSecureCredentialPolicySettingsInput,
+    UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
+    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
     UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
 };
@@ -107,6 +108,18 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .route(
             "/dev-api/system-settings/export",
             post(export_system_settings),
+        )
+        .route(
+            "/dev-api/system-settings/ai-unrestricted",
+            get(get_ai_unrestricted_state),
+        )
+        .route(
+            "/dev-api/system-settings/ai-unrestricted/enable",
+            post(enable_ai_unrestricted_mode),
+        )
+        .route(
+            "/dev-api/system-settings/ai-unrestricted/disable",
+            post(disable_ai_unrestricted_mode),
         )
         .route("/dev-api/mcp/overview", get(get_mcp_overview))
         .route("/dev-api/mcp/configure", post(configure_mcp_client))
@@ -430,6 +443,34 @@ async fn export_system_settings(
     Ok(Json(SystemSettingsService::export(&state.db)?))
 }
 
+async fn get_ai_unrestricted_state(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::AiUnrestrictedState> {
+    let state = app_state(&ctx);
+    Ok(Json(SystemSettingsService::get_ai_unrestricted_state(
+        &state.db,
+    )?))
+}
+
+async fn enable_ai_unrestricted_mode(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<EnableAiUnrestrictedInput>,
+) -> DevApiResult<crate::models::AiUnrestrictedState> {
+    let state = app_state(&ctx);
+    Ok(Json(SystemSettingsService::enable_ai_unrestricted_mode(
+        &state.db, input,
+    )?))
+}
+
+async fn disable_ai_unrestricted_mode(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::AiUnrestrictedState> {
+    let state = app_state(&ctx);
+    Ok(Json(SystemSettingsService::disable_ai_unrestricted_mode(
+        &state.db,
+    )?))
+}
+
 async fn get_mcp_overview() -> DevApiResult<crate::models::McpOverview> {
     Ok(Json(McpService::overview()?))
 }
@@ -733,7 +774,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                 "type": "object",
                 "properties": {
                     "keyword": { "type": "string" },
-                    "provider": { "type": "string", "enum": ["github", "gitlab", "gitcode", "http_api", "custom"] },
+                    "provider": { "type": "string", "enum": ["github", "gitlab", "gitcode", "gitee", "http_api", "custom"] },
                     "status": { "type": "string", "enum": ["active", "disabled", "rotation_due", "expired", "test_failed"] },
                     "allowMcp": { "type": "boolean" }
                 }
@@ -773,7 +814,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "secure_provider_test",
-            "description": "通过安全会话测试 GitHub/GitLab/GitCode/HTTP API 连接，返回脱敏账号摘要。",
+            "description": "通过安全会话测试 GitHub/GitLab/GitCode/Gitee/HTTP API 连接，返回脱敏账号摘要。",
             "inputSchema": {
                 "type": "object",
                 "properties": { "sessionId": { "type": "string" } },
@@ -782,7 +823,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "secure_git_repositories_list",
-            "description": "通过安全会话读取 GitHub/GitLab/GitCode 仓库列表，不返回 Token。",
+            "description": "通过安全会话读取 GitHub/GitLab/GitCode/Gitee 仓库列表，不返回 Token。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -795,7 +836,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "secure_git_readonly_request",
-            "description": "通过安全会话读取 GitHub/GitLab/GitCode repo/detail/branch/file/commit/PR/MR/issue/tag/release 等只读资源，不返回 Token。",
+            "description": "通过安全会话读取 GitHub/GitLab/GitCode/Gitee repo/detail/branch/file/commit/PR/MR/issue/tag/release 等只读资源，不返回 Token。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -826,7 +867,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "secure_git_write_controlled",
-            "description": "为 GitHub/GitLab/GitCode 写操作创建审批请求。支持 issue、branch、file commit、PR/MR、tag、release、workflow/pipeline。",
+            "description": "为 GitHub/GitLab/GitCode/Gitee 写操作创建审批请求。支持 issue、branch、file commit、PR/MR、tag、release、workflow/pipeline。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -842,7 +883,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "secure_git_write_approved",
-            "description": "执行已批准的 GitHub/GitLab/GitCode 写操作，approvalId 必须匹配同一 payload hash。",
+            "description": "执行已批准的 GitHub/GitLab/GitCode/Gitee 写操作，approvalId 必须匹配同一 payload hash。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1535,10 +1576,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
 
 fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
     let mut tools = Vec::new();
-    for name in [
-        "secure_credential_detail",
-        "secure_credential_audit_list",
-    ] {
+    for name in ["secure_credential_detail", "secure_credential_audit_list"] {
         tools.push(serde_json::json!({
             "name": name,
             "description": "安全凭证治理工具，返回脱敏元数据或审计记录，不返回凭证明文。",
@@ -1579,6 +1617,15 @@ fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
         "gitcode_file_read",
         "gitcode_commits_list",
         "gitcode_merge_requests_list",
+        "gitee_repos_list",
+        "gitee_repo_detail",
+        "gitee_branches_list",
+        "gitee_file_read",
+        "gitee_commits_list",
+        "gitee_pull_requests_list",
+        "gitee_issues_list",
+        "gitee_releases_list",
+        "gitee_tags_list",
     ] {
         tools.push(serde_json::json!({
             "name": name,
@@ -1637,6 +1684,14 @@ fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
         "gitcode_merge_request_merge_controlled",
         "gitcode_tag_create_controlled",
         "gitcode_release_create_controlled",
+        "gitee_issue_create_controlled",
+        "gitee_branch_create_controlled",
+        "gitee_file_commit_controlled",
+        "gitee_pull_request_create_controlled",
+        "gitee_pull_request_update_controlled",
+        "gitee_pull_request_merge_controlled",
+        "gitee_tag_create_controlled",
+        "gitee_release_create_controlled",
         "github_branch_delete_controlled",
         "github_tag_delete_controlled",
         "github_release_delete_controlled",
@@ -1650,6 +1705,10 @@ fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
         "gitcode_tag_delete_controlled",
         "gitcode_release_delete_controlled",
         "gitcode_repository_settings_update_controlled",
+        "gitee_branch_delete_controlled",
+        "gitee_tag_delete_controlled",
+        "gitee_release_delete_controlled",
+        "gitee_repository_settings_update_controlled",
     ] {
         tools.push(serde_json::json!({
             "name": name,
@@ -1789,6 +1848,7 @@ async fn call_mcp_tool_inner(
                     server_alias,
                     command,
                     timeout_secs,
+                    initiated_by_ai: None,
                 },
             )
             .await?;
@@ -1831,6 +1891,7 @@ async fn call_mcp_tool_inner(
                     server_alias,
                     command,
                     timeout_secs: Some(20),
+                    initiated_by_ai: None,
                 },
             )
             .await?;
@@ -1859,6 +1920,7 @@ async fn call_mcp_tool_inner(
                     server_alias,
                     command,
                     timeout_secs: Some(20),
+                    initiated_by_ai: None,
                 },
             )
             .await?;
@@ -3014,6 +3076,7 @@ async fn call_mcp_tool_inner(
                             server_alias,
                             command,
                             timeout_secs,
+                            initiated_by_ai: None,
                         },
                     )
                     .await?;
@@ -3080,6 +3143,7 @@ async fn call_mcp_tool_inner(
                     server_alias,
                     command,
                     timeout_secs: optional_u64(&arguments, "timeoutSecs").or(Some(30)),
+                    initiated_by_ai: None,
                 },
             )
             .await?;
@@ -3831,6 +3895,15 @@ fn secure_git_read_alias(tool: &str) -> Option<(&'static str, &'static str)> {
         "gitcode_file_read" => Some(("gitcode", "file")),
         "gitcode_commits_list" => Some(("gitcode", "commits")),
         "gitcode_merge_requests_list" => Some(("gitcode", "pull_requests")),
+        "gitee_repos_list" => Some(("gitee", "repos")),
+        "gitee_repo_detail" => Some(("gitee", "repo_detail")),
+        "gitee_branches_list" => Some(("gitee", "branches")),
+        "gitee_file_read" => Some(("gitee", "file")),
+        "gitee_commits_list" => Some(("gitee", "commits")),
+        "gitee_pull_requests_list" => Some(("gitee", "pull_requests")),
+        "gitee_issues_list" => Some(("gitee", "issues")),
+        "gitee_releases_list" => Some(("gitee", "releases")),
+        "gitee_tags_list" => Some(("gitee", "tags")),
         _ => None,
     }
 }
@@ -3874,7 +3947,21 @@ fn secure_git_write_alias(tool: &str) -> Option<(&'static str, &'static str)> {
         "gitcode_branch_delete_controlled" => Some(("gitcode", "delete_branch")),
         "gitcode_tag_delete_controlled" => Some(("gitcode", "delete_tag")),
         "gitcode_release_delete_controlled" => Some(("gitcode", "delete_release")),
-        "gitcode_repository_settings_update_controlled" => Some(("gitcode", "update_repo_settings")),
+        "gitcode_repository_settings_update_controlled" => {
+            Some(("gitcode", "update_repo_settings"))
+        }
+        "gitee_issue_create_controlled" => Some(("gitee", "create_issue")),
+        "gitee_branch_create_controlled" => Some(("gitee", "create_branch")),
+        "gitee_file_commit_controlled" => Some(("gitee", "commit_file")),
+        "gitee_pull_request_create_controlled" => Some(("gitee", "create_pr")),
+        "gitee_pull_request_update_controlled" => Some(("gitee", "update_pr")),
+        "gitee_pull_request_merge_controlled" => Some(("gitee", "merge_pr")),
+        "gitee_tag_create_controlled" => Some(("gitee", "create_tag")),
+        "gitee_release_create_controlled" => Some(("gitee", "create_release")),
+        "gitee_branch_delete_controlled" => Some(("gitee", "delete_branch")),
+        "gitee_tag_delete_controlled" => Some(("gitee", "delete_tag")),
+        "gitee_release_delete_controlled" => Some(("gitee", "delete_release")),
+        "gitee_repository_settings_update_controlled" => Some(("gitee", "update_repo_settings")),
         _ => None,
     }
 }
@@ -3925,12 +4012,17 @@ fn create_secure_git_write_approval(
         &state.db,
         CreateApprovalRequestInput {
             source: "secure_credential".into(),
-            requester: optional_string(arguments, "requester").unwrap_or_else(|| "mcp-client".into()),
+            requester: optional_string(arguments, "requester")
+                .unwrap_or_else(|| "mcp-client".into()),
             server_alias: String::new(),
             action: action.clone(),
             risk: if matches!(
                 operation,
-                "delete_branch" | "delete_tag" | "delete_release" | "update_repo_settings" | "update_ref"
+                "delete_branch"
+                    | "delete_tag"
+                    | "delete_release"
+                    | "update_repo_settings"
+                    | "update_ref"
             ) {
                 "high".into()
             } else {
@@ -3938,7 +4030,8 @@ fn create_secure_git_write_approval(
             },
             command: request_hash.clone(),
             resource: resource.clone(),
-            reason: optional_string(arguments, "reason").unwrap_or_else(|| "Git 写操作需审批".into()),
+            reason: optional_string(arguments, "reason")
+                .unwrap_or_else(|| "Git 写操作需审批".into()),
             summary: format!("{} {}", operation, repo),
             payload_json: Some(
                 serde_json::json!({

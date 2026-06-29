@@ -25,8 +25,10 @@ use crate::models::{
     SshServer, TerminalCommandInput, TerminalCommandResult, TerminalSessionEvent,
     TerminalSessionStartInput, TerminalSessionStartResult,
 };
+use crate::services::system_settings::SystemSettingsService;
 
 const SSH_PASSWORD_SECRET_SEED_KEY: &str = "ssh_server_password_secret_seed";
+const SSH_PASSWORD_SECRET_CONTEXT: &[u8] = b"tauri-ssh-server-password";
 const CREDENTIAL_SECRET_SEED_KEY: &str = "credential_vault_secret_seed";
 
 pub struct TerminalService;
@@ -126,6 +128,15 @@ impl TerminalService {
         server_alias: &str,
         timeout_secs: u64,
     ) -> Result<(SshServer, Session), AppError> {
+        let (server, auth) = Self::load_saved_server_auth(db, server_alias)?;
+        let session = Self::connect_authenticated_session(&server, auth, timeout_secs)?;
+        Ok((server, session))
+    }
+
+    fn load_saved_server_auth(
+        db: &Database,
+        server_alias: &str,
+    ) -> Result<(SshServer, AuthMaterial), AppError> {
         if server_alias.trim().is_empty() {
             return Err(AppError::InvalidInput("请选择服务器".into()));
         }
@@ -143,8 +154,7 @@ impl TerminalService {
 
         let auth =
             Self::resolve_auth(db, &row.server, row.password_nonce, row.password_ciphertext)?;
-        let session = Self::connect_authenticated_session(&row.server, auth, timeout_secs)?;
-        Ok((row.server, session))
+        Ok((row.server, auth))
     }
 
     pub async fn execute(
@@ -152,7 +162,7 @@ impl TerminalService {
         input: TerminalCommandInput,
     ) -> Result<TerminalCommandResult, AppError> {
         Self::validate_command_input(&input)?;
-        if let Some(message) = Self::blocked_command_message(&input.command) {
+        if let Some(message) = Self::blocked_command_message(db, &input.command)? {
             return Ok(TerminalCommandResult {
                 server_alias: input.server_alias,
                 command: input.command,
@@ -218,7 +228,7 @@ impl TerminalService {
         if input.server_alias.trim().is_empty() {
             return Err(AppError::InvalidInput("请选择服务器".into()));
         }
-        let (server, session) = Self::connect_saved_server(db, &input.server_alias, 30)?;
+        let (server, auth) = Self::load_saved_server_auth(db, &input.server_alias)?;
         let cols = input.cols.unwrap_or(100).clamp(40, 240);
         let rows = input.rows.unwrap_or(30).clamp(10, 80);
         let session_id = Self::new_session_id(&input.server_alias);
@@ -227,7 +237,8 @@ impl TerminalService {
         Self::spawn_pty_thread(
             session_id.clone(),
             server,
-            session,
+            auth,
+            30,
             cols,
             rows,
             rx,
@@ -247,23 +258,9 @@ impl TerminalService {
         Ok(())
     }
 
-    fn blocked_command_message(command: &str) -> Option<String> {
-        let normalized = command.trim().to_lowercase();
-        let blocked = [
-            "rm -rf /",
-            "mkfs.",
-            ":(){:|:&};:",
-            "shutdown",
-            "poweroff",
-            "reboot",
-        ];
-        if blocked.iter().any(|pattern| normalized.contains(pattern))
-            || normalized.contains("dd if=") && normalized.contains(" of=")
-        {
-            Some("命中高风险命令黑名单，已在本地阻止执行".into())
-        } else {
-            None
-        }
+    fn blocked_command_message(db: &Database, command: &str) -> Result<Option<String>, AppError> {
+        Ok(SystemSettingsService::dangerous_command_match(db, command)?
+            .map(|pattern| format!("命中危险命令黑名单（{}），已在本地阻止执行", pattern)))
     }
 
     fn resolve_auth(
@@ -323,7 +320,8 @@ impl TerminalService {
     fn spawn_pty_thread<F>(
         session_id: String,
         server: SshServer,
-        session: Session,
+        auth: AuthMaterial,
+        timeout_secs: u64,
         cols: u32,
         rows: u32,
         rx: Receiver<TerminalPtyCommand>,
@@ -340,6 +338,25 @@ impl TerminalService {
                     data,
                     message,
                 });
+            };
+
+            emit(
+                "connecting",
+                None,
+                Some(format!(
+                    "正在连接 {}@{}:{}",
+                    server.username, server.host, server.port
+                )),
+            );
+            let session = match Self::connect_authenticated_session(&server, auth, timeout_secs) {
+                Ok(session) => session,
+                Err(error) => {
+                    emit("error", None, Some(error.to_string()));
+                    if let Some(on_finish) = on_finish {
+                        on_finish(session_id);
+                    }
+                    return;
+                }
             };
 
             match Self::run_pty_loop(session, &server, cols, rows, rx, &emit) {
@@ -519,6 +536,10 @@ impl TerminalService {
             .ok_or_else(|| AppError::Custom("本地加密种子不存在".into()))?;
         let mut hasher = Sha256::new();
         hasher.update(seed.as_bytes());
+        if seed_key == SSH_PASSWORD_SECRET_SEED_KEY {
+            // SSH 服务器直接密码保存时带有独立上下文，解密必须保持同一派生规则。
+            hasher.update(SSH_PASSWORD_SECRET_CONTEXT);
+        }
         let digest = hasher.finalize();
         let mut key = [0u8; 32];
         key.copy_from_slice(&digest[..32]);

@@ -2,6 +2,7 @@ export interface TerminalCommandInput {
   serverAlias: string;
   command: string;
   timeoutSecs?: number | null;
+  initiatedByAi?: boolean | null;
 }
 
 export interface TerminalCommandResult {
@@ -42,7 +43,7 @@ export interface TerminalSessionCloseInput {
 
 export interface TerminalSessionEvent {
   sessionId: string;
-  kind: "data" | "status" | "error" | "exit";
+  kind: "connecting" | "data" | "status" | "error" | "exit";
   data?: string | null;
   message?: string | null;
 }

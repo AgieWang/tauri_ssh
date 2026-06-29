@@ -508,6 +508,7 @@ impl AiSkillService {
                         server_alias,
                         command,
                         timeout_secs,
+                        initiated_by_ai: None,
                     },
                 )
                 .await?;

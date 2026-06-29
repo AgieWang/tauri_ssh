@@ -1431,6 +1431,8 @@ pub struct SystemSettings {
     pub platform: String,
     pub close_behavior: String,
     pub language: String,
+    pub ai_unrestricted_until: Option<String>,
+    pub dangerous_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1446,6 +1448,22 @@ pub struct UpdateSystemSettingsInput {
     pub platform: String,
     pub close_behavior: String,
     pub language: String,
+    pub ai_unrestricted_until: Option<String>,
+    pub dangerous_commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiUnrestrictedState {
+    pub active: bool,
+    pub until: Option<String>,
+    pub remaining_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnableAiUnrestrictedInput {
+    pub minutes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1461,6 +1479,7 @@ pub struct TerminalCommandInput {
     pub server_alias: String,
     pub command: String,
     pub timeout_secs: Option<u64>,
+    pub initiated_by_ai: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

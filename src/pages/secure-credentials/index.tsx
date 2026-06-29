@@ -38,9 +38,146 @@ const providerOptions = [
   { label: "GitHub", value: "github" },
   { label: "GitLab", value: "gitlab" },
   { label: "GitCode", value: "gitcode" },
+  { label: "Gitee", value: "gitee" },
   { label: "HTTP API", value: "http_api" },
   { label: "自定义", value: "custom" },
 ];
+
+const defaultScopesByProvider: Record<SecureCredentialProvider, string[]> = {
+  github: ["repo:read"],
+  gitlab: ["read_repository"],
+  gitcode: ["repo:read"],
+  gitee: ["repo:read"],
+  http_api: ["http:read"],
+  custom: ["read"],
+};
+
+const scopeOptionsByProvider: Record<
+  SecureCredentialProvider,
+  { label: string; options: { label: string; value: string }[] }[]
+> = {
+  github: [
+    {
+      label: "仓库",
+      options: [
+        { label: "读取仓库 repo:read", value: "repo:read" },
+        { label: "写入仓库 repo:write", value: "repo:write" },
+        { label: "仓库管理 repo:admin", value: "repo:admin" },
+        { label: "仓库全部权限 repo:all", value: "repo:all" },
+      ],
+    },
+    {
+      label: "协作",
+      options: [
+        { label: "读取 PR pull_request:read", value: "pull_request:read" },
+        { label: "写入 PR pull_request:write", value: "pull_request:write" },
+        { label: "读取 Issue issue:read", value: "issue:read" },
+        { label: "写入 Issue issue:write", value: "issue:write" },
+        { label: "读取 Release release:read", value: "release:read" },
+        { label: "写入 Release release:write", value: "release:write" },
+      ],
+    },
+    {
+      label: "高级",
+      options: [
+        { label: "分支写入 branch:write", value: "branch:write" },
+        { label: "读取 Workflow workflow:read", value: "workflow:read" },
+        { label: "写入 Workflow workflow:write", value: "workflow:write" },
+        { label: "读取组织 org:read", value: "org:read" },
+        { label: "读取用户 user:read", value: "user:read" },
+        { label: "全部权限 all", value: "all" },
+      ],
+    },
+  ],
+  gitlab: [
+    {
+      label: "API",
+      options: [
+        { label: "读取 API read_api", value: "read_api" },
+        { label: "完整 API api", value: "api" },
+        { label: "sudo sudo", value: "sudo" },
+        { label: "全部权限 all", value: "all" },
+      ],
+    },
+    {
+      label: "仓库",
+      options: [
+        { label: "读取仓库 read_repository", value: "read_repository" },
+        { label: "写入仓库 write_repository", value: "write_repository" },
+        { label: "读取 Registry read_registry", value: "read_registry" },
+        { label: "写入 Registry write_registry", value: "write_registry" },
+      ],
+    },
+  ],
+  gitcode: [
+    {
+      label: "仓库",
+      options: [
+        { label: "读取仓库 repo:read", value: "repo:read" },
+        { label: "写入仓库 repo:write", value: "repo:write" },
+        { label: "仓库管理 repo:admin", value: "repo:admin" },
+      ],
+    },
+    {
+      label: "协作",
+      options: [
+        { label: "读取 PR pull_request:read", value: "pull_request:read" },
+        { label: "写入 PR pull_request:write", value: "pull_request:write" },
+        { label: "读取 Issue issue:read", value: "issue:read" },
+        { label: "写入 Issue issue:write", value: "issue:write" },
+        { label: "写入 Release release:write", value: "release:write" },
+        { label: "全部权限 all", value: "all" },
+      ],
+    },
+  ],
+  gitee: [
+    {
+      label: "仓库",
+      options: [
+        { label: "读取仓库 repo:read", value: "repo:read" },
+        { label: "写入仓库 repo:write", value: "repo:write" },
+        { label: "仓库管理 repo:admin", value: "repo:admin" },
+      ],
+    },
+    {
+      label: "协作",
+      options: [
+        { label: "读取 PR pull_request:read", value: "pull_request:read" },
+        { label: "写入 PR pull_request:write", value: "pull_request:write" },
+        { label: "读取 Issue issue:read", value: "issue:read" },
+        { label: "写入 Issue issue:write", value: "issue:write" },
+        { label: "写入 Release release:write", value: "release:write" },
+        { label: "全部权限 all", value: "all" },
+      ],
+    },
+  ],
+  http_api: [
+    {
+      label: "HTTP",
+      options: [
+        { label: "GET http:get", value: "http:get" },
+        { label: "POST http:post", value: "http:post" },
+        { label: "PUT http:put", value: "http:put" },
+        { label: "PATCH http:patch", value: "http:patch" },
+        { label: "DELETE http:delete", value: "http:delete" },
+        { label: "只读 http:read", value: "http:read" },
+        { label: "写入 http:write", value: "http:write" },
+        { label: "全部权限 http:all", value: "http:all" },
+      ],
+    },
+  ],
+  custom: [
+    {
+      label: "通用",
+      options: [
+        { label: "读取 read", value: "read" },
+        { label: "写入 write", value: "write" },
+        { label: "管理 admin", value: "admin" },
+        { label: "全部权限 all", value: "all" },
+      ],
+    },
+  ],
+};
 
 const credentialTypeOptions = [
   { label: "Token", value: "token" },
@@ -49,6 +186,21 @@ const credentialTypeOptions = [
   { label: "Basic Auth", value: "basic_auth" },
   { label: "自定义密钥", value: "custom_secret" },
   { label: "会话引用", value: "session_reference" },
+];
+
+const tagPresetOptions = [
+  { label: "生产", value: "生产" },
+  { label: "测试", value: "测试" },
+  { label: "开发", value: "开发" },
+  { label: "个人", value: "个人" },
+  { label: "团队", value: "团队" },
+  { label: "只读", value: "只读" },
+  { label: "读写", value: "读写" },
+  { label: "管理员", value: "管理员" },
+  { label: "Git", value: "Git" },
+  { label: "CI/CD", value: "CI/CD" },
+  { label: "MCP", value: "MCP" },
+  { label: "高风险", value: "高风险" },
 ];
 
 const approvalPolicyOptions = [
@@ -119,7 +271,7 @@ function createDefaultPolicySettings(): SecureCredentialPolicySettings {
   };
 }
 
-const secureCredentialMcpToolPrefixes = ["secure_", "github_", "gitlab_", "gitcode_", "http_api_"];
+const secureCredentialMcpToolPrefixes = ["secure_", "github_", "gitlab_", "gitcode_", "gitee_", "http_api_"];
 
 function isSecureCredentialMcpTool(toolName: string) {
   return secureCredentialMcpToolPrefixes.some((prefix) => toolName.startsWith(prefix));
@@ -243,6 +395,7 @@ export function SecureCredentialOverviewPage() {
 export function SecureCredentialVaultPage() {
   const { overview, items, loading, load } = useSecureCredentialData();
   const [form] = Form.useForm<UpsertSecureCredentialInput>();
+  const selectedProvider = Form.useWatch("provider", form) as SecureCredentialProvider | undefined;
   const [keyword, setKeyword] = useState("");
   const [provider, setProvider] = useState<SecureCredentialProvider | "">("");
   const [editing, setEditing] = useState<SecureCredential | null>(null);
@@ -273,6 +426,12 @@ export function SecureCredentialVaultPage() {
       });
   }, [items, keyword, provider]);
 
+  const tagOptions = useMemo(() => {
+    const values = new Set(tagPresetOptions.map((item) => item.value));
+    items.forEach((item) => item.tags.forEach((tag) => values.add(tag)));
+    return Array.from(values).map((tag) => ({ label: tag, value: tag }));
+  }, [items]);
+
   function openCreate() {
     setEditing(null);
     form.setFieldsValue({
@@ -282,7 +441,7 @@ export function SecureCredentialVaultPage() {
       credentialType: "token",
       accountName: "",
       baseUrl: "",
-      scopes: ["repo:read"],
+      scopes: defaultScopesByProvider.github,
       tags: [],
       folder: "",
       description: "",
@@ -479,7 +638,7 @@ export function SecureCredentialVaultPage() {
     <div className="prototype-page">
       <PageHeader
         title="凭证库"
-        description="保存 GitHub、GitLab、GitCode、HTTP API 和自定义凭证，前端只展示脱敏元数据。"
+        description="保存 GitHub、GitLab、GitCode、Gitee、HTTP API 和自定义凭证，前端只展示脱敏元数据。"
         actions={
           <Space>
             <Button icon={<RefreshCw size={14} />} onClick={() => void load()} loading={loading}>
@@ -539,7 +698,18 @@ export function SecureCredentialVaultPage() {
             <Input placeholder="GitHub 主账号" />
           </Form.Item>
           <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
-            <Select options={providerOptions} />
+            <Select
+              options={providerOptions}
+              onChange={(value: SecureCredentialProvider) => {
+                const currentScopes = (form.getFieldValue("scopes") ?? []) as string[];
+                const previousDefaultScopes = Object.values(defaultScopesByProvider).flat();
+                const shouldReplaceScopes =
+                  currentScopes.length === 0 || currentScopes.every((scope) => previousDefaultScopes.includes(scope));
+                if (shouldReplaceScopes) {
+                  form.setFieldValue("scopes", defaultScopesByProvider[value]);
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item name="credentialType" label="凭证类型" rules={[{ required: true }]}>
             <Select options={credentialTypeOptions} />
@@ -551,13 +721,23 @@ export function SecureCredentialVaultPage() {
             <Input placeholder="用户名、组织或服务账号" />
           </Form.Item>
           <Form.Item name="baseUrl" label="API Base URL">
-            <Input placeholder="GitLab / GitCode / HTTP API 可填写" />
+            <Input placeholder="GitLab / GitCode / Gitee / HTTP API 可填写" />
           </Form.Item>
           <Form.Item name="scopes" label="授权范围">
-            <Select mode="tags" placeholder="repo:read / issue:write / custom" />
+            <Select
+              mode="tags"
+              options={scopeOptionsByProvider[selectedProvider ?? "github"]}
+              optionFilterProp="label"
+              placeholder="选择读写权限，也可输入自定义 scope"
+            />
           </Form.Item>
           <Form.Item name="tags" label="标签">
-            <Select mode="tags" placeholder="生产 / 个人 / 只读" />
+            <Select
+              mode="tags"
+              options={tagOptions}
+              optionFilterProp="label"
+              placeholder="选择常用标签，或输入新标签后回车"
+            />
           </Form.Item>
           <Form.Item name="folder" label="文件夹">
             <Input placeholder="默认" />
@@ -606,6 +786,7 @@ export function SecureCredentialSessionsPage() {
   const { items, loading: credentialLoading, load: loadCredentials } = useSecureCredentialData();
   const { sessions, loading: sessionLoading, load: loadSessions } = useSecureCredentialSessions();
   const [form] = Form.useForm();
+  const selectedCredentialKey = Form.useWatch("credentialKey", form) as string | undefined;
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
@@ -618,6 +799,20 @@ export function SecureCredentialSessionsPage() {
   const filteredSessions = useMemo(
     () => sessions.filter((item) => !statusFilter || item.status === statusFilter),
     [sessions, statusFilter],
+  );
+
+  const selectedSessionCredential = useMemo(
+    () => usableCredentials.find((item) => item.credentialKey === selectedCredentialKey),
+    [selectedCredentialKey, usableCredentials],
+  );
+
+  const sessionScopeOptions = useMemo(
+    () =>
+      (selectedSessionCredential?.scopes ?? []).map((scope) => ({
+        label: scope,
+        value: scope,
+      })),
+    [selectedSessionCredential],
   );
 
   async function refresh() {
@@ -743,7 +938,7 @@ export function SecureCredentialSessionsPage() {
             onChange={(value) => setStatusFilter(value ?? "")}
           />
           <Text type="secondary">
-            只显示 session 句柄，不暴露 GitHub / GitLab / GitCode / HTTP API 的真实密钥。
+            只显示 session 句柄，不暴露 GitHub / GitLab / GitCode / Gitee / HTTP API 的真实密钥。
           </Text>
         </Space>
         <Table
@@ -782,7 +977,12 @@ export function SecureCredentialSessionsPage() {
             <Input placeholder="local-user / codex / claude-code" />
           </Form.Item>
           <Form.Item name="scopes" label="会话范围">
-            <Select mode="tags" placeholder="默认使用凭证授权范围" />
+            <Select
+              mode="multiple"
+              options={sessionScopeOptions}
+              optionFilterProp="label"
+              placeholder="默认使用凭证授权范围"
+            />
           </Form.Item>
           <Form.Item name="ttlMinutes" label="有效期（分钟）">
             <InputNumber min={1} max={240} style={{ width: "100%" }} />
@@ -1149,9 +1349,9 @@ export function SecureCredentialPoliciesPage() {
           </div>
           <div className="prototype-grid prototype-grid-2">
             {[
-              ["allowDeleteBranch", "删除分支", "允许 approved 后删除 GitHub/GitLab/GitCode 分支。"],
-              ["allowDeleteTag", "删除 tag", "允许 approved 后删除 GitHub/GitLab/GitCode tag。"],
-              ["allowDeleteRelease", "删除 release", "允许 approved 后删除 GitHub/GitLab/GitCode release。"],
+              ["allowDeleteBranch", "删除分支", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee 分支。"],
+              ["allowDeleteTag", "删除 tag", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee tag。"],
+              ["allowDeleteRelease", "删除 release", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee release。"],
               ["allowUpdateRef", "更新 Git ref", "允许 approved 后更新 Git 引用，默认禁止强制更新。"],
               [
                 "allowUpdateRepoSettings",

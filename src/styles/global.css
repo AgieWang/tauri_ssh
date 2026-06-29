@@ -560,6 +560,94 @@ a:hover {
   color: var(--text-secondary);
 }
 
+.database-sql-ai-answer {
+  color: var(--text-primary);
+}
+
+.database-sql-ai-markdown {
+  min-width: 520px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.database-sql-ai-markdown h4,
+.database-sql-ai-markdown h5 {
+  margin: 12px 0 8px;
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.database-sql-ai-markdown h4 {
+  font-size: 15px;
+}
+
+.database-sql-ai-markdown h5 {
+  font-size: 14px;
+}
+
+.database-sql-ai-markdown p {
+  margin: 0 0 10px;
+}
+
+.database-sql-ai-markdown ul,
+.database-sql-ai-markdown ol {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+}
+
+.database-sql-ai-markdown li {
+  margin: 4px 0;
+}
+
+.database-sql-ai-markdown code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.database-sql-ai-code-block {
+  margin: 10px 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.database-sql-ai-code-lang {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.database-sql-ai-code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.database-sql-ai-code-block pre code {
+  display: block;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
 .prototype-approval-command {
   display: flex;
   flex-direction: column;
@@ -888,6 +976,187 @@ a:hover {
   flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0 14px;
+}
+
+.ai-unrestricted-toggle.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-width: 104px;
+  padding: 0 10px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+
+.ai-unrestricted-toggle.ant-btn:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ai-unrestricted-toggle-active.ant-btn {
+  border-color: color-mix(in srgb, var(--warning) 65%, var(--danger));
+  color: #1f1b0a;
+  background: linear-gradient(135deg, #f8c84b, #ef8f32);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 28%, transparent);
+}
+
+.ai-unrestricted-toggle-active.ant-btn:not(:disabled):hover {
+  color: #1f1b0a;
+  border-color: #ffd666;
+  background: linear-gradient(135deg, #ffd666, #f59e0b);
+}
+
+.ai-unrestricted-toggle-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.ai-unrestricted-toggle-active .ai-unrestricted-toggle-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22);
+}
+
+.ai-unrestricted-toggle-state {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.ai-unrestricted-toggle-active .ai-unrestricted-toggle-state {
+  color: #1f1b0a;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.prototype-dangerous-command-card {
+  overflow: hidden;
+  border-color: #dbe4ef;
+  border-radius: 14px;
+}
+
+.prototype-dangerous-command-card .ant-card-head {
+  min-height: 72px;
+  border-bottom-color: #e7edf5;
+}
+
+.prototype-dangerous-command-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.prototype-dangerous-command-title svg {
+  color: #c45a12;
+}
+
+.prototype-dangerous-command-desc {
+  margin: -2px 0 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.prototype-dangerous-command-table .ant-table {
+  border: 1px solid #e7edf5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.prototype-dangerous-command-table .ant-table-thead > tr > th {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--bg-secondary) !important;
+}
+
+.prototype-dangerous-command-table .ant-table-tbody > tr > td {
+  height: 54px;
+  color: var(--text-secondary);
+  border-bottom-color: #edf2f7;
+  background: var(--bg-primary) !important;
+}
+
+.prototype-dangerous-command-pattern {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 13px;
+  background: transparent !important;
+}
+
+.prototype-dangerous-command-table .ant-tag {
+  min-width: 54px;
+  text-align: center;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.prototype-dangerous-command-table .ant-pagination {
+  margin: 18px 0 0;
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-card {
+  border-color: var(--border);
+  background: var(--bg-secondary);
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-card .ant-card-head,
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table-tbody > tr > td {
+  border-bottom-color: var(--border);
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-card .ant-card-head,
+:root[data-theme="dark"] .prototype-dangerous-command-card .ant-card-body {
+  background: var(--bg-secondary);
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table {
+  border-color: var(--border);
+  background: var(--bg-secondary);
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-thead > tr > th,
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell {
+  color: var(--text-primary);
+  border-bottom-color: var(--border);
+  background: var(--bg-tertiary) !important;
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-tbody > tr > td,
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell {
+  color: var(--text-primary);
+  border-bottom-color: var(--border);
+  background: var(--bg-secondary) !important;
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-tbody > tr:hover > td,
+:root[data-theme="dark"] .prototype-dangerous-command-table.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell {
+  background: var(--bg-hover) !important;
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table-container,
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table-content,
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table-tbody,
+:root[data-theme="dark"] .prototype-dangerous-command-table .ant-table-placeholder {
+  background: var(--bg-secondary);
+}
+
+:root[data-theme="dark"] .prototype-dangerous-command-pattern.ant-typography code {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
 }
 
 @media (max-width: 1200px) {

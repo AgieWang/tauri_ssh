@@ -5,6 +5,7 @@ use crate::models::{
     TerminalSessionWriteInput,
 };
 use crate::services::audit::AuditService;
+use crate::services::system_settings::SystemSettingsService;
 use crate::services::terminal::TerminalService;
 use crate::state::AppState;
 
@@ -14,74 +15,97 @@ pub async fn execute_terminal_command(
     input: TerminalCommandInput,
 ) -> Result<TerminalCommandResult, CommandError> {
     let audit_input = input.clone();
+    let skip_ai_audit = audit_input.initiated_by_ai.unwrap_or(false)
+        && SystemSettingsService::get_ai_unrestricted_state(&state.db)
+            .map(|state| state.active)
+            .unwrap_or(false);
     match TerminalService::execute(&state.db, input).await {
         Ok(result) => {
-            let _ = AuditService::create(
-                &state.db,
-                CreateAuditLogInput {
-                    actor: "local-user".into(),
-                    source: "terminal".into(),
-                    server_alias: result.server_alias.clone(),
-                    action: "terminal_execute".into(),
-                    risk: if result.blocked {
-                        "blocked"
-                    } else {
-                        "readonly"
-                    }
-                    .into(),
-                    result: if result.blocked {
-                        "已禁止".into()
-                    } else if result.exit_status == 0 {
-                        "成功".into()
-                    } else {
-                        "失败".into()
+            if !skip_ai_audit {
+                let _ = AuditService::create(
+                    &state.db,
+                    CreateAuditLogInput {
+                        actor: "local-user".into(),
+                        source: if audit_input.initiated_by_ai.unwrap_or(false) {
+                            "terminal-ai"
+                        } else {
+                            "terminal"
+                        }
+                        .into(),
+                        server_alias: result.server_alias.clone(),
+                        action: "terminal_execute".into(),
+                        risk: if result.blocked {
+                            "blocked"
+                        } else {
+                            "readonly"
+                        }
+                        .into(),
+                        result: if result.blocked {
+                            "已禁止".into()
+                        } else if result.exit_status == 0 {
+                            "成功".into()
+                        } else {
+                            "失败".into()
+                        },
+                        summary: format!(
+                            "执行终端命令：{}",
+                            redact_command_summary(&result.command)
+                        ),
+                        detail_json: Some(
+                            serde_json::json!({
+                                "serverAlias": result.server_alias,
+                                "command": redact_command_summary(&result.command),
+                                "exitStatus": result.exit_status,
+                                "durationMs": result.duration_ms,
+                                "blocked": result.blocked,
+                                "initiatedByAi": audit_input.initiated_by_ai.unwrap_or(false),
+                                "stdoutBytes": result.stdout.len(),
+                                "stderrBytes": result.stderr.len(),
+                                "message": result.message
+                            })
+                            .to_string(),
+                        ),
+                        request_id: None,
+                        approval_id: None,
                     },
-                    summary: format!("执行终端命令：{}", redact_command_summary(&result.command)),
-                    detail_json: Some(
-                        serde_json::json!({
-                            "serverAlias": result.server_alias,
-                            "command": redact_command_summary(&result.command),
-                            "exitStatus": result.exit_status,
-                            "durationMs": result.duration_ms,
-                            "blocked": result.blocked,
-                            "stdoutBytes": result.stdout.len(),
-                            "stderrBytes": result.stderr.len(),
-                            "message": result.message
-                        })
-                        .to_string(),
-                    ),
-                    request_id: None,
-                    approval_id: None,
-                },
-            );
+                );
+            }
             Ok(result)
         }
         Err(error) => {
             let message = error.to_string();
-            let _ = AuditService::create(
-                &state.db,
-                CreateAuditLogInput {
-                    actor: "local-user".into(),
-                    source: "terminal".into(),
-                    server_alias: audit_input.server_alias,
-                    action: "terminal_execute".into(),
-                    risk: "readonly".into(),
-                    result: "失败".into(),
-                    summary: format!(
-                        "终端命令执行失败：{}",
-                        redact_command_summary(&audit_input.command)
-                    ),
-                    detail_json: Some(
-                        serde_json::json!({
-                            "command": redact_command_summary(&audit_input.command),
-                            "error": message
-                        })
-                        .to_string(),
-                    ),
-                    request_id: None,
-                    approval_id: None,
-                },
-            );
+            if !skip_ai_audit {
+                let _ = AuditService::create(
+                    &state.db,
+                    CreateAuditLogInput {
+                        actor: "local-user".into(),
+                        source: if audit_input.initiated_by_ai.unwrap_or(false) {
+                            "terminal-ai"
+                        } else {
+                            "terminal"
+                        }
+                        .into(),
+                        server_alias: audit_input.server_alias,
+                        action: "terminal_execute".into(),
+                        risk: "readonly".into(),
+                        result: "失败".into(),
+                        summary: format!(
+                            "终端命令执行失败：{}",
+                            redact_command_summary(&audit_input.command)
+                        ),
+                        detail_json: Some(
+                            serde_json::json!({
+                                "command": redact_command_summary(&audit_input.command),
+                                "initiatedByAi": audit_input.initiated_by_ai.unwrap_or(false),
+                                "error": message
+                            })
+                            .to_string(),
+                        ),
+                        request_id: None,
+                        approval_id: None,
+                    },
+                );
+            }
             Err(error.into())
         }
     }

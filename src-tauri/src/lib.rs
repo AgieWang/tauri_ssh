@@ -95,6 +95,9 @@ pub fn run() {
             commands::system_settings::update_system_settings,
             commands::system_settings::reset_system_settings,
             commands::system_settings::export_system_settings,
+            commands::system_settings::get_ai_unrestricted_state,
+            commands::system_settings::enable_ai_unrestricted_mode,
+            commands::system_settings::disable_ai_unrestricted_mode,
             // AI Provider 模块
             commands::ai_provider::list_ai_providers,
             commands::ai_provider::upsert_ai_provider,

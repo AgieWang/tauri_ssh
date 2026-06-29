@@ -2,6 +2,7 @@ export type SecureCredentialProvider =
   | "github"
   | "gitlab"
   | "gitcode"
+  | "gitee"
   | "http_api"
   | "custom";
 
