@@ -1307,9 +1307,9 @@ export function DashboardPage() {
       render: (value: string) => <Text style={{ whiteSpace: "nowrap" }}>{value}</Text>,
     },
     { title: "服务器", dataIndex: "serverAlias", width: 150, render: (value: string) => value || "-" },
-    { title: "动作", dataIndex: "action", width: 150 },
-    { title: "结果", dataIndex: "result", width: 100, render: (value: string) => <Tag color={value === "success" ? "green" : value === "blocked" ? "red" : "orange"}>{value}</Tag> },
-    { title: "摘要", dataIndex: "summary", ellipsis: true },
+    { title: "动作", dataIndex: "action", width: 207 },
+    { title: "结果", dataIndex: "result", width: 80, render: (value: string) => <Tag color={value === "success" ? "green" : value === "blocked" ? "red" : "orange"}>{value}</Tag> },
+    { title: "摘要", dataIndex: "summary", width: 360, ellipsis: true },
   ];
 
   return (
