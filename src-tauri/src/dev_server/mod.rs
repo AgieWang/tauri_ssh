@@ -77,7 +77,7 @@ impl From<AppError> for DevApiError {
 pub fn start(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = serve(app_handle).await {
-            log::warn!("Dev HTTP API 启动失败: {}", error);
+            log::warn!("Local HTTP/MCP API 启动失败: {}", error);
         }
     });
 }
@@ -394,7 +394,7 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
 
-    log::info!("Dev HTTP API 已启动: http://{}", DEV_API_ADDR);
+    log::info!("Local HTTP/MCP API 已启动: http://{}", DEV_API_ADDR);
     axum::serve(listener, app)
         .await
         .map_err(|error| error.to_string())

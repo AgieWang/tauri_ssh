@@ -1,6 +1,5 @@
 mod commands;
 mod database;
-#[cfg(debug_assertions)]
 mod dev_server;
 mod error;
 mod models;
@@ -63,7 +62,6 @@ pub fn run() {
             // 注册全局状态
             app.manage(AppState::new(db));
 
-            #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
 
             // 初始化系统托盘
