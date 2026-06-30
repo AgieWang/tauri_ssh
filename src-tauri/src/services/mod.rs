@@ -5,6 +5,7 @@ pub mod audit;
 pub mod config;
 pub mod credential_vault;
 pub mod database_ops;
+pub mod deployment;
 pub mod jumpserver;
 pub mod mcp;
 pub mod resource_monitor;

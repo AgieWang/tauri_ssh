@@ -46,6 +46,7 @@ regex = "1"
 axum = { version = "0.7", features = ["ws", "multipart"] }
 tower-http = { version = "0.5", features = ["cors"] }
 tokio = { version = "1", features = ["full"] }
+tauri-plugin-dialog = "2"
 
 # ─── 编译优化 ─────────────────────────────
 

@@ -13,6 +13,7 @@
     "core:window:allow-hide",
     "core:window:allow-start-dragging",
     "opener:default",
+    "dialog:default",
     "store:default",
     "log:default",
     "core:menu:default",

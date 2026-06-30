@@ -119,11 +119,10 @@ impl SftpService {
                 local_path.display()
             )));
         }
-        let content = std::fs::read(&local_path)?;
-        let bytes = content.len() as u64;
+        let bytes = local_path.metadata()?.len();
         let server_alias = input.server_alias;
         let sftp = connect_sftp(db, &server_alias)?;
-        write_remote_file(&sftp, &remote_path, &content)?;
+        write_remote_file_from_path(&sftp, &remote_path, &local_path)?;
         Ok(operation_result(
             server_alias,
             remote_path,
@@ -231,6 +230,20 @@ fn write_remote_file(sftp: &Sftp, path: &str, content: &[u8]) -> Result<(), AppE
         )
         .map_err(|e| AppError::Custom(format!("打开远程文件写入失败: {}", e)))?;
     file.write_all(content)?;
+    Ok(())
+}
+
+fn write_remote_file_from_path(sftp: &Sftp, path: &str, local_path: &Path) -> Result<(), AppError> {
+    let mut local = std::fs::File::open(local_path)?;
+    let mut remote = sftp
+        .open_mode(
+            Path::new(path),
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+            0o644,
+            OpenType::File,
+        )
+        .map_err(|e| AppError::Custom(format!("打开远程文件写入失败: {}", e)))?;
+    std::io::copy(&mut local, &mut remote)?;
     Ok(())
 }
 

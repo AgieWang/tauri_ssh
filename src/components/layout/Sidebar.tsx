@@ -13,6 +13,7 @@ import {
   LockKeyhole,
   Logs,
   PlugZap,
+  Rocket,
   ScrollText,
   Server,
   Settings,
@@ -60,6 +61,7 @@ const menuItems = [
       { key: "/sftp", icon: <FolderTree size={16} />, label: "SFTP 文件" },
       { key: "/database", icon: <Database size={16} />, label: "数据库管理" },
       { key: "/resource-monitor", icon: <Activity size={16} />, label: "资源监控" },
+      { key: "/deployments", icon: <Rocket size={16} />, label: "自动部署" },
     ],
   },
   {

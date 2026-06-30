@@ -978,12 +978,11 @@ a:hover {
   margin: 8px 0 14px;
 }
 
-.ai-unrestricted-toggle.ant-btn {
+.header-pill-toggle.ant-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 30px;
-  min-width: 104px;
   padding: 0 10px;
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   border-radius: 999px;
@@ -992,10 +991,28 @@ a:hover {
   font-weight: 600;
 }
 
-.ai-unrestricted-toggle.ant-btn:not(:disabled):hover {
+.header-pill-toggle.ant-btn:not(:disabled):hover {
   border-color: var(--accent);
   color: var(--accent-hover);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ai-unrestricted-toggle.ant-btn {
+  min-width: 104px;
+}
+
+.header-update-toggle.ant-btn {
+  min-width: 76px;
+  color: var(--text-secondary);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  font-weight: 500;
+}
+
+.header-update-toggle.ant-btn:not(:disabled):hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .ai-unrestricted-toggle-active.ant-btn {
@@ -1011,19 +1028,24 @@ a:hover {
   background: linear-gradient(135deg, #ffd666, #f59e0b);
 }
 
-.ai-unrestricted-toggle-dot {
+.header-pill-toggle-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--text-muted);
 }
 
-.ai-unrestricted-toggle-active .ai-unrestricted-toggle-dot {
+.header-update-toggle-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.ai-unrestricted-toggle-active .header-pill-toggle-dot {
   background: #16a34a;
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22);
 }
 
-.ai-unrestricted-toggle-state {
+.header-pill-toggle-state {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -1034,7 +1056,7 @@ a:hover {
   line-height: 18px;
 }
 
-.ai-unrestricted-toggle-active .ai-unrestricted-toggle-state {
+.ai-unrestricted-toggle-active .header-pill-toggle-state {
   color: #1f1b0a;
   background: rgba(255, 255, 255, 0.42);
 }

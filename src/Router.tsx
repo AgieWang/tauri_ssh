@@ -1,9 +1,9 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { Navigate, createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import HomePage from "@/pages/home";
-import SettingsPage from "@/pages/settings";
 import AboutPage from "@/pages/about";
 import DatabasePage from "@/pages/database";
+import DeploymentsPage from "@/pages/deployments";
 import SkillsPage from "@/pages/skills";
 import ResourceMonitorPage from "@/pages/resource-monitor";
 import {
@@ -61,6 +61,7 @@ const router = createBrowserRouter([
       { path: "sftp", element: <SftpPage /> },
       { path: "database", element: <DatabasePage /> },
       { path: "resource-monitor", element: <ResourceMonitorPage /> },
+      { path: "deployments", element: <DeploymentsPage /> },
       { path: "editor", element: <EditorPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "mcp", element: <McpPage /> },
@@ -70,7 +71,7 @@ const router = createBrowserRouter([
       { path: "workspace", element: <WorkspacePage /> },
       { path: "states", element: <StatesPage /> },
       { path: "coverage", element: <CoveragePage /> },
-      { path: "settings", element: <SettingsPage /> },
+      { path: "settings", element: <Navigate to="/prototype-settings" replace /> },
       { path: "prototype-settings", element: <PrototypeSettingsPage /> },
       { path: "about", element: <AboutPage /> },
     ],

@@ -9,16 +9,19 @@ use crate::models::{
     AiExperience, AiProvider, AiProviderRoute, AiRunbook, AiRunbookStep, AiSkill, AiSkillStats,
     AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
     CreateSecureCredentialAuditLogInput, CredentialVaultItem, DatabaseConnection,
-    DecideApprovalRequestInput, JumpServerSession, ListAiSkillsInput, ListApprovalRequestsInput,
-    ListAuditLogsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
-    ListSecureCredentialAuditLogsInput, ResourceAlertEvent, ResourceAlertRule,
-    ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput, SecureCredential,
-    SecureCredentialAuditLog, SecureCredentialOverview, SecureCredentialPolicySettings,
-    SecureCredentialSession, SetSecureCredentialEnabledInput, SshServer,
-    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput,
-    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
-    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput, UpsertSshServerInput,
+    DecideApprovalRequestInput, DeploymentGroup, DeploymentGroupTarget, DeploymentRun,
+    DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, JumpServerSession, ListAiSkillsInput,
+    ListApprovalRequestsInput, ListAuditLogsInput, ListDeploymentRunsInput,
+    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
+    ResourceAlertEvent, ResourceAlertRule, ResourceMetricSnapshot, ResourceMonitorTarget,
+    ResourceSnapshotListInput, SecureCredential, SecureCredentialAuditLog,
+    SecureCredentialOverview, SecureCredentialPolicySettings, SecureCredentialSession,
+    SetSecureCredentialEnabledInput, SshServer, UpdateSecureCredentialPolicySettingsInput,
+    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
+    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput, UpsertDatabaseConnectionInput,
+    UpsertDeploymentGroupInput, UpsertDeploymentTargetInput, UpsertJumpServerSessionInput,
+    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
+    UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -155,6 +158,487 @@ impl Database {
             [key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── 自动部署 DAO ───────────────────────────────
+
+    pub fn list_deployment_targets(&self) -> Result<Vec<DeploymentTarget>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, target_key, name, server_alias, recipe, source_type, project_path,
+                    git_url, git_ref, git_credential_key, docker_build_mode, workdir, deploy_root,
+                    domain, https_enabled, port, health_check_url, config_json, enabled,
+                    created_at, updated_at
+             FROM deployment_targets
+             WHERE deleted_at IS NULL
+             ORDER BY updated_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| self.map_deployment_target_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_deployment_target(
+        &self,
+        input: &UpsertDeploymentTargetInput,
+    ) -> Result<DeploymentTarget, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let enabled = input.enabled.unwrap_or(true);
+        let https_enabled = input.https_enabled.unwrap_or(false);
+        conn.execute(
+            "INSERT INTO deployment_targets
+             (target_key, name, server_alias, recipe, source_type, project_path, git_url, git_ref,
+              git_credential_key, docker_build_mode, workdir, deploy_root, domain, https_enabled,
+              port, health_check_url, config_json, enabled, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(target_key) DO UPDATE SET
+               name = excluded.name,
+               server_alias = excluded.server_alias,
+               recipe = excluded.recipe,
+               source_type = excluded.source_type,
+               project_path = excluded.project_path,
+               git_url = excluded.git_url,
+               git_ref = excluded.git_ref,
+               git_credential_key = excluded.git_credential_key,
+               docker_build_mode = excluded.docker_build_mode,
+               workdir = excluded.workdir,
+               deploy_root = excluded.deploy_root,
+               domain = excluded.domain,
+               https_enabled = excluded.https_enabled,
+               port = excluded.port,
+               health_check_url = excluded.health_check_url,
+               config_json = excluded.config_json,
+               enabled = excluded.enabled,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                input.target_key,
+                input.name,
+                input.server_alias,
+                input.recipe,
+                input.source_type,
+                input.project_path.as_deref().unwrap_or(""),
+                input.git_url.as_deref().unwrap_or(""),
+                input.git_ref.as_deref().unwrap_or(""),
+                input.git_credential_key.as_deref().unwrap_or(""),
+                input.docker_build_mode.as_deref().unwrap_or("remote"),
+                input.workdir.as_deref().unwrap_or(""),
+                input.deploy_root.as_deref().unwrap_or(""),
+                input.domain.as_deref().unwrap_or(""),
+                if https_enabled { 1 } else { 0 },
+                input.port,
+                input.health_check_url.as_deref().unwrap_or(""),
+                input.config_json.as_deref().unwrap_or("{}"),
+                if enabled { 1 } else { 0 },
+            ],
+        )?;
+        drop(conn);
+        self.get_deployment_target(&input.target_key)?
+            .ok_or_else(|| AppError::Custom("部署目标保存后读取失败".into()))
+    }
+
+    pub fn get_deployment_target(
+        &self,
+        target_key: &str,
+    ) -> Result<Option<DeploymentTarget>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, target_key, name, server_alias, recipe, source_type, project_path,
+                    git_url, git_ref, git_credential_key, docker_build_mode, workdir, deploy_root,
+                    domain, https_enabled, port, health_check_url, config_json, enabled,
+                    created_at, updated_at
+             FROM deployment_targets
+             WHERE target_key = ?1 AND deleted_at IS NULL",
+            [target_key],
+            |row| self.map_deployment_target_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn delete_deployment_target(&self, target_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE deployment_targets
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE target_key = ?1 AND deleted_at IS NULL",
+            [target_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_deployment_groups(&self) -> Result<Vec<DeploymentGroup>, AppError> {
+        let mut groups = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            let mut stmt = conn.prepare(
+                "SELECT id, group_key, name, description, enabled, created_at, updated_at
+                 FROM deployment_groups
+                 WHERE deleted_at IS NULL
+                 ORDER BY updated_at DESC, id DESC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| self.map_deployment_group_row(row, Vec::new()))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for group in &mut groups {
+            group.targets = self.list_deployment_group_targets(&group.group_key)?;
+        }
+        Ok(groups)
+    }
+
+    pub fn upsert_deployment_group(
+        &self,
+        input: &UpsertDeploymentGroupInput,
+    ) -> Result<DeploymentGroup, AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let enabled = input.enabled.unwrap_or(true);
+        tx.execute(
+            "INSERT INTO deployment_groups
+             (group_key, name, description, enabled, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(group_key) DO UPDATE SET
+               name = excluded.name,
+               description = excluded.description,
+               enabled = excluded.enabled,
+               updated_at = excluded.updated_at,
+               deleted_at = NULL",
+            params![
+                input.group_key,
+                input.name,
+                input.description.as_deref().unwrap_or(""),
+                if enabled { 1 } else { 0 },
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM deployment_group_targets WHERE group_key = ?1",
+            [&input.group_key],
+        )?;
+        for (index, item) in input.targets.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO deployment_group_targets
+                 (group_key, target_key, sort_order, enabled, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
+                params![
+                    input.group_key,
+                    item.target_key,
+                    item.sort_order.unwrap_or(index as i64),
+                    if item.enabled.unwrap_or(true) { 1 } else { 0 },
+                ],
+            )?;
+        }
+        tx.commit()?;
+        drop(conn);
+        self.get_deployment_group(&input.group_key)?
+            .ok_or_else(|| AppError::Custom("部署组保存后读取失败".into()))
+    }
+
+    pub fn get_deployment_group(
+        &self,
+        group_key: &str,
+    ) -> Result<Option<DeploymentGroup>, AppError> {
+        let group = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.query_row(
+                "SELECT id, group_key, name, description, enabled, created_at, updated_at
+                     FROM deployment_groups
+                     WHERE group_key = ?1 AND deleted_at IS NULL",
+                [group_key],
+                |row| self.map_deployment_group_row(row, Vec::new()),
+            )
+            .optional()?
+        };
+        match group {
+            Some(mut value) => {
+                value.targets = self.list_deployment_group_targets(&value.group_key)?;
+                Ok(Some(value))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn delete_deployment_group(&self, group_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE deployment_groups
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE group_key = ?1 AND deleted_at IS NULL",
+            [group_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    fn list_deployment_group_targets(
+        &self,
+        group_key: &str,
+    ) -> Result<Vec<DeploymentGroupTarget>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT gt.target_key, COALESCE(t.name, gt.target_key) AS target_name,
+                    gt.sort_order, gt.enabled
+             FROM deployment_group_targets gt
+             LEFT JOIN deployment_targets t
+               ON t.target_key = gt.target_key AND t.deleted_at IS NULL
+             WHERE gt.group_key = ?1
+             ORDER BY gt.sort_order, gt.id",
+        )?;
+        let rows = stmt
+            .query_map([group_key], |row| {
+                Ok(DeploymentGroupTarget {
+                    target_key: row.get(0)?,
+                    target_name: row.get(1)?,
+                    sort_order: row.get(2)?,
+                    enabled: row.get::<_, i64>(3)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(rows)
+    }
+
+    pub fn create_deployment_run(
+        &self,
+        run_id: &str,
+        target_key: &str,
+        group_key: &str,
+        status: &str,
+        summary: &str,
+        plan_json: &str,
+        created_by: &str,
+    ) -> Result<DeploymentRun, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO deployment_runs
+             (run_id, target_key, group_key, status, summary, plan_json, created_by, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now', 'localtime'))",
+            params![run_id, target_key, group_key, status, summary, plan_json, created_by],
+        )?;
+        drop(conn);
+        self.get_deployment_run(run_id)?
+            .ok_or_else(|| AppError::Custom("部署运行记录创建后读取失败".into()))
+    }
+
+    pub fn update_deployment_run_status(
+        &self,
+        run_id: &str,
+        status: &str,
+        summary: &str,
+        finished: bool,
+    ) -> Result<DeploymentRun, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        if finished {
+            conn.execute(
+                "UPDATE deployment_runs
+                 SET status = ?1, summary = ?2, finished_at = datetime('now', 'localtime')
+                 WHERE run_id = ?3",
+                params![status, summary, run_id],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE deployment_runs
+                 SET status = ?1, summary = ?2
+                 WHERE run_id = ?3",
+                params![status, summary, run_id],
+            )?;
+        }
+        drop(conn);
+        self.get_deployment_run(run_id)?
+            .ok_or_else(|| AppError::NotFound(format!("部署运行 '{}' 不存在", run_id)))
+    }
+
+    pub fn list_deployment_runs(
+        &self,
+        input: &ListDeploymentRunsInput,
+    ) -> Result<Vec<DeploymentRun>, AppError> {
+        let limit = input.limit.unwrap_or(50).clamp(1, 200);
+        let target_key = input.target_key.as_deref().unwrap_or("").trim().to_string();
+        let group_key = input.group_key.as_deref().unwrap_or("").trim().to_string();
+        let status = input.status.as_deref().unwrap_or("all").trim().to_string();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, target_key, group_key, status, version_label, summary, plan_json,
+                    created_by, started_at, finished_at, created_at
+             FROM deployment_runs
+             WHERE (?1 = '' OR target_key = ?1)
+               AND (?2 = '' OR group_key = ?2)
+               AND (?3 = 'all' OR status = ?3)
+             ORDER BY id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt
+            .query_map(params![target_key, group_key, status, limit], |row| {
+                self.map_deployment_run_row(row)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_deployment_run(&self, run_id: &str) -> Result<Option<DeploymentRun>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, run_id, target_key, group_key, status, version_label, summary, plan_json,
+                    created_by, started_at, finished_at, created_at
+             FROM deployment_runs
+             WHERE run_id = ?1",
+            [run_id],
+            |row| self.map_deployment_run_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_deployment_run_detail(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<DeploymentRunDetail>, AppError> {
+        let Some(run) = self.get_deployment_run(run_id)? else {
+            return Ok(None);
+        };
+        let steps = self.list_deployment_run_steps(run_id)?;
+        Ok(Some(DeploymentRunDetail { run, steps }))
+    }
+
+    pub fn create_deployment_run_step(
+        &self,
+        run_id: &str,
+        step_key: &str,
+        title: &str,
+        status: &str,
+        command_preview: &str,
+        approval_id: Option<i64>,
+    ) -> Result<DeploymentRunStep, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO deployment_run_steps
+             (run_id, step_key, title, status, command_preview, approval_id, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', 'localtime'))",
+            params![
+                run_id,
+                step_key,
+                title,
+                status,
+                command_preview,
+                approval_id
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        drop(conn);
+        self.get_deployment_run_step(id)?
+            .ok_or_else(|| AppError::Custom("部署运行步骤创建后读取失败".into()))
+    }
+
+    pub fn update_deployment_run_step_result(
+        &self,
+        id: i64,
+        status: &str,
+        stdout_preview: &str,
+        stderr_preview: &str,
+        exit_code: Option<i64>,
+        approval_id: Option<i64>,
+    ) -> Result<DeploymentRunStep, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE deployment_run_steps
+             SET status = ?1, stdout_preview = ?2, stderr_preview = ?3, exit_code = ?4,
+                 approval_id = COALESCE(?5, approval_id), finished_at = datetime('now', 'localtime')
+             WHERE id = ?6",
+            params![
+                status,
+                stdout_preview,
+                stderr_preview,
+                exit_code,
+                approval_id,
+                id
+            ],
+        )?;
+        drop(conn);
+        self.get_deployment_run_step(id)?
+            .ok_or_else(|| AppError::NotFound(format!("部署运行步骤 {} 不存在", id)))
+    }
+
+    fn get_deployment_run_step(&self, id: i64) -> Result<Option<DeploymentRunStep>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, run_id, step_key, title, status, command_preview, stdout_preview,
+                    stderr_preview, exit_code, approval_id, started_at, finished_at, created_at
+             FROM deployment_run_steps
+             WHERE id = ?1",
+            [id],
+            |row| self.map_deployment_run_step_row(row),
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn list_deployment_run_steps(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<DeploymentRunStep>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, step_key, title, status, command_preview, stdout_preview,
+                    stderr_preview, exit_code, approval_id, started_at, finished_at, created_at
+             FROM deployment_run_steps
+             WHERE run_id = ?1
+             ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map([run_id], |row| self.map_deployment_run_step_row(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     // ─── SSH 服务器 DAO ───────────────────────────────
@@ -3616,6 +4100,93 @@ impl Database {
             last_connected_at: row.get(18)?,
             notes: row.get(19)?,
             updated_at: row.get(20)?,
+        })
+    }
+
+    fn map_deployment_target_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<DeploymentTarget, rusqlite::Error> {
+        Ok(DeploymentTarget {
+            id: row.get(0)?,
+            target_key: row.get(1)?,
+            name: row.get(2)?,
+            server_alias: row.get(3)?,
+            recipe: row.get(4)?,
+            source_type: row.get(5)?,
+            project_path: row.get(6)?,
+            git_url: row.get(7)?,
+            git_ref: row.get(8)?,
+            git_credential_key: row.get(9)?,
+            docker_build_mode: row.get(10)?,
+            workdir: row.get(11)?,
+            deploy_root: row.get(12)?,
+            domain: row.get(13)?,
+            https_enabled: row.get::<_, i64>(14)? != 0,
+            port: row.get(15)?,
+            health_check_url: row.get(16)?,
+            config_json: row.get(17)?,
+            enabled: row.get::<_, i64>(18)? != 0,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
+        })
+    }
+
+    fn map_deployment_group_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+        targets: Vec<DeploymentGroupTarget>,
+    ) -> Result<DeploymentGroup, rusqlite::Error> {
+        Ok(DeploymentGroup {
+            id: row.get(0)?,
+            group_key: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            enabled: row.get::<_, i64>(4)? != 0,
+            targets,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    }
+
+    fn map_deployment_run_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<DeploymentRun, rusqlite::Error> {
+        Ok(DeploymentRun {
+            id: row.get(0)?,
+            run_id: row.get(1)?,
+            target_key: row.get(2)?,
+            group_key: row.get(3)?,
+            status: row.get(4)?,
+            version_label: row.get(5)?,
+            summary: row.get(6)?,
+            plan_json: row.get(7)?,
+            created_by: row.get(8)?,
+            started_at: row.get(9)?,
+            finished_at: row.get(10)?,
+            created_at: row.get(11)?,
+        })
+    }
+
+    fn map_deployment_run_step_row(
+        &self,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<DeploymentRunStep, rusqlite::Error> {
+        Ok(DeploymentRunStep {
+            id: row.get(0)?,
+            run_id: row.get(1)?,
+            step_key: row.get(2)?,
+            title: row.get(3)?,
+            status: row.get(4)?,
+            command_preview: row.get(5)?,
+            stdout_preview: row.get(6)?,
+            stderr_preview: row.get(7)?,
+            exit_code: row.get(8)?,
+            approval_id: row.get(9)?,
+            started_at: row.get(10)?,
+            finished_at: row.get(11)?,
+            created_at: row.get(12)?,
         })
     }
 

@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 16;
+pub const SCHEMA_VERSION: i32 = 17;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -46,6 +46,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             13 => migrate_v13_to_v14(conn)?,
             14 => migrate_v14_to_v15(conn)?,
             15 => migrate_v15_to_v16(conn)?,
+            16 => migrate_v16_to_v17(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -54,6 +55,107 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v16 -> v17: 服务自动部署基础模型
+fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v16 -> v17（服务自动部署）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS deployment_targets (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_key          TEXT NOT NULL UNIQUE,
+            name                TEXT NOT NULL,
+            server_alias        TEXT NOT NULL DEFAULT '',
+            recipe              TEXT NOT NULL,
+            source_type         TEXT NOT NULL DEFAULT 'local',
+            project_path        TEXT NOT NULL DEFAULT '',
+            git_url             TEXT NOT NULL DEFAULT '',
+            git_ref             TEXT NOT NULL DEFAULT '',
+            git_credential_key  TEXT NOT NULL DEFAULT '',
+            docker_build_mode   TEXT NOT NULL DEFAULT 'remote',
+            workdir             TEXT NOT NULL DEFAULT '',
+            deploy_root         TEXT NOT NULL DEFAULT '',
+            domain              TEXT NOT NULL DEFAULT '',
+            https_enabled       INTEGER NOT NULL DEFAULT 0,
+            port                INTEGER DEFAULT NULL,
+            health_check_url    TEXT NOT NULL DEFAULT '',
+            config_json         TEXT NOT NULL DEFAULT '{}',
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at          TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_deployment_targets_server
+            ON deployment_targets(server_alias, enabled);
+        CREATE INDEX IF NOT EXISTS idx_deployment_targets_recipe
+            ON deployment_targets(recipe);
+
+        CREATE TABLE IF NOT EXISTS deployment_groups (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_key           TEXT NOT NULL UNIQUE,
+            name                TEXT NOT NULL,
+            description         TEXT NOT NULL DEFAULT '',
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at          TEXT DEFAULT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS deployment_group_targets (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_key           TEXT NOT NULL,
+            target_key          TEXT NOT NULL,
+            sort_order          INTEGER NOT NULL DEFAULT 0,
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(group_key, target_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_deployment_group_targets_group
+            ON deployment_group_targets(group_key, sort_order);
+
+        CREATE TABLE IF NOT EXISTS deployment_runs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id              TEXT NOT NULL UNIQUE,
+            target_key          TEXT NOT NULL DEFAULT '',
+            group_key           TEXT NOT NULL DEFAULT '',
+            status              TEXT NOT NULL DEFAULT 'pending',
+            version_label       TEXT NOT NULL DEFAULT '',
+            summary             TEXT NOT NULL DEFAULT '',
+            plan_json           TEXT NOT NULL DEFAULT '{}',
+            created_by          TEXT NOT NULL DEFAULT 'local-user',
+            started_at          TEXT DEFAULT NULL,
+            finished_at         TEXT DEFAULT NULL,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS deployment_run_steps (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id              TEXT NOT NULL,
+            step_key            TEXT NOT NULL,
+            title               TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            command_preview     TEXT NOT NULL DEFAULT '',
+            stdout_preview      TEXT NOT NULL DEFAULT '',
+            stderr_preview      TEXT NOT NULL DEFAULT '',
+            exit_code           INTEGER DEFAULT NULL,
+            approval_id         INTEGER DEFAULT NULL,
+            started_at          TEXT DEFAULT NULL,
+            finished_at         TEXT DEFAULT NULL,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_deployment_run_steps_run
+            ON deployment_run_steps(run_id, id);
+        ",
+    )?;
+
+    set_version(conn, 17)?;
     Ok(())
 }
 

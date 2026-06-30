@@ -16,6 +16,7 @@ use tauri::{Manager, WindowEvent};
 pub fn run() {
     tauri::Builder::default()
         // ─── 插件注册 ───────────────────────────────
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(
@@ -172,6 +173,25 @@ pub fn run() {
             commands::database_ops::list_redis_databases,
             commands::database_ops::list_redis_key_tree,
             commands::database_ops::get_redis_value_preview,
+            // 自动部署模块
+            commands::deployment::list_deployment_templates,
+            commands::deployment::list_deployment_environment_profiles,
+            commands::deployment::list_deployment_image_store_apps,
+            commands::deployment::install_deployment_image_store_app,
+            commands::deployment::detect_deployment_project,
+            commands::deployment::list_deployment_targets,
+            commands::deployment::upsert_deployment_target,
+            commands::deployment::delete_deployment_target,
+            commands::deployment::list_deployment_groups,
+            commands::deployment::upsert_deployment_group,
+            commands::deployment::delete_deployment_group,
+            commands::deployment::create_deployment_dry_run,
+            commands::deployment::execute_deployment_run,
+            commands::deployment::list_deployment_runs,
+            commands::deployment::get_deployment_run_detail,
+            commands::deployment::create_deployment_rollback_dry_run,
+            commands::deployment::execute_deployment_rollback,
+            commands::deployment::ask_deployment_ai_advice,
             // 资源监控模块
             commands::resource_monitor::list_resource_monitor_targets,
             commands::resource_monitor::upsert_resource_monitor_target,

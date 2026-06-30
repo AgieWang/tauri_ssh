@@ -29,3 +29,4 @@ export { approvalApi } from "./approval";
 export { jumpserverApi } from "./jumpserver";
 export { auditApi } from "./audit";
 export { resourceMonitorApi } from "./resourceMonitor";
+export { deploymentApi } from "./deployment";

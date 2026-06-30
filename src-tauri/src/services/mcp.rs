@@ -110,6 +110,66 @@ impl McpService {
                 audit: "记录服务器、日志路径和匹配数".into(),
             },
             McpToolPermission {
+                tool: "deployment_templates_list".into(),
+                policy: "只读，返回内置部署配方和适用场景".into(),
+                audit: "记录客户端和配方数量".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_targets_list".into(),
+                policy: "只读，返回部署目标脱敏配置，不返回凭证明文".into(),
+                audit: "记录筛选条件和目标数量".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_groups_list".into(),
+                policy: "只读，返回部署组和目标顺序".into(),
+                audit: "记录客户端和部署组数量".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_runs_list".into(),
+                policy: "只读，返回部署运行记录".into(),
+                audit: "记录目标/部署组/状态筛选和数量".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_detect_project".into(),
+                policy: "受控检测本地目录或 Git 来源，不执行远程部署命令".into(),
+                audit: "记录来源类型、路径或仓库地址和候选数量".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_dry_run".into(),
+                policy: "只生成部署计划和风险说明，不执行部署".into(),
+                audit: "记录 target/group、planId、风险和阶段数".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_run".into(),
+                policy: "必须先 dry-run 并传入 planId；高风险阶段进入审批队列".into(),
+                audit: "记录 target/group、planId、runId、审批 ID 和结果".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_run_status".into(),
+                policy: "只读查询部署运行状态".into(),
+                audit: "记录 runId 和步骤状态".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_run_logs".into(),
+                policy: "只读查询部署步骤日志预览".into(),
+                audit: "记录 runId、stepKey 和日志条数".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_rollback_dry_run".into(),
+                policy: "只生成回滚计划，不执行回滚".into(),
+                audit: "记录 targetKey、planId 和风险".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_rollback_run".into(),
+                policy: "必须先 rollback dry-run 并传入 planId；高风险阶段进入审批队列".into(),
+                audit: "记录 targetKey、planId、runId、审批 ID 和结果".into(),
+            },
+            McpToolPermission {
+                tool: "deployment_ai_advice".into(),
+                policy: "基于 dry-run 计划生成部署建议和风险解释，不执行部署".into(),
+                audit: "记录 target/group、Provider、模型和耗时".into(),
+            },
+            McpToolPermission {
                 tool: "ai_providers_list".into(),
                 policy: "只读，返回 Provider 状态不含密钥".into(),
                 audit: "记录客户端与数量".into(),

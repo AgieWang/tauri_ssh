@@ -1716,3 +1716,389 @@ pub struct ConfigureMcpClientResult {
     pub message: String,
     pub snippet: String,
 }
+
+/// 自动部署目标。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentTarget {
+    pub id: i64,
+    pub target_key: String,
+    pub name: String,
+    pub server_alias: String,
+    pub recipe: String,
+    pub source_type: String,
+    pub project_path: String,
+    pub git_url: String,
+    pub git_ref: String,
+    pub git_credential_key: String,
+    pub docker_build_mode: String,
+    pub workdir: String,
+    pub deploy_root: String,
+    pub domain: String,
+    pub https_enabled: bool,
+    pub port: Option<i64>,
+    pub health_check_url: String,
+    pub config_json: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 自动部署目标创建/更新输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertDeploymentTargetInput {
+    pub id: Option<i64>,
+    pub target_key: String,
+    pub name: String,
+    pub server_alias: String,
+    pub recipe: String,
+    pub source_type: String,
+    pub project_path: Option<String>,
+    pub git_url: Option<String>,
+    pub git_ref: Option<String>,
+    pub git_credential_key: Option<String>,
+    pub docker_build_mode: Option<String>,
+    pub workdir: Option<String>,
+    pub deploy_root: Option<String>,
+    pub domain: Option<String>,
+    pub https_enabled: Option<bool>,
+    pub port: Option<i64>,
+    pub health_check_url: Option<String>,
+    pub config_json: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+/// 自动部署组。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentGroup {
+    pub id: i64,
+    pub group_key: String,
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub targets: Vec<DeploymentGroupTarget>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 部署组内目标排序项。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentGroupTarget {
+    pub target_key: String,
+    pub target_name: String,
+    pub sort_order: i64,
+    pub enabled: bool,
+}
+
+/// 自动部署组创建/更新输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertDeploymentGroupInput {
+    pub id: Option<i64>,
+    pub group_key: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub enabled: Option<bool>,
+    pub targets: Vec<DeploymentGroupTargetInput>,
+}
+
+/// 部署组目标输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentGroupTargetInput {
+    pub target_key: String,
+    pub sort_order: Option<i64>,
+    pub enabled: Option<bool>,
+}
+
+/// 内置部署配方。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentTemplate {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub scenario: String,
+    pub risk: String,
+    pub supported_sources: Vec<String>,
+    pub required_profiles: Vec<String>,
+}
+
+/// 部署环境方案。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentEnvironmentProfile {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub checks: Vec<String>,
+}
+
+/// 自动部署镜像商店应用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentImageStoreApp {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub image: String,
+    pub tag: String,
+    pub default_port: Option<i64>,
+    pub container_port: Option<i64>,
+    pub volume_path: String,
+    pub env: Vec<DeploymentImageStoreEnv>,
+    pub notes: Vec<String>,
+}
+
+/// 镜像商店应用环境变量模板。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentImageStoreEnv {
+    pub key: String,
+    pub label: String,
+    pub default_value: String,
+    pub required: bool,
+    pub secret: bool,
+}
+
+/// 一键安装镜像商店应用输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallImageStoreAppInput {
+    pub app_key: String,
+    pub target_key: String,
+    pub name: String,
+    pub server_alias: String,
+    pub port: Option<i64>,
+    pub deploy_root: Option<String>,
+    pub image_tag: Option<String>,
+    pub env_json: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+/// 自动部署项目检测输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectDeploymentProjectInput {
+    pub source_type: String,
+    pub project_path: Option<String>,
+    pub git_url: Option<String>,
+    pub git_ref: Option<String>,
+    pub git_credential_key: Option<String>,
+}
+
+/// 自动部署项目检测结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentDetectionResult {
+    pub source_type: String,
+    pub project_root: String,
+    pub git_url: String,
+    pub git_ref: String,
+    pub commit: String,
+    pub candidates: Vec<DeploymentCandidate>,
+    pub warnings: Vec<String>,
+}
+
+/// 检测出的候选部署目标。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentCandidate {
+    pub key: String,
+    pub name: String,
+    pub recipe: String,
+    pub confidence: i64,
+    pub source_type: String,
+    pub workdir: String,
+    pub build_command: String,
+    pub start_command: String,
+    pub artifact_dir: String,
+    pub dockerfile: String,
+    pub compose_file: String,
+    pub exposed_ports: Vec<i64>,
+    pub env_files: Vec<String>,
+    pub detected_frameworks: Vec<String>,
+    pub warnings: Vec<String>,
+    pub config_json: String,
+}
+
+/// 自动部署 dry-run 输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDeploymentDryRunInput {
+    pub target_key: Option<String>,
+    pub group_key: Option<String>,
+}
+
+/// 自动部署 dry-run 计划。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentPlan {
+    pub plan_id: String,
+    pub target_key: String,
+    pub group_key: String,
+    pub title: String,
+    pub recipe: String,
+    pub server_alias: String,
+    pub status: String,
+    pub risk: String,
+    pub approval_required: bool,
+    pub environment: DeploymentEnvironmentProbe,
+    pub stages: Vec<DeploymentPlanStage>,
+    pub warnings: Vec<String>,
+    pub created_at: String,
+}
+
+/// 自动部署 dry-run 环境探测结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentEnvironmentProbe {
+    pub server_alias: String,
+    pub os: String,
+    pub arch: String,
+    pub user: String,
+    pub disk_available_kb: Option<i64>,
+    pub docker_version: String,
+    pub compose_version: String,
+    pub nginx_version: String,
+    pub openresty_version: String,
+    pub git_version: String,
+    pub port_available: Option<bool>,
+    pub domain_resolved: Option<bool>,
+    pub checks: Vec<DeploymentProbeCheck>,
+    pub raw_output: String,
+}
+
+/// 自动部署环境探测单项。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentProbeCheck {
+    pub key: String,
+    pub label: String,
+    pub status: String,
+    pub message: String,
+}
+
+/// 自动部署 dry-run 阶段。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentPlanStage {
+    pub key: String,
+    pub title: String,
+    pub risk: String,
+    pub approval_required: bool,
+    pub command_preview: String,
+    pub summary: String,
+    pub status: String,
+}
+
+/// 自动部署执行输入。默认按 target/group 重新生成 dry-run 后执行；continueRunId 用于继续已审批步骤。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteDeploymentRunInput {
+    pub target_key: Option<String>,
+    pub group_key: Option<String>,
+    pub plan_id: Option<String>,
+    pub continue_run_id: Option<String>,
+    pub created_by: Option<String>,
+}
+
+/// 自动部署回滚 dry-run 输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDeploymentRollbackDryRunInput {
+    pub target_key: String,
+    pub run_id: Option<String>,
+}
+
+/// 自动部署回滚执行输入。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteDeploymentRollbackInput {
+    pub target_key: String,
+    pub run_id: Option<String>,
+    pub created_by: Option<String>,
+}
+
+/// 自动部署运行记录过滤。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDeploymentRunsInput {
+    pub target_key: Option<String>,
+    pub group_key: Option<String>,
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// 自动部署运行记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentRun {
+    pub id: i64,
+    pub run_id: String,
+    pub target_key: String,
+    pub group_key: String,
+    pub status: String,
+    pub version_label: String,
+    pub summary: String,
+    pub plan_json: String,
+    pub created_by: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub created_at: String,
+}
+
+/// 自动部署运行步骤。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentRunStep {
+    pub id: i64,
+    pub run_id: String,
+    pub step_key: String,
+    pub title: String,
+    pub status: String,
+    pub command_preview: String,
+    pub stdout_preview: String,
+    pub stderr_preview: String,
+    pub exit_code: Option<i64>,
+    pub approval_id: Option<i64>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub created_at: String,
+}
+
+/// 自动部署运行详情。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentRunDetail {
+    pub run: DeploymentRun,
+    pub steps: Vec<DeploymentRunStep>,
+}
+
+/// 部署 AI 建议输入。可直接传入当前 dry-run 计划，或指定 target/group 由后端重新生成计划。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentAiAdviceInput {
+    pub target_key: Option<String>,
+    pub group_key: Option<String>,
+    pub plan: Option<DeploymentPlan>,
+    pub prompt: Option<String>,
+    pub provider_key: Option<String>,
+}
+
+/// 部署 AI 建议结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentAiAdviceResult {
+    pub provider_key: String,
+    pub provider_name: String,
+    pub model: String,
+    pub answer: String,
+    pub latency_ms: i64,
+    pub generated_at: String,
+}

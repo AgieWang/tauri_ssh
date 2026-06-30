@@ -1034,6 +1034,64 @@ impl DatabaseOpsService {
         }))
     }
 
+    pub async fn create_redis_acl_user(
+        db: &Database,
+        connection_key: &str,
+        database_name: Option<String>,
+        username: &str,
+        password: &str,
+    ) -> Result<(), AppError> {
+        if username.trim().is_empty() {
+            return Err(AppError::InvalidInput("Redis ACL 用户名不能为空".into()));
+        }
+        if password.trim().is_empty() {
+            return Err(AppError::InvalidInput("Redis ACL 密码不能为空".into()));
+        }
+        let connection = db
+            .get_database_connection_secret_row(connection_key)?
+            .ok_or_else(|| AppError::NotFound(format!("Redis 连接 '{}' 不存在", connection_key)))?;
+        let mut connection_info = connection.connection;
+        if connection_info.db_type != "redis" {
+            return Err(AppError::InvalidInput("当前连接不是 Redis".into()));
+        }
+        if connection_info.connection_mode != "direct" {
+            return Err(AppError::InvalidInput(
+                "SSH 隧道 Redis ACL 创建会在隧道模块接入后启用".into(),
+            ));
+        }
+        if let Some(database_name) = database_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            connection_info.database_name = database_name.to_string();
+        }
+        let password_ref = Self::resolve_connection_password(
+            db,
+            &connection_info,
+            connection.password_nonce.as_deref(),
+            connection.password_ciphertext.as_deref(),
+        )?;
+        let url = Self::redis_url(&connection_info, password_ref.as_deref());
+        let client = redis::Client::open(url)
+            .map_err(|error| AppError::Custom(format!("Redis URL 无效: {}", error)))?;
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|error| AppError::Custom(format!("连接 Redis 失败: {}", error)))?;
+        let _: redis::Value = redis::cmd("ACL")
+            .arg("SETUSER")
+            .arg(username)
+            .arg("on")
+            .arg(format!(">{}", password))
+            .arg("~*")
+            .arg("+@all")
+            .query_async(&mut conn)
+            .await
+            .map_err(|error| AppError::Custom(format!("创建 Redis ACL 用户失败: {}", error)))?;
+        Ok(())
+    }
+
     fn database_export_dir(db: &Database) -> Result<PathBuf, AppError> {
         let settings = SystemSettingsService::get(db)?;
         let configured = settings.database_download_dir.trim();
@@ -1881,15 +1939,27 @@ impl DatabaseOpsService {
 
     pub(crate) fn redis_url(connection: &DatabaseConnection, password: Option<&str>) -> String {
         let db = connection.database_name.trim().parse::<u8>().unwrap_or(0);
-        match password.filter(|value| !value.is_empty()) {
-            Some(password) => format!(
+        let username = connection.username.trim();
+        match (
+            username.is_empty(),
+            password.filter(|value| !value.is_empty()),
+        ) {
+            (false, Some(password)) => format!(
+                "redis://{}:{}@{}:{}/{}",
+                percent_encode(username),
+                percent_encode(password),
+                connection.host,
+                connection.port,
+                db
+            ),
+            (true, Some(password)) => format!(
                 "redis://:{}@{}:{}/{}",
                 percent_encode(password),
                 connection.host,
                 connection.port,
                 db
             ),
-            None => format!("redis://{}:{}/{}", connection.host, connection.port, db),
+            _ => format!("redis://{}:{}/{}", connection.host, connection.port, db),
         }
     }
 

@@ -14,17 +14,19 @@ use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
     AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
-    CreateApprovalRequestInput, CreateAuditLogInput, CreateSecureCredentialSessionInput,
-    DecideApprovalRequestInput, EnableAiUnrestrictedInput, ListAiSkillsInput,
-    ListApprovalRequestsInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
-    ListSecureCredentialAuditLogsInput, ListSecureCredentialSessionsInput,
-    ListSecureCredentialsInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
-    RunAiRunbookInput, SecureCredentialGitReadInput, SecureCredentialGitWriteInput,
-    SecureCredentialHttpRequestInput, SecureCredentialHttpWriteInput,
-    SecureCredentialProviderTestInput, SecureCredentialRepositoryListInput,
-    SetSecureCredentialEnabledInput, UpdateSecureCredentialPolicySettingsInput,
-    UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    CreateApprovalRequestInput, CreateAuditLogInput, CreateDeploymentDryRunInput,
+    CreateDeploymentRollbackDryRunInput, CreateSecureCredentialSessionInput,
+    DecideApprovalRequestInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
+    EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput, ExecuteDeploymentRunInput,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListDeploymentRunsInput,
+    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
+    ListSecureCredentialSessionsInput, ListSecureCredentialsInput, ResourceSnapshotListInput,
+    RotateSecureCredentialInput, RunAiRunbookInput, SecureCredentialGitReadInput,
+    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
+    SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
+    SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
+    UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
+    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
     UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
 };
@@ -34,6 +36,7 @@ use crate::services::approval::ApprovalService;
 use crate::services::audit::AuditService;
 use crate::services::credential_vault::CredentialVaultService;
 use crate::services::database_ops::DatabaseOpsService;
+use crate::services::deployment::DeploymentService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
 use crate::services::resource_monitor::ResourceMonitorService;
@@ -1570,8 +1573,147 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
     ];
+    tools.extend(deployment_tool_schemas());
     tools.extend(secure_credential_plan_tool_schemas());
     tools
+}
+
+fn deployment_tool_schemas() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "name": "deployment_templates_list",
+            "description": "列出内置自动部署配方和适用场景。",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "deployment_targets_list",
+            "description": "列出已保存部署目标的脱敏配置，不返回服务器或 Git 凭证明文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "enabledOnly": { "type": "boolean" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_groups_list",
+            "description": "列出部署组和组内目标顺序。",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "deployment_runs_list",
+            "description": "列出部署运行记录，可按目标、部署组或状态筛选。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "groupKey": { "type": "string" },
+                    "status": { "type": "string" },
+                    "limit": { "type": "number" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_detect_project",
+            "description": "检测本地项目目录或公开 Git 仓库的部署候选项。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sourceType": { "type": "string", "enum": ["local", "git"] },
+                    "projectPath": { "type": "string" },
+                    "gitUrl": { "type": "string" },
+                    "gitRef": { "type": "string" },
+                    "gitCredentialKey": { "type": "string" }
+                },
+                "required": ["sourceType"]
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_dry_run",
+            "description": "为已保存目标或部署组生成部署 dry-run 计划。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "groupKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_run",
+            "description": "执行已保存目标或部署组。必须先调用 deployment_dry_run 并传入 planId；高风险阶段会进入审批队列。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "groupKey": { "type": "string" },
+                    "planId": { "type": "string" },
+                    "continueRunId": { "type": "string" },
+                    "createdBy": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_run_status",
+            "description": "查询单次部署运行状态和步骤摘要。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string" } },
+                "required": ["runId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_run_logs",
+            "description": "查询单次部署运行的步骤日志预览。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "runId": { "type": "string" },
+                    "stepKey": { "type": "string" }
+                },
+                "required": ["runId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_rollback_dry_run",
+            "description": "为已保存目标生成回滚 dry-run 计划。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "runId": { "type": "string" }
+                },
+                "required": ["targetKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_rollback_run",
+            "description": "执行目标回滚。必须先调用 deployment_rollback_dry_run 并传入 planId；高风险阶段会进入审批队列。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "runId": { "type": "string" },
+                    "planId": { "type": "string" },
+                    "createdBy": { "type": "string" }
+                },
+                "required": ["targetKey", "planId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "deployment_ai_advice",
+            "description": "基于部署 dry-run 计划调用已配置 AI Provider 生成部署建议和风险解释。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "targetKey": { "type": "string" },
+                    "groupKey": { "type": "string" },
+                    "prompt": { "type": "string" },
+                    "providerKey": { "type": "string" }
+                }
+            }
+        }),
+    ]
 }
 
 fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
@@ -1952,6 +2094,218 @@ async fn call_mcp_tool_inner(
                 "stderr": result.stderr,
                 "exitStatus": result.exit_status
             }))
+        }
+        "deployment_templates_list" => Ok(serde_json::json!({
+            "items": DeploymentService::list_templates()
+        })),
+        "deployment_targets_list" => {
+            let state = app_state(ctx);
+            let enabled_only = optional_bool(&arguments, "enabledOnly").unwrap_or(false);
+            let targets = DeploymentService::list_targets(&state.db)?
+                .into_iter()
+                .filter(|target| !enabled_only || target.enabled)
+                .map(|target| {
+                    serde_json::json!({
+                        "targetKey": target.target_key,
+                        "name": target.name,
+                        "serverAlias": target.server_alias,
+                        "recipe": target.recipe,
+                        "sourceType": target.source_type,
+                        "projectPath": target.project_path,
+                        "gitUrl": target.git_url,
+                        "gitRef": target.git_ref,
+                        "gitCredentialKey": target.git_credential_key,
+                        "dockerBuildMode": target.docker_build_mode,
+                        "workdir": target.workdir,
+                        "deployRoot": target.deploy_root,
+                        "domain": target.domain,
+                        "httpsEnabled": target.https_enabled,
+                        "port": target.port,
+                        "healthCheckUrl": target.health_check_url,
+                        "enabled": target.enabled,
+                        "updatedAt": target.updated_at
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "items": targets,
+                "count": targets.len()
+            }))
+        }
+        "deployment_groups_list" => {
+            let state = app_state(ctx);
+            let groups = DeploymentService::list_groups(&state.db)?;
+            Ok(serde_json::json!({
+                "items": groups,
+                "count": groups.len()
+            }))
+        }
+        "deployment_runs_list" => {
+            let state = app_state(ctx);
+            let runs = DeploymentService::list_runs(
+                &state.db,
+                ListDeploymentRunsInput {
+                    target_key: optional_string(&arguments, "targetKey"),
+                    group_key: optional_string(&arguments, "groupKey"),
+                    status: optional_string(&arguments, "status"),
+                    limit: optional_i64(&arguments, "limit").or(Some(20)),
+                },
+            )?;
+            Ok(serde_json::json!({
+                "items": runs,
+                "count": runs.len()
+            }))
+        }
+        "deployment_detect_project" => {
+            let input = DetectDeploymentProjectInput {
+                source_type: required_string(&arguments, "sourceType")?,
+                project_path: optional_string(&arguments, "projectPath"),
+                git_url: optional_string(&arguments, "gitUrl"),
+                git_ref: optional_string(&arguments, "gitRef"),
+                git_credential_key: optional_string(&arguments, "gitCredentialKey"),
+            };
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(DeploymentService::detect_project(
+                &state.db, input,
+            )?)?)
+        }
+        "deployment_dry_run" => {
+            let state = app_state(ctx);
+            let plan = DeploymentService::create_dry_run(
+                &state.db,
+                CreateDeploymentDryRunInput {
+                    target_key: optional_string(&arguments, "targetKey"),
+                    group_key: optional_string(&arguments, "groupKey"),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(plan)?)
+        }
+        "deployment_run" => {
+            let state = app_state(ctx);
+            let continue_run_id = optional_string(&arguments, "continueRunId");
+            if continue_run_id.is_none() {
+                required_string(&arguments, "planId")?;
+            }
+            let detail = DeploymentService::execute_run(
+                &state.db,
+                ExecuteDeploymentRunInput {
+                    target_key: optional_string(&arguments, "targetKey"),
+                    group_key: optional_string(&arguments, "groupKey"),
+                    plan_id: optional_string(&arguments, "planId"),
+                    continue_run_id,
+                    created_by: optional_string(&arguments, "createdBy")
+                        .or_else(|| optional_string(&arguments, "requester"))
+                        .or_else(|| Some("mcp-client".into())),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(detail)?)
+        }
+        "deployment_run_status" => {
+            let state = app_state(ctx);
+            let detail = DeploymentService::get_run_detail(
+                &state.db,
+                &required_string(&arguments, "runId")?,
+            )?;
+            let steps = detail
+                .steps
+                .iter()
+                .map(|step| {
+                    serde_json::json!({
+                        "stepKey": step.step_key,
+                        "title": step.title,
+                        "status": step.status,
+                        "exitCode": step.exit_code,
+                        "approvalId": step.approval_id,
+                        "startedAt": step.started_at,
+                        "finishedAt": step.finished_at
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "run": detail.run,
+                "steps": steps
+            }))
+        }
+        "deployment_run_logs" => {
+            let state = app_state(ctx);
+            let detail = DeploymentService::get_run_detail(
+                &state.db,
+                &required_string(&arguments, "runId")?,
+            )?;
+            let step_filter = optional_string(&arguments, "stepKey");
+            let steps = detail
+                .steps
+                .into_iter()
+                .filter(|step| {
+                    step_filter
+                        .as_deref()
+                        .map(|key| step.step_key == key)
+                        .unwrap_or(true)
+                })
+                .map(|step| {
+                    serde_json::json!({
+                        "stepKey": step.step_key,
+                        "title": step.title,
+                        "status": step.status,
+                        "commandPreview": step.command_preview,
+                        "stdoutPreview": step.stdout_preview,
+                        "stderrPreview": step.stderr_preview,
+                        "exitCode": step.exit_code,
+                        "approvalId": step.approval_id
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "runId": detail.run.run_id,
+                "status": detail.run.status,
+                "steps": steps,
+                "count": steps.len()
+            }))
+        }
+        "deployment_rollback_dry_run" => {
+            let state = app_state(ctx);
+            let plan = DeploymentService::create_rollback_dry_run(
+                &state.db,
+                CreateDeploymentRollbackDryRunInput {
+                    target_key: required_string(&arguments, "targetKey")?,
+                    run_id: optional_string(&arguments, "runId"),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(plan)?)
+        }
+        "deployment_rollback_run" => {
+            let state = app_state(ctx);
+            required_string(&arguments, "planId")?;
+            let detail = DeploymentService::execute_rollback(
+                &state.db,
+                ExecuteDeploymentRollbackInput {
+                    target_key: required_string(&arguments, "targetKey")?,
+                    run_id: optional_string(&arguments, "runId"),
+                    created_by: optional_string(&arguments, "createdBy")
+                        .or_else(|| optional_string(&arguments, "requester"))
+                        .or_else(|| Some("mcp-client".into())),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(detail)?)
+        }
+        "deployment_ai_advice" => {
+            let state = app_state(ctx);
+            let advice = DeploymentService::ai_advice(
+                &state.db,
+                DeploymentAiAdviceInput {
+                    target_key: optional_string(&arguments, "targetKey"),
+                    group_key: optional_string(&arguments, "groupKey"),
+                    plan: None,
+                    prompt: optional_string(&arguments, "prompt"),
+                    provider_key: optional_string(&arguments, "providerKey"),
+                },
+            )
+            .await?;
+            Ok(serde_json::to_value(advice)?)
         }
         "ai_providers_list" => {
             let state = app_state(ctx);
@@ -3653,6 +4007,8 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         || tool_name == "redis_command_approved"
         || tool_name == "sftp_create_file_controlled"
         || tool_name == "sftp_create_file_approved"
+        || tool_name == "deployment_run"
+        || tool_name == "deployment_rollback_run"
     {
         "L3"
     } else if tool_name.contains("controlled")
@@ -3660,6 +4016,10 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         || tool_name == "run_runbook"
         || tool_name == "ai_runbook_run"
         || tool_name == "database_export_create"
+        || tool_name == "deployment_detect_project"
+        || tool_name == "deployment_dry_run"
+        || tool_name == "deployment_rollback_dry_run"
+        || tool_name == "deployment_ai_advice"
         || tool_name.contains("create_file")
         || tool_name.contains("create_directory")
     {

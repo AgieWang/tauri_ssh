@@ -218,6 +218,7 @@
 
 | 配方 | 场景 | 说明 |
 | --- | --- | --- |
+| `1panel-app` | 1Panel 托管应用 | 按 1Panel 应用目录约定上传产物，检查 compose 并重启托管服务 |
 | `dockerfile-service` | 单服务 Dockerfile | 本地/远程构建镜像，远程 Docker run 或 Compose 托管 |
 | `docker-compose` | Compose 栈 | 识别 compose 文件，托管到部署根目录执行 |
 | `static-openresty` | 前端静态站 | 构建 dist，上传静态资源，生成反向代理配置 |
@@ -228,18 +229,17 @@
 
 #### 环境方案
 
-预置环境方案：
+预置环境方案按部署方式模板内置，点击“使用方案”会直接填充部署目标表单：
 
 | 环境方案 | 目标 | 主要检查/安装 |
 | --- | --- | --- |
-| `docker-runtime` | Docker 部署 | Docker、Compose、镜像构建、容器网络、磁盘空间 |
-| `static-web` | 前端静态站 | Nginx/OpenResty、站点目录、反代、HTTPS |
-| `git-source` | Git 拉取部署 | Git 可用性、凭证引用、分支/Tag/Commit、目标目录权限 |
-| `node-runtime` | Node 服务 | Node、pnpm/npm/yarn、PM2、端口 |
-| `java-runtime` | Java 服务 | JDK、Maven/Gradle、systemd、JVM 参数 |
-| `database-shared` | 数据库复用 | MySQL/PostgreSQL 连接、自动建库、自动创建专属账号 |
-| `redis-shared` | Redis 复用 | Redis 连接、密码引用、DB 选择、专属账号/ACL 策略 |
-| `tls-domain` | 域名 HTTPS | 域名解析、80/443 连通性、自动签证书、续期策略 |
+| `1panel-app` | 1Panel 托管应用 | 1Panel 目录约定、Docker、Compose 配置、托管服务重启 |
+| `custom-script` | 自定义脚本 | `customStages` / `customCommand` 配置、危险命令扫描、审批 |
+| `docker-compose` | Compose 栈 | Docker、Compose 配置、容器网络、端口和磁盘空间 |
+| `node-pm2` | Node 服务 | Node、pnpm/npm/yarn、PM2、端口和健康检查 |
+| `static-nginx` | Nginx 静态站 | 静态资源目录、Nginx 配置、reload 和健康检查 |
+| `static-openresty` | OpenResty 静态站 | 静态资源目录、OpenResty 站点、HTTPS 和续期 |
+| `systemd-binary` | Java/Go/二进制服务 | 运行时、systemd、服务重启和健康检查 |
 
 #### Dry-run 与执行
 
@@ -982,81 +982,88 @@ src/pages/deployments/index.tsx
 
 ### 第一阶段：基础模型与只读检测
 
-- 新增部署相关类型。
-- 新增 SQLite 表和迁移。
-- 实现内置模板/环境方案列表。
-- 实现本地项目目录和 Git checkout 目录检测器。
-- 实现 Git 仓库来源配置、凭证引用和 checkout 后检测。
-- 新增 `/deployments` 页面和新建方案向导静态流程。
-- 支持 Dockerfile、Compose、前端项目基本识别。
+- [x] 新增部署相关类型。
+- [x] 新增 SQLite 表和迁移。
+- [x] 实现内置模板/环境方案列表。
+- [x] 实现本地项目目录和 Git checkout 目录检测器。
+- [x] 实现 Git 仓库来源配置、凭证引用字段和公开仓库 checkout 后检测。
+- [x] 新增 `/deployments` 页面和新建方案向导静态流程。
+- [x] 支持 Dockerfile、Compose、前端项目基本识别。
+- [x] 安全凭证注入 Git 拉取会话。
 
 验收：
 
-- 选择项目目录后能生成候选部署目标。
-- 输入 Git 仓库、分支/Tag/Commit 和凭证引用后能 checkout 并生成候选部署目标。
-- 不执行任何远程命令。
-- 页面能保存部署目标和部署组。
+- [x] 选择项目目录后能生成候选部署目标。
+- [x] 输入公开 Git 仓库、分支/Tag/Commit 后能 checkout 并生成候选部署目标。
+- [x] 不执行任何远程服务器命令。
+- [x] 页面能保存部署目标和部署组。
+- [x] 输入 Git 凭证引用后创建短期凭证会话并完成私有仓库 checkout。
 
 ### 第二阶段：dry-run 与环境探测
 
-- 实现服务器环境探测。
-- 实现 `create_deployment_dry_run`。
-- 生成阶段计划、命令预览、审批要求。
-- 实现 HTTPS 自动签证书 dry-run。
-- 实现数据库/Redis 专属账号创建 dry-run。
-- 接入审计日志。
+- [x] 实现服务器环境探测。
+- [x] 实现 `create_deployment_dry_run`。
+- [x] 生成阶段计划、命令预览、审批要求。
+- [x] 实现 HTTPS 自动签证书 dry-run。
+- [x] 实现数据库/Redis 专属账号创建 dry-run。
+- [x] 接入审计日志。
 
 验收：
 
-- 对 Dockerfile/Compose/静态站能生成完整 dry-run。
-- dry-run 能展示远程构建/本地构建镜像上传两种 Dockerfile 路径。
-- dry-run 能展示证书签发计划和数据库/Redis 专属账号计划。
-- 能展示端口冲突、缺少 Docker、磁盘不足等问题。
+- [x] 对 Dockerfile/Compose/静态站能生成完整 dry-run。
+- [x] dry-run 能展示远程构建/本地构建镜像上传两种 Dockerfile 路径。
+- [x] dry-run 能展示证书签发计划和数据库/Redis 专属账号计划。
+- [x] 能展示端口冲突、缺少 Docker、磁盘不足等问题。
 
 ### 第三阶段：首批真实执行
 
-- 实现 `static-openresty`。
-- 实现 `docker-compose`。
-- 实现 `dockerfile-service`。
-- 实现 Git 拉取部署。
-- 实现 HTTPS 自动签证书。
-- 实现数据库/Redis 专属账号自动创建。
-- 实现运行记录、步骤日志、失败记录。
-- 接入审批队列。
+- [x] 实现 `static-openresty` 首批执行命令生成、构建、站点配置和审批接入。
+- [x] 实现 `docker-compose` 首批执行命令生成、配置校验、启动审批接入。
+- [x] 实现 `dockerfile-service` 首批远程构建、Compose 配置生成、启动审批接入。
+- [x] 实现 Git 拉取部署。
+- [x] 实现 HTTPS 自动签证书执行步骤和审批接入。
+- [x] 实现数据库/Redis 专属账号自动创建。
+- [x] 实现运行记录、步骤日志、失败记录。
+- [x] 接入审批队列。
 
 验收：
 
-- 能部署一个前端静态站。
-- 能部署一个 docker-compose 栈。
-- 能部署一个 Dockerfile 服务。
-- 能从 Git 仓库拉取项目并完成部署。
-- 能为绑定域名自动签发 HTTPS 证书。
-- 能创建并登记数据库/Redis 专属账号。
-- 所有执行步骤可审计。
+- [x] 能部署一个前端静态站的远程构建、配置和审批流程。
+- [x] 能部署一个 docker-compose 栈的配置校验和审批启动流程。
+- [x] 能部署一个 Dockerfile 服务的远程构建、Compose 生成和审批启动流程。
+- [x] 能从 Git 仓库拉取项目并进入部署流程。
+- [x] 能为绑定域名生成 HTTPS 证书签发执行步骤并进入审批。
+- [x] 能创建并登记数据库/Redis 专属账号。
+- [x] 所有执行步骤可审计。
 
 ### 第四阶段：回滚与部署组
 
-- 实现 current/release 目录结构。
-- 实现 Docker/Compose/静态站回滚。
-- 实现部署组顺序执行。
-- 失败时支持停止后续目标。
+- [x] 实现 current/release 目录结构。
+- [x] 实现 Docker/Compose/静态站回滚。
+- [x] 实现部署组顺序执行。
+- [x] 失败时支持停止后续目标。
 
 验收：
 
-- 可回滚上一版本。
-- 部署组能一键部署前后端组合。
+- [x] 可回滚上一版本。
+- [x] 部署组能一键部署前后端组合。
 
 ### 第五阶段：MCP 与 AI 辅助
 
-- 开放首批 MCP 工具。
-- SQL/终端/日志 AI 上下文可引用部署运行记录。
-- AI 可生成部署建议和风险解释。
-- AI 执行部署必须走 dry-run + 审批。
+- [x] 开放首批 MCP 工具。
+- [x] SQL/终端/日志 AI 上下文可通过 MCP 引用部署运行记录、运行状态和步骤日志。
+- [x] AI 可生成部署建议和风险解释。
+- [x] AI 执行部署必须走 dry-run + 审批。
 
 验收：
 
-- MCP 能列出目标、生成 dry-run、查询运行日志。
-- 执行类 MCP 工具不能绕过审批。
+- [x] MCP 能列出目标、生成 dry-run、查询运行日志。
+- [x] 执行类 MCP 工具不能绕过审批。
+
+补充实现：
+
+- Dockerfile 的 `local_upload` 路径已接入真实执行：本地 `docker build`、`docker save`，通过 SFTP 流式上传镜像归档，并在远端执行 `docker load`。
+- 本地项目目录部署已接入真实执行：本地归档项目目录，通过 SFTP 上传到 release 区，再在远端解包到当前部署版本目录。
 
 ---
 

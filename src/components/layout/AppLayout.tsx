@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { Layout, Button, Modal, Tooltip, message, theme as antdTheme } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined, SettingOutlined } from "@ant-design/icons";
+import { MenuFoldOutlined, MenuUnfoldOutlined, SettingOutlined, SyncOutlined } from "@ant-design/icons";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { ShieldAlert } from "lucide-react";
 import { useAppStore } from "@/store";
 import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { getErrorMessage, systemSettingsApi } from "@/lib/api";
+import { UpdateModal } from "@/components/ui/UpdateModal";
+import { getErrorMessage, hasTauriRuntime, systemApi, systemSettingsApi, updaterApi } from "@/lib/api";
 import type { AiUnrestrictedState } from "@/types";
+import packageJson from "../../../package.json";
 
 const { Header, Sider, Content } = Layout;
 
@@ -122,16 +125,74 @@ function AiUnrestrictedButton() {
         danger={state.active}
         type={state.active ? "primary" : "default"}
         size="small"
-        className={`ai-unrestricted-toggle ${state.active ? "ai-unrestricted-toggle-active" : ""}`}
+        className={`header-pill-toggle ai-unrestricted-toggle ${state.active ? "ai-unrestricted-toggle-active" : ""}`}
         icon={<ShieldAlert size={15} />}
         loading={loading}
         onClick={state.active ? () => void disable() : enable}
       >
-        <span className="ai-unrestricted-toggle-dot" />
+        <span className="header-pill-toggle-dot" />
         <span>{state.active ? formatRemaining(state.remainingSeconds) : "AI 放行"}</span>
-        <span className="ai-unrestricted-toggle-state">{state.active ? "开" : "关"}</span>
+        <span className="header-pill-toggle-state">{state.active ? "开" : "关"}</span>
       </Button>
     </Tooltip>
+  );
+}
+
+function HeaderUpdateButton() {
+  const [checking, setChecking] = useState(false);
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState(packageJson.version);
+
+  useEffect(() => {
+    systemApi
+      .getSystemInfo()
+      .then((info) => setAppVersion(info.appVersion || packageJson.version))
+      // 浏览器调试没有 Tauri IPC，保留 package.json 版本作为兜底。
+      .catch(() => {});
+  }, []);
+
+  async function checkUpdate() {
+    if (!hasTauriRuntime()) {
+      message.warning("浏览器预览不支持检查更新，请在桌面应用中使用该功能");
+      return;
+    }
+    setChecking(true);
+    try {
+      const result = await updaterApi.checkUpdate();
+      if (result) {
+        setUpdate(result);
+        setUpdateModalOpen(true);
+      } else {
+        message.success("当前已是最新版本");
+      }
+    } catch (error) {
+      message.warning(`检查更新失败: ${String(error)}`);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <>
+      <Tooltip title={`当前版本：${appVersion}，点击检查更新`}>
+        <Button
+          size="small"
+          className="header-pill-toggle header-update-toggle"
+          icon={<SyncOutlined spin={checking} />}
+          loading={checking}
+          onClick={() => void checkUpdate()}
+        >
+          <span className="header-pill-toggle-dot header-update-toggle-dot" />
+          <span>v{appVersion}</span>
+        </Button>
+      </Tooltip>
+      <UpdateModal
+        open={updateModalOpen}
+        onClose={() => setUpdateModalOpen(false)}
+        update={update}
+      />
+    </>
   );
 }
 
@@ -180,15 +241,16 @@ export function AppLayout({ headerExtra }: AppLayoutProps) {
             />
           </div>
           <DragRegion />
-          <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {headerExtra}
+            <HeaderUpdateButton />
             <AiUnrestrictedButton />
             <ThemeToggle />
             <Button
               type="text"
               icon={<SettingOutlined />}
-              onClick={() => navigate("/settings")}
-              title="设置"
+              onClick={() => navigate("/prototype-settings")}
+              title="系统设置"
             />
             <WindowControls />
           </div>
