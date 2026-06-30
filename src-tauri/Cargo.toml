@@ -1,6 +1,6 @@
 [package]
 name = "tauri_ssh"
-version = "0.1.7"
+version = "0.1.8"
 description = "SSH desktop management tool"
 authors = ["you"]
 edition = "2021"
