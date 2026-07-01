@@ -118,6 +118,7 @@ export type {
   GitWorkspaceScanStartResult,
   GitWorkspaceStatus,
   ListGitWorkspacesInput,
+  MergeGitWorkspaceBranchInput,
   ScanGitWorkspaceRootInput,
   ScanGitWorkspaceRootResult,
   SwitchGitWorkspaceBranchInput,

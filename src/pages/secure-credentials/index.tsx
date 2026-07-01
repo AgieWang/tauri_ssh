@@ -25,6 +25,7 @@ import {
   FolderOpen,
   GitBranch,
   GitCommit,
+  GitMerge,
   GitPullRequestArrow,
   KeyRound,
   Plus,
@@ -1056,6 +1057,12 @@ export function SecureCredentialGitWorkspacesPage() {
   const [branchLoading, setBranchLoading] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState(false);
   const [targetBranch, setTargetBranch] = useState("");
+  const [mergeModalWorkspace, setMergeModalWorkspace] = useState<GitWorkspace | null>(null);
+  const [mergeBranchOptions, setMergeBranchOptions] = useState<GitWorkspaceBranch[]>([]);
+  const [mergeSourceBranch, setMergeSourceBranch] = useState("");
+  const [mergeTargetBranch, setMergeTargetBranch] = useState("");
+  const [mergeBranchLoading, setMergeBranchLoading] = useState(false);
+  const [mergingBranch, setMergingBranch] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [credentialFilter, setCredentialFilter] = useState("");
   const [detail, setDetail] = useState<GitWorkspaceDetail | null>(null);
@@ -1389,6 +1396,49 @@ export function SecureCredentialGitWorkspacesPage() {
     }
   }
 
+  async function openMergeBranch(item: GitWorkspace) {
+    setMergeModalWorkspace(item);
+    setMergeSourceBranch("");
+    setMergeTargetBranch(item.branch || "");
+    setMergeBranchOptions([]);
+    setMergeBranchLoading(true);
+    try {
+      const branches = await gitWorkspaceApi.branches(item.workspaceKey);
+      setMergeBranchOptions(branches);
+      const current = branches.find((branch) => branch.isCurrent);
+      setMergeTargetBranch(current?.name || item.branch || branches[0]?.name || "");
+      setMergeSourceBranch(branches.find((branch) => !branch.isCurrent)?.name || "");
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setMergeBranchLoading(false);
+    }
+  }
+
+  async function mergeBranch() {
+    if (!mergeModalWorkspace || !mergeSourceBranch.trim() || !mergeTargetBranch.trim()) {
+      return;
+    }
+    setMergingBranch(true);
+    try {
+      const result = await gitWorkspaceApi.mergeBranch({
+        workspaceKey: mergeModalWorkspace.workspaceKey,
+        sourceBranch: mergeSourceBranch,
+        targetBranch: mergeTargetBranch,
+      });
+      message.success(`已将 ${mergeSourceBranch} 合并到 ${result.branch || mergeTargetBranch}`);
+      setMergeModalWorkspace(null);
+      await load();
+      if (detail?.workspace.workspaceKey === mergeModalWorkspace.workspaceKey) {
+        setDetail(await gitWorkspaceApi.detail(mergeModalWorkspace.workspaceKey));
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setMergingBranch(false);
+    }
+  }
+
   async function deleteItem(item: GitWorkspace) {
     try {
       await gitWorkspaceApi.delete(item.workspaceKey);
@@ -1397,6 +1447,21 @@ export function SecureCredentialGitWorkspacesPage() {
     } catch (error) {
       message.error(getErrorMessage(error));
     }
+  }
+
+  function renderBranchOption(branch: GitWorkspaceBranch) {
+    const commit = [branch.lastCommitHash, branch.lastCommitMessage].filter(Boolean).join(" ");
+    return (
+      <Space direction="vertical" size={0} style={{ width: "100%" }}>
+        <Text strong>
+          {branch.displayName}
+          {branch.isCurrent ? "（当前）" : ""}
+        </Text>
+        <Text type="secondary" ellipsis={{ tooltip: commit || "暂无提交信息" }}>
+          {commit || "暂无提交信息"}
+        </Text>
+      </Space>
+    );
   }
 
   return (
@@ -1544,6 +1609,9 @@ export function SecureCredentialGitWorkspacesPage() {
                   <Button size="small" icon={<Shuffle size={14} />} onClick={() => void openSwitchBranch(item)}>
                     切换分支
                   </Button>
+                  <Button size="small" icon={<GitMerge size={14} />} onClick={() => void openMergeBranch(item)}>
+                    合并分支
+                  </Button>
                   <Button
                     size="small"
                     icon={<GitCommit size={14} />}
@@ -1634,17 +1702,78 @@ export function SecureCredentialGitWorkspacesPage() {
             loading={branchLoading}
             value={targetBranch || undefined}
             placeholder="选择目标分支"
-            optionFilterProp="label"
+            optionFilterProp="searchText"
             style={{ width: "100%" }}
             options={branchOptions.map((branch) => ({
-              label: branch.isCurrent ? `${branch.displayName}（当前）` : branch.displayName,
+              label: renderBranchOption(branch),
               value: branch.name,
+              searchText: `${branch.displayName} ${branch.lastCommitHash} ${branch.lastCommitMessage}`,
             }))}
             onChange={(value) => setTargetBranch(value)}
           />
           <Text type="secondary">
             切换分支前会检查工作区是否有未提交改动；如有改动，将拒绝切换以避免覆盖本地文件。
           </Text>
+        </Space>
+      </Modal>
+
+      <Modal
+        title={mergeModalWorkspace ? `合并分支：${mergeModalWorkspace.name}` : "合并分支"}
+        open={Boolean(mergeModalWorkspace)}
+        confirmLoading={mergingBranch}
+        okButtonProps={{
+          disabled:
+            !mergeSourceBranch ||
+            !mergeTargetBranch ||
+            mergeSourceBranch === mergeTargetBranch ||
+            mergeBranchLoading,
+        }}
+        okText="合并"
+        cancelText="取消"
+        onOk={() => void mergeBranch()}
+        onCancel={() => setMergeModalWorkspace(null)}
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Text type="secondary">{mergeModalWorkspace?.repoPath}</Text>
+          <Form layout="vertical">
+            <Form.Item label="源分支">
+              <Select
+                showSearch
+                loading={mergeBranchLoading}
+                value={mergeSourceBranch || undefined}
+                placeholder="选择要合并进来的源分支"
+                optionFilterProp="searchText"
+                style={{ width: "100%" }}
+                options={mergeBranchOptions.map((branch) => ({
+                  label: renderBranchOption(branch),
+                  value: branch.name,
+                  searchText: `${branch.displayName} ${branch.lastCommitHash} ${branch.lastCommitMessage}`,
+                }))}
+                onChange={(value) => setMergeSourceBranch(value)}
+              />
+            </Form.Item>
+            <Form.Item label="目标分支">
+              <Select
+                showSearch
+                loading={mergeBranchLoading}
+                value={mergeTargetBranch || undefined}
+                placeholder="选择接收合并的目标分支"
+                optionFilterProp="searchText"
+                style={{ width: "100%" }}
+                options={mergeBranchOptions.map((branch) => ({
+                  label: renderBranchOption(branch),
+                  value: branch.name,
+                  searchText: `${branch.displayName} ${branch.lastCommitHash} ${branch.lastCommitMessage}`,
+                }))}
+                onChange={(value) => setMergeTargetBranch(value)}
+              />
+            </Form.Item>
+          </Form>
+          <Alert
+            type="warning"
+            showIcon
+            message="合并前会要求工作区无未提交改动；合并会先切换到目标分支，再把源分支合并进去。"
+          />
         </Space>
       </Modal>
 

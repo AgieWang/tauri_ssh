@@ -10,8 +10,9 @@ use crate::error::AppError;
 use crate::models::{
     AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, AiProviderAskInput, GitWorkspace,
     GitWorkspaceBranch, GitWorkspaceDetail, GitWorkspaceScanJobStatus, GitWorkspaceScanStartResult,
-    ListGitWorkspacesInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
-    SecureCredential, SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
+    ListGitWorkspacesInput, MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput,
+    ScanGitWorkspaceRootResult, SecureCredential, SwitchGitWorkspaceBranchInput,
+    UpsertGitWorkspaceInput,
 };
 use crate::services::ai_provider::AiProviderService;
 use crate::state::AppState;
@@ -354,6 +355,15 @@ impl GitWorkspaceService {
                 },
                 is_current: !current.is_empty() && current == name,
                 is_remote,
+                last_commit_hash: git_branch_last_commit(repo, line, "%h")
+                    .await
+                    .unwrap_or_default(),
+                last_commit_message: git_branch_last_commit(repo, line, "%s")
+                    .await
+                    .unwrap_or_default(),
+                last_commit_at: git_branch_last_commit(repo, line, "%ci")
+                    .await
+                    .unwrap_or_default(),
                 name,
             });
         }
@@ -410,6 +420,33 @@ impl GitWorkspaceService {
         }
         Self::refresh(db, &workspace.workspace_key).await
     }
+
+    pub async fn merge_branch(
+        db: &Database,
+        input: MergeGitWorkspaceBranchInput,
+    ) -> Result<GitWorkspace, AppError> {
+        let workspace = load_workspace(db, input.workspace_key.trim())?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let source_branch = input.source_branch.trim();
+        let target_branch = input.target_branch.trim();
+        if source_branch.is_empty() || target_branch.is_empty() {
+            return Err(AppError::InvalidInput("源分支和目标分支不能为空".into()));
+        }
+        if source_branch == target_branch {
+            return Err(AppError::InvalidInput("源分支和目标分支不能相同".into()));
+        }
+        ensure_clean_worktree(repo, "当前工作区有未提交改动，请先提交或处理后再合并分支").await?;
+        checkout_branch(repo, target_branch).await?;
+        let source_ref = resolve_branch_ref(repo, source_branch).await?;
+        git_command_output(
+            repo,
+            &["merge", "--no-edit", source_ref.as_str()],
+            Duration::from_secs(120),
+        )
+        .await?;
+        Self::refresh(db, &workspace.workspace_key).await
+    }
 }
 
 fn load_workspace(db: &Database, workspace_key: &str) -> Result<GitWorkspace, AppError> {
@@ -422,6 +459,60 @@ fn ensure_git_repo(repo: &Path) -> Result<(), AppError> {
         return Err(AppError::InvalidInput("工作区路径不是有效 Git 仓库".into()));
     }
     Ok(())
+}
+
+async fn ensure_clean_worktree(repo: &Path, message: &str) -> Result<(), AppError> {
+    let porcelain = git_output(repo, &["status", "--porcelain"]).await?;
+    if !porcelain.trim().is_empty() {
+        return Err(AppError::InvalidInput(message.into()));
+    }
+    Ok(())
+}
+
+async fn checkout_branch(repo: &Path, branch: &str) -> Result<(), AppError> {
+    let local_branches = git_output(repo, &["branch", "--format=%(refname:short)"])
+        .await
+        .unwrap_or_default();
+    let has_local = local_branches
+        .lines()
+        .map(str::trim)
+        .any(|item| item == branch);
+    if has_local {
+        git_command_output(repo, &["checkout", branch], Duration::from_secs(30)).await?;
+    } else {
+        let remote_ref = format!("origin/{}", branch);
+        let resolved = resolve_branch_ref(repo, branch).await?;
+        if resolved != remote_ref {
+            return Err(AppError::NotFound(format!("分支 '{}' 不存在", branch)));
+        }
+        git_checkout_tracking_branch(repo, branch, &remote_ref).await?;
+    }
+    Ok(())
+}
+
+async fn resolve_branch_ref(repo: &Path, branch: &str) -> Result<String, AppError> {
+    let local_branches = git_output(repo, &["branch", "--format=%(refname:short)"])
+        .await
+        .unwrap_or_default();
+    if local_branches
+        .lines()
+        .map(str::trim)
+        .any(|item| item == branch)
+    {
+        return Ok(branch.to_string());
+    }
+    let remote_ref = format!("origin/{}", branch);
+    let remote_branches = git_output(repo, &["branch", "--remotes", "--format=%(refname:short)"])
+        .await
+        .unwrap_or_default();
+    if remote_branches
+        .lines()
+        .map(str::trim)
+        .any(|item| item == remote_ref)
+    {
+        return Ok(remote_ref);
+    }
+    Err(AppError::NotFound(format!("分支 '{}' 不存在", branch)))
 }
 
 async fn run_scan_root_job(
@@ -831,6 +922,19 @@ async fn git_commit(repo: &Path, message: &str) -> Result<(), AppError> {
     git_command_output(repo, &arg_refs, Duration::from_secs(30))
         .await
         .map(|_| ())
+}
+
+async fn git_branch_last_commit(
+    repo: &Path,
+    branch_ref: &str,
+    format: &str,
+) -> Result<String, AppError> {
+    let output = git_output(
+        repo,
+        &["log", "-1", &format!("--format={}", format), branch_ref],
+    )
+    .await?;
+    Ok(output.trim().to_string())
 }
 
 async fn git_checkout_tracking_branch(

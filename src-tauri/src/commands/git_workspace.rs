@@ -2,8 +2,8 @@ use crate::error::CommandError;
 use crate::models::{
     AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch,
     GitWorkspaceDetail, GitWorkspaceScanJobStatus, GitWorkspaceScanStartResult,
-    ListGitWorkspacesInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
-    SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
+    ListGitWorkspacesInput, MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput,
+    ScanGitWorkspaceRootResult, SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
 };
 use crate::services::git_workspace::GitWorkspaceService;
 use crate::state::AppState;
@@ -125,6 +125,16 @@ pub async fn switch_git_workspace_branch(
     input: SwitchGitWorkspaceBranchInput,
 ) -> Result<GitWorkspace, CommandError> {
     GitWorkspaceService::switch_branch(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn merge_git_workspace_branch(
+    state: tauri::State<'_, AppState>,
+    input: MergeGitWorkspaceBranchInput,
+) -> Result<GitWorkspace, CommandError> {
+    GitWorkspaceService::merge_branch(&state.db, input)
         .await
         .map_err(|e| e.into())
 }

@@ -8,6 +8,7 @@ import type {
   AiCommitGitWorkspaceInput,
   AiCommitGitWorkspaceResult,
   ListGitWorkspacesInput,
+  MergeGitWorkspaceBranchInput,
   ScanGitWorkspaceRootInput,
   ScanGitWorkspaceRootResult,
   SwitchGitWorkspaceBranchInput,
@@ -73,5 +74,9 @@ export const gitWorkspaceApi = {
   switchBranch: (input: SwitchGitWorkspaceBranchInput) =>
     hasTauriRuntime()
       ? invoke<GitWorkspace>("switch_git_workspace_branch", { input })
+      : Promise.resolve(requireTauriRuntime()),
+  mergeBranch: (input: MergeGitWorkspaceBranchInput) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspace>("merge_git_workspace_branch", { input })
       : Promise.resolve(requireTauriRuntime()),
 };

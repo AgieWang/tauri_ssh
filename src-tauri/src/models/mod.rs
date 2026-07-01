@@ -961,6 +961,9 @@ pub struct GitWorkspaceBranch {
     pub display_name: String,
     pub is_current: bool,
     pub is_remote: bool,
+    pub last_commit_hash: String,
+    pub last_commit_message: String,
+    pub last_commit_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -968,6 +971,14 @@ pub struct GitWorkspaceBranch {
 pub struct SwitchGitWorkspaceBranchInput {
     pub workspace_key: String,
     pub branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeGitWorkspaceBranchInput {
+    pub workspace_key: String,
+    pub source_branch: String,
+    pub target_branch: String,
 }
 
 /// 数据库连接配置。敏感密码只返回掩码状态，不返回明文。

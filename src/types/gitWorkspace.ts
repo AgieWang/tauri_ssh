@@ -85,9 +85,18 @@ export interface GitWorkspaceBranch {
   displayName: string;
   isCurrent: boolean;
   isRemote: boolean;
+  lastCommitHash: string;
+  lastCommitMessage: string;
+  lastCommitAt: string;
 }
 
 export interface SwitchGitWorkspaceBranchInput {
   workspaceKey: string;
   branch: string;
+}
+
+export interface MergeGitWorkspaceBranchInput {
+  workspaceKey: string;
+  sourceBranch: string;
+  targetBranch: string;
 }

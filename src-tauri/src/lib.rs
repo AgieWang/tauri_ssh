@@ -171,6 +171,7 @@ pub fn run() {
             commands::git_workspace::push_git_workspace,
             commands::git_workspace::list_git_workspace_branches,
             commands::git_workspace::switch_git_workspace_branch,
+            commands::git_workspace::merge_git_workspace_branch,
             // 数据库管理模块
             commands::database_ops::list_database_connections,
             commands::database_ops::upsert_database_connection,
