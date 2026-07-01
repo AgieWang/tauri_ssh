@@ -116,7 +116,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           # TODO: 修改为你的应用名称
           releaseName: '${{ github.ref_name }}'
-          releaseBody: 'See the assets to download and install this version.'
+          releaseBody: '请在 Assets 中下载并安装当前版本。'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
