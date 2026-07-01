@@ -20,7 +20,19 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { FolderOpen, GitBranch, GitCommit, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Eye,
+  FolderOpen,
+  GitBranch,
+  GitCommit,
+  GitPullRequestArrow,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Shuffle,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { getErrorMessage, gitWorkspaceApi, hasTauriRuntime, mcpApi, secureCredentialApi } from "@/lib/api";
 import type {
   GitWorkspace,
@@ -1038,6 +1050,7 @@ export function SecureCredentialGitWorkspacesPage() {
   const [credentialSaving, setCredentialSaving] = useState(false);
   const [committingKey, setCommittingKey] = useState("");
   const [pullingKey, setPullingKey] = useState("");
+  const [pushingKey, setPushingKey] = useState("");
   const [branchModalWorkspace, setBranchModalWorkspace] = useState<GitWorkspace | null>(null);
   const [branchOptions, setBranchOptions] = useState<GitWorkspaceBranch[]>([]);
   const [branchLoading, setBranchLoading] = useState(false);
@@ -1320,6 +1333,22 @@ export function SecureCredentialGitWorkspacesPage() {
     }
   }
 
+  async function pushWorkspace(item: GitWorkspace) {
+    setPushingKey(item.workspaceKey);
+    try {
+      const result = await gitWorkspaceApi.push(item.workspaceKey);
+      message.success(`已推送远程仓库：${result.branch || "HEAD"}`);
+      await load();
+      if (detail?.workspace.workspaceKey === item.workspaceKey) {
+        setDetail(await gitWorkspaceApi.detail(item.workspaceKey));
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setPushingKey("");
+    }
+  }
+
   async function openSwitchBranch(item: GitWorkspace) {
     setBranchModalWorkspace(item);
     setTargetBranch(item.branch || "");
@@ -1493,17 +1522,26 @@ export function SecureCredentialGitWorkspacesPage() {
                   {item.description || item.remoteUrl || "暂无备注"}
                 </Paragraph>
                 <Space className="prototype-git-workspace-actions" wrap>
-                  <Button size="small" onClick={() => void openDetail(item)}>
+                  <Button size="small" icon={<Eye size={14} />} onClick={() => void openDetail(item)}>
                     详情 / diff / log
                   </Button>
                   <Button
                     size="small"
+                    icon={<GitPullRequestArrow size={14} />}
                     loading={pullingKey === item.workspaceKey}
                     onClick={() => void pullWorkspace(item)}
                   >
                     Pull 更新
                   </Button>
-                  <Button size="small" onClick={() => void openSwitchBranch(item)}>
+                  <Button
+                    size="small"
+                    icon={<Upload size={14} />}
+                    loading={pushingKey === item.workspaceKey}
+                    onClick={() => void pushWorkspace(item)}
+                  >
+                    Push 推送
+                  </Button>
+                  <Button size="small" icon={<Shuffle size={14} />} onClick={() => void openSwitchBranch(item)}>
                     切换分支
                   </Button>
                   <Button
@@ -1514,7 +1552,7 @@ export function SecureCredentialGitWorkspacesPage() {
                   >
                     AI 提交
                   </Button>
-                  <Button size="small" onClick={() => void refreshOne(item)}>
+                  <Button size="small" icon={<RefreshCw size={14} />} onClick={() => void refreshOne(item)}>
                     刷新状态
                   </Button>
                 </Space>

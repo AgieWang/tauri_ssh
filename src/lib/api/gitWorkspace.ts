@@ -62,6 +62,10 @@ export const gitWorkspaceApi = {
     hasTauriRuntime()
       ? invoke<GitWorkspace>("pull_git_workspace", { workspaceKey })
       : Promise.resolve(requireTauriRuntime()),
+  push: (workspaceKey: string) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspace>("push_git_workspace", { workspaceKey })
+      : Promise.resolve(requireTauriRuntime()),
   branches: (workspaceKey: string) =>
     hasTauriRuntime()
       ? invoke<GitWorkspaceBranch[]>("list_git_workspace_branches", { workspaceKey })

@@ -100,6 +100,16 @@ pub async fn pull_git_workspace(
 }
 
 #[tauri::command]
+pub async fn push_git_workspace(
+    state: tauri::State<'_, AppState>,
+    workspace_key: String,
+) -> Result<GitWorkspace, CommandError> {
+    GitWorkspaceService::push(&state.db, &workspace_key)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
 pub async fn list_git_workspace_branches(
     state: tauri::State<'_, AppState>,
     workspace_key: String,

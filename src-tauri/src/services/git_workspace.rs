@@ -273,6 +273,44 @@ impl GitWorkspaceService {
         Self::refresh(db, &workspace.workspace_key).await
     }
 
+    pub async fn push(db: &Database, workspace_key: &str) -> Result<GitWorkspace, AppError> {
+        let workspace = load_workspace(db, workspace_key)?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let branch = git_output(repo, &["branch", "--show-current"])
+            .await
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if branch.is_empty() {
+            return Err(AppError::InvalidInput(
+                "当前处于 detached HEAD，无法直接推送".into(),
+            ));
+        }
+        let upstream = git_output(
+            repo,
+            &[
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ],
+        )
+        .await
+        .unwrap_or_default();
+        if upstream.trim().is_empty() {
+            git_command_output(
+                repo,
+                &["push", "-u", "origin", branch.as_str()],
+                Duration::from_secs(120),
+            )
+            .await?;
+        } else {
+            git_command_output(repo, &["push"], Duration::from_secs(120)).await?;
+        }
+        Self::refresh(db, &workspace.workspace_key).await
+    }
+
     pub async fn branches(
         db: &Database,
         workspace_key: &str,

@@ -168,6 +168,7 @@ pub fn run() {
             commands::git_workspace::get_git_workspace_scan_status,
             commands::git_workspace::ai_commit_git_workspace,
             commands::git_workspace::pull_git_workspace,
+            commands::git_workspace::push_git_workspace,
             commands::git_workspace::list_git_workspace_branches,
             commands::git_workspace::switch_git_workspace_branch,
             // 数据库管理模块
