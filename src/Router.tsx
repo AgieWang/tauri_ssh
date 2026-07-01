@@ -8,6 +8,7 @@ import SkillsPage from "@/pages/skills";
 import ResourceMonitorPage from "@/pages/resource-monitor";
 import {
   SecureCredentialAuditPage,
+  SecureCredentialGitWorkspacesPage,
   SecureCredentialMcpPage,
   SecureCredentialOverviewPage,
   SecureCredentialPoliciesPage,
@@ -51,6 +52,7 @@ const router = createBrowserRouter([
       { path: "vault", element: <VaultPage /> },
       { path: "secure-credentials/overview", element: <SecureCredentialOverviewPage /> },
       { path: "secure-credentials/vault", element: <SecureCredentialVaultPage /> },
+      { path: "secure-credentials/git-workspaces", element: <SecureCredentialGitWorkspacesPage /> },
       { path: "secure-credentials/sessions", element: <SecureCredentialSessionsPage /> },
       { path: "secure-credentials/mcp", element: <SecureCredentialMcpPage /> },
       { path: "secure-credentials/audit", element: <SecureCredentialAuditPage /> },

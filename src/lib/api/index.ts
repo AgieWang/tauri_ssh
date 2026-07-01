@@ -21,6 +21,7 @@ export { aiSkillApi } from "./aiSkill";
 export { sshServerApi } from "./sshServer";
 export { credentialVaultApi } from "./credentialVault";
 export { secureCredentialApi } from "./secureCredential";
+export { gitWorkspaceApi } from "./gitWorkspace";
 export { databaseOpsApi } from "./databaseOps";
 export { terminalApi } from "./terminal";
 export { sftpApi } from "./sftp";

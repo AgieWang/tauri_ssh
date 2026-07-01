@@ -10,18 +10,18 @@ use crate::models::{
     AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
     CreateSecureCredentialAuditLogInput, CredentialVaultItem, DatabaseConnection,
     DecideApprovalRequestInput, DeploymentGroup, DeploymentGroupTarget, DeploymentRun,
-    DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, JumpServerSession, ListAiSkillsInput,
-    ListApprovalRequestsInput, ListAuditLogsInput, ListDeploymentRunsInput,
-    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
-    ResourceAlertEvent, ResourceAlertRule, ResourceMetricSnapshot, ResourceMonitorTarget,
-    ResourceSnapshotListInput, SecureCredential, SecureCredentialAuditLog,
-    SecureCredentialOverview, SecureCredentialPolicySettings, SecureCredentialSession,
-    SetSecureCredentialEnabledInput, SshServer, UpdateSecureCredentialPolicySettingsInput,
-    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
-    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput, UpsertDatabaseConnectionInput,
-    UpsertDeploymentGroupInput, UpsertDeploymentTargetInput, UpsertJumpServerSessionInput,
-    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
-    UpsertSshServerInput,
+    DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, GitWorkspace, JumpServerSession,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListDeploymentRunsInput,
+    ListGitWorkspacesInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
+    ListSecureCredentialAuditLogsInput, ResourceAlertEvent, ResourceAlertRule,
+    ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput, SecureCredential,
+    SecureCredentialAuditLog, SecureCredentialOverview, SecureCredentialPolicySettings,
+    SecureCredentialSession, SetSecureCredentialEnabledInput, SshServer,
+    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
+    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput,
+    UpsertDatabaseConnectionInput, UpsertDeploymentGroupInput, UpsertDeploymentTargetInput,
+    UpsertGitWorkspaceInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
+    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput, UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -1000,6 +1000,175 @@ impl Database {
              SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
              WHERE key = ?1 AND deleted_at IS NULL",
             [key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    // ─── Git 工作区 DAO ─────────────────────────────
+
+    pub fn list_git_workspaces(
+        &self,
+        input: &ListGitWorkspacesInput,
+    ) -> Result<Vec<GitWorkspace>, AppError> {
+        let keyword = input.keyword.as_deref().unwrap_or("").trim().to_lowercase();
+        let credential_key = input.credential_key.as_deref().unwrap_or("").trim();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, workspace_key, name, repo_path, credential_key, branch, remote_url,
+                    status, changed_files, ahead, behind, description, last_scanned_at,
+                    created_at, updated_at
+             FROM git_workspaces
+             WHERE deleted_at IS NULL
+             ORDER BY updated_at DESC, name",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_git_workspace_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .filter(|item| credential_key.is_empty() || item.credential_key == credential_key)
+            .filter(|item| {
+                if keyword.is_empty() {
+                    return true;
+                }
+                [
+                    item.workspace_key.as_str(),
+                    item.name.as_str(),
+                    item.repo_path.as_str(),
+                    item.credential_key.as_str(),
+                    item.branch.as_str(),
+                    item.description.as_str(),
+                ]
+                .join(" ")
+                .to_lowercase()
+                .contains(&keyword)
+            })
+            .collect())
+    }
+
+    pub fn get_git_workspace(&self, workspace_key: &str) -> Result<Option<GitWorkspace>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, workspace_key, name, repo_path, credential_key, branch, remote_url,
+                    status, changed_files, ahead, behind, description, last_scanned_at,
+                    created_at, updated_at
+             FROM git_workspaces
+             WHERE workspace_key = ?1 AND deleted_at IS NULL",
+            [workspace_key],
+            Self::map_git_workspace_row,
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn upsert_git_workspace(
+        &self,
+        input: &UpsertGitWorkspaceInput,
+        branch: &str,
+        remote_url: &str,
+        status: &str,
+        changed_files: i64,
+        ahead: i64,
+        behind: i64,
+    ) -> Result<GitWorkspace, AppError> {
+        let credential_key = input.credential_key.as_deref().unwrap_or("").trim();
+        let description = input.description.as_deref().unwrap_or("").trim();
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "INSERT INTO git_workspaces
+                    (workspace_key, name, repo_path, credential_key, branch, remote_url, status,
+                     changed_files, ahead, behind, description, last_scanned_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now', 'localtime'), datetime('now', 'localtime'))
+                 ON CONFLICT(workspace_key) DO UPDATE SET
+                    name = excluded.name,
+                    repo_path = excluded.repo_path,
+                    credential_key = excluded.credential_key,
+                    branch = excluded.branch,
+                    remote_url = excluded.remote_url,
+                    status = excluded.status,
+                    changed_files = excluded.changed_files,
+                    ahead = excluded.ahead,
+                    behind = excluded.behind,
+                    description = excluded.description,
+                    last_scanned_at = datetime('now', 'localtime'),
+                    updated_at = datetime('now', 'localtime'),
+                    deleted_at = NULL",
+                params![
+                    input.workspace_key.trim(),
+                    input.name.trim(),
+                    input.repo_path.trim(),
+                    credential_key,
+                    branch,
+                    remote_url,
+                    status,
+                    changed_files,
+                    ahead,
+                    behind,
+                    description
+                ],
+            )?;
+        }
+        self.get_git_workspace(input.workspace_key.trim())?
+            .ok_or_else(|| AppError::NotFound("Git 工作区保存后未找到".into()))
+    }
+
+    pub fn update_git_workspace_scan(
+        &self,
+        workspace_key: &str,
+        branch: &str,
+        remote_url: &str,
+        status: &str,
+        changed_files: i64,
+        ahead: i64,
+        behind: i64,
+    ) -> Result<GitWorkspace, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "UPDATE git_workspaces
+                 SET branch = ?2, remote_url = ?3, status = ?4, changed_files = ?5,
+                     ahead = ?6, behind = ?7,
+                     last_scanned_at = datetime('now', 'localtime'),
+                     updated_at = datetime('now', 'localtime')
+                 WHERE workspace_key = ?1 AND deleted_at IS NULL",
+                params![
+                    workspace_key,
+                    branch,
+                    remote_url,
+                    status,
+                    changed_files,
+                    ahead,
+                    behind
+                ],
+            )?;
+        }
+        self.get_git_workspace(workspace_key)?
+            .ok_or_else(|| AppError::NotFound(format!("Git 工作区 '{}' 不存在", workspace_key)))
+    }
+
+    pub fn delete_git_workspace(&self, workspace_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE git_workspaces
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE workspace_key = ?1 AND deleted_at IS NULL",
+            [workspace_key],
         )?;
         Ok(affected > 0)
     }
@@ -3941,6 +4110,26 @@ impl Database {
             rotated_at: row.get(19)?,
             created_at: row.get(20)?,
             updated_at: row.get(21)?,
+        })
+    }
+
+    fn map_git_workspace_row(row: &rusqlite::Row<'_>) -> Result<GitWorkspace, rusqlite::Error> {
+        Ok(GitWorkspace {
+            id: row.get(0)?,
+            workspace_key: row.get(1)?,
+            name: row.get(2)?,
+            repo_path: row.get(3)?,
+            credential_key: row.get(4)?,
+            branch: row.get(5)?,
+            remote_url: row.get(6)?,
+            status: row.get(7)?,
+            changed_files: row.get(8)?,
+            ahead: row.get(9)?,
+            behind: row.get(10)?,
+            description: row.get(11)?,
+            last_scanned_at: row.get(12)?,
+            created_at: row.get(13)?,
+            updated_at: row.get(14)?,
         })
     }
 

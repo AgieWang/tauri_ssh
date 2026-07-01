@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 17;
+pub const SCHEMA_VERSION: i32 = 18;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -47,6 +47,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             14 => migrate_v14_to_v15(conn)?,
             15 => migrate_v15_to_v16(conn)?,
             16 => migrate_v16_to_v17(conn)?,
+            17 => migrate_v17_to_v18(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -55,6 +56,44 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v17 -> v18: 安全凭证 Git 工作区
+fn migrate_v17_to_v18(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v17 -> v18（Git 工作区）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS git_workspaces (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_key       TEXT NOT NULL UNIQUE,
+            name                TEXT NOT NULL,
+            repo_path           TEXT NOT NULL,
+            credential_key      TEXT NOT NULL DEFAULT '',
+            branch              TEXT NOT NULL DEFAULT '',
+            remote_url          TEXT NOT NULL DEFAULT '',
+            status              TEXT NOT NULL DEFAULT 'unknown',
+            changed_files       INTEGER NOT NULL DEFAULT 0,
+            ahead               INTEGER NOT NULL DEFAULT 0,
+            behind              INTEGER NOT NULL DEFAULT 0,
+            description         TEXT NOT NULL DEFAULT '',
+            last_scanned_at     TEXT DEFAULT NULL,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at          TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_git_workspaces_credential
+            ON git_workspaces(credential_key);
+        CREATE INDEX IF NOT EXISTS idx_git_workspaces_status
+            ON git_workspaces(status);
+        CREATE INDEX IF NOT EXISTS idx_git_workspaces_updated
+            ON git_workspaces(updated_at DESC);
+        ",
+    )?;
+
+    set_version(conn, 18)?;
     Ok(())
 }
 

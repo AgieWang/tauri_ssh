@@ -109,6 +109,21 @@ export type {
   UpsertSecureCredentialInput,
 } from "./secureCredential";
 export type {
+  AiCommitGitWorkspaceInput,
+  AiCommitGitWorkspaceResult,
+  GitWorkspace,
+  GitWorkspaceBranch,
+  GitWorkspaceDetail,
+  GitWorkspaceScanJobStatus,
+  GitWorkspaceScanStartResult,
+  GitWorkspaceStatus,
+  ListGitWorkspacesInput,
+  ScanGitWorkspaceRootInput,
+  ScanGitWorkspaceRootResult,
+  SwitchGitWorkspaceBranchInput,
+  UpsertGitWorkspaceInput,
+} from "./gitWorkspace";
+export type {
   DatabaseAuthType,
   DatabaseColumnSchema,
   DatabaseConnection,

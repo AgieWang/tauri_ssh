@@ -158,6 +158,55 @@ a:hover {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.prototype-git-workspace-card .ant-card-head-title,
+.prototype-git-workspace-card .ant-card-extra {
+  min-width: 0;
+}
+
+.prototype-git-workspace-title {
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.prototype-git-workspace-title .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prototype-git-workspace-tags {
+  max-width: 100%;
+}
+
+.prototype-git-workspace-tag,
+.prototype-git-workspace-tags .ant-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.prototype-git-workspace-tag .ant-tag-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.prototype-git-workspace-actions {
+  width: 100%;
+  max-width: 100%;
+}
+
+.prototype-git-workspace-actions .ant-space-item {
+  max-width: 100%;
+}
+
+.prototype-git-workspace-actions .ant-btn {
+  max-width: 100%;
+  white-space: nowrap;
+}
+
 .prototype-two-column {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);

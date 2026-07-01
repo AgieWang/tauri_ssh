@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Drawer,
+  Empty,
   Form,
   Input,
   InputNumber,
@@ -18,9 +20,12 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Plus, RefreshCw } from "lucide-react";
-import { getErrorMessage, mcpApi, secureCredentialApi } from "@/lib/api";
+import { FolderOpen, GitBranch, GitCommit, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { getErrorMessage, gitWorkspaceApi, hasTauriRuntime, mcpApi, secureCredentialApi } from "@/lib/api";
 import type {
+  GitWorkspace,
+  GitWorkspaceBranch,
+  GitWorkspaceDetail,
   SecureCredential,
   SecureCredentialAuditLog,
   McpToolPermission,
@@ -236,6 +241,27 @@ function statusTag(status: string) {
 function sessionStatusTag(status: string) {
   const meta = sessionStatusMeta[status] ?? { label: status, color: "default" };
   return <Tag color={meta.color}>{meta.label}</Tag>;
+}
+
+const gitWorkspaceStatusMeta: Record<string, { label: string; color: string }> = {
+  clean: { label: "clean", color: "green" },
+  dirty: { label: "有改动", color: "orange" },
+  ahead: { label: "待推送", color: "blue" },
+  behind: { label: "需拉取", color: "purple" },
+  diverged: { label: "分叉", color: "red" },
+  unknown: { label: "unknown", color: "default" },
+};
+
+function gitWorkspaceStatusTag(status: string) {
+  if (!status || status === "unknown") {
+    return null;
+  }
+  const meta = gitWorkspaceStatusMeta[status] ?? { label: status || "unknown", color: "default" };
+  return <Tag color={meta.color}>{meta.label}</Tag>;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function createEmptyOverview(): SecureCredentialOverview {
@@ -992,6 +1018,627 @@ export function SecureCredentialSessionsPage() {
           <Paragraph type="secondary">
             当前没有可创建会话的凭证。请先在凭证库保存密钥、启用凭证，并打开“允许 MCP 使用”。
           </Paragraph>
+        ) : null}
+      </Modal>
+    </div>
+  );
+}
+
+export function SecureCredentialGitWorkspacesPage() {
+  const { items: credentials, load: loadCredentials } = useSecureCredentialData();
+  const [form] = Form.useForm();
+  const [items, setItems] = useState<GitWorkspace[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [scanStatusText, setScanStatusText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingCredential, setEditingCredential] = useState<GitWorkspace | null>(null);
+  const [credentialSaving, setCredentialSaving] = useState(false);
+  const [committingKey, setCommittingKey] = useState("");
+  const [pullingKey, setPullingKey] = useState("");
+  const [branchModalWorkspace, setBranchModalWorkspace] = useState<GitWorkspace | null>(null);
+  const [branchOptions, setBranchOptions] = useState<GitWorkspaceBranch[]>([]);
+  const [branchLoading, setBranchLoading] = useState(false);
+  const [switchingBranch, setSwitchingBranch] = useState(false);
+  const [targetBranch, setTargetBranch] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [credentialFilter, setCredentialFilter] = useState("");
+  const [detail, setDetail] = useState<GitWorkspaceDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const gitCredentials = useMemo(
+    () =>
+      credentials.filter((item) =>
+        ["github", "gitlab", "gitcode", "gitee"].includes(item.provider),
+      ),
+    [credentials],
+  );
+
+  const credentialOptions = useMemo(
+    () =>
+      gitCredentials.map((item) => ({
+        label: `${item.displayName} (${item.credentialKey})`,
+        value: item.credentialKey,
+      })),
+    [gitCredentials],
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setItems(
+        await gitWorkspaceApi.list({
+          keyword: keyword.trim() || undefined,
+          credentialKey: credentialFilter || undefined,
+        }),
+      );
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [credentialFilter, keyword]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function pickDirectory() {
+    if (!hasTauriRuntime()) {
+      message.warning("浏览器预览不支持本地目录选择，请在桌面应用中使用。");
+      return;
+    }
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const selected = await dialog.open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        form.setFieldValue("repoPath", selected);
+        const name = selected.split(/[\\/]/).filter(Boolean).pop() ?? "git-workspace";
+        if (!form.getFieldValue("name")) {
+          form.setFieldValue("name", name);
+        }
+        if (!form.getFieldValue("workspaceKey")) {
+          form.setFieldValue("workspaceKey", name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_"));
+        }
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  }
+
+  async function pickAndScanRoot() {
+    if (!hasTauriRuntime()) {
+      message.warning("浏览器预览不支持本地目录选择，请在桌面应用中使用。");
+      return;
+    }
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const selected = await dialog.open({ directory: true, multiple: false });
+      if (typeof selected !== "string") {
+        return;
+      }
+      await scanRoot(selected);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  }
+
+  function openCreate() {
+    form.setFieldsValue({
+      workspaceKey: "",
+      name: "",
+      repoPath: "",
+      credentialKey: credentialOptions[0]?.value,
+      description: "",
+    });
+    setDrawerOpen(true);
+  }
+
+  async function submit() {
+    const values = await form.validateFields();
+    setSaving(true);
+    try {
+      await gitWorkspaceApi.upsert({
+        workspaceKey: values.workspaceKey,
+        name: values.name,
+        repoPath: values.repoPath,
+        credentialKey: values.credentialKey,
+        description: values.description,
+      });
+      message.success("Git 工作区已保存");
+      setDrawerOpen(false);
+      await Promise.all([load(), loadCredentials()]);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function scanRoot(rootPath: string) {
+    setScanning(true);
+    setScanStatusText("正在启动后台扫描任务...");
+    try {
+      const started = await gitWorkspaceApi.startScanRoot({
+        rootPath,
+      });
+      setScanStatusText(`后台扫描已启动：${started.jobId}`);
+      const result = await waitForScanJob(started.jobId);
+      const notice = `${result.message} 已添加/更新 ${result.workspaces.length} 个工作区，状态可在列表中单独刷新。`;
+      if (result.limited) {
+        message.warning(notice);
+      } else {
+        message.success(notice);
+      }
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setScanning(false);
+      setScanStatusText("");
+    }
+  }
+
+  async function waitForScanJob(jobId: string) {
+    for (let index = 0; index < 120; index += 1) {
+      await wait(1000);
+      const status = await gitWorkspaceApi.getScanStatus(jobId);
+      setScanStatusText(status.message || `扫描状态：${status.status}`);
+      if (status.status === "completed" && status.result) {
+        return status.result;
+      }
+      if (status.status === "failed") {
+        throw new Error(status.error || status.message || "Git 工作区扫描失败");
+      }
+    }
+    throw new Error("Git 工作区扫描超时，请缩小扫描根目录后重试。");
+  }
+
+  async function refreshOne(item: GitWorkspace) {
+    try {
+      await gitWorkspaceApi.refresh(item.workspaceKey);
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  }
+
+  async function refreshAllWorkspaces() {
+    setRefreshingAll(true);
+    setScanStatusText("正在刷新所有 Git 工作区状态...");
+    let success = 0;
+    let failed = 0;
+    try {
+      const workspaces = await gitWorkspaceApi.list();
+      if (workspaces.length === 0) {
+        message.info("暂无 Git 工作区可刷新");
+        return;
+      }
+      for (const [index, workspace] of workspaces.entries()) {
+        setScanStatusText(`正在刷新第 ${index + 1}/${workspaces.length} 个工作区：${workspace.name}`);
+        try {
+          await gitWorkspaceApi.refresh(workspace.workspaceKey);
+          success += 1;
+        } catch (error) {
+          failed += 1;
+          console.warn("刷新 Git 工作区失败", workspace.workspaceKey, error);
+        }
+      }
+      if (failed > 0) {
+        message.warning(`已刷新 ${success} 个工作区，${failed} 个刷新失败`);
+      } else {
+        message.success(`已刷新 ${success} 个工作区状态`);
+      }
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setRefreshingAll(false);
+      setScanStatusText("");
+    }
+  }
+
+  async function openDetail(item: GitWorkspace) {
+    setDetailLoading(true);
+    try {
+      setDetail(await gitWorkspaceApi.detail(item.workspaceKey));
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function openEditCredential(item: GitWorkspace) {
+    setEditingCredential(item);
+    form.setFieldsValue({
+      credentialKey: item.credentialKey || undefined,
+    });
+  }
+
+  async function saveWorkspaceCredential() {
+    if (!editingCredential) {
+      return;
+    }
+    const values = await form.validateFields(["credentialKey"]);
+    setCredentialSaving(true);
+    try {
+      await gitWorkspaceApi.upsert({
+        workspaceKey: editingCredential.workspaceKey,
+        name: editingCredential.name,
+        repoPath: editingCredential.repoPath,
+        credentialKey: values.credentialKey,
+        description: editingCredential.description,
+      });
+      message.success("Git 凭证已更新");
+      setEditingCredential(null);
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setCredentialSaving(false);
+    }
+  }
+
+  async function aiCommit(item: GitWorkspace) {
+    if (!item.credentialKey?.trim()) {
+      message.warning("请先为工作区绑定 Git 凭证");
+      openEditCredential(item);
+      return;
+    }
+    setCommittingKey(item.workspaceKey);
+    try {
+      const result = await gitWorkspaceApi.aiCommit({ workspaceKey: item.workspaceKey });
+      const title = result.commitMessage.split("\n").find((line) => line.trim()) ?? "AI 提交完成";
+      message.success(`已本地提交 ${result.commitHash}: ${title}`);
+      await load();
+      if (detail?.workspace.workspaceKey === item.workspaceKey) {
+        setDetail(await gitWorkspaceApi.detail(item.workspaceKey));
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setCommittingKey("");
+    }
+  }
+
+  async function pullWorkspace(item: GitWorkspace) {
+    setPullingKey(item.workspaceKey);
+    try {
+      const result = await gitWorkspaceApi.pull(item.workspaceKey);
+      message.success(`已拉取最新代码：${result.branch || "HEAD"}`);
+      await load();
+      if (detail?.workspace.workspaceKey === item.workspaceKey) {
+        setDetail(await gitWorkspaceApi.detail(item.workspaceKey));
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setPullingKey("");
+    }
+  }
+
+  async function openSwitchBranch(item: GitWorkspace) {
+    setBranchModalWorkspace(item);
+    setTargetBranch(item.branch || "");
+    setBranchOptions([]);
+    setBranchLoading(true);
+    try {
+      const branches = await gitWorkspaceApi.branches(item.workspaceKey);
+      setBranchOptions(branches);
+      const current = branches.find((branch) => branch.isCurrent);
+      setTargetBranch(current?.name || item.branch || branches[0]?.name || "");
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setBranchLoading(false);
+    }
+  }
+
+  async function switchBranch() {
+    if (!branchModalWorkspace || !targetBranch.trim()) {
+      return;
+    }
+    setSwitchingBranch(true);
+    try {
+      const result = await gitWorkspaceApi.switchBranch({
+        workspaceKey: branchModalWorkspace.workspaceKey,
+        branch: targetBranch,
+      });
+      message.success(`已切换到分支：${result.branch || targetBranch}`);
+      setBranchModalWorkspace(null);
+      await load();
+      if (detail?.workspace.workspaceKey === branchModalWorkspace.workspaceKey) {
+        setDetail(await gitWorkspaceApi.detail(branchModalWorkspace.workspaceKey));
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setSwitchingBranch(false);
+    }
+  }
+
+  async function deleteItem(item: GitWorkspace) {
+    try {
+      await gitWorkspaceApi.delete(item.workspaceKey);
+      message.success("Git 工作区已删除");
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  }
+
+  return (
+    <div className="prototype-page">
+      <PageHeader
+        title="Git 工作区"
+        description="管理本地 Git 仓库的命名入口，AI/MCP 可引用工作区 Key，而不暴露完整本地路径。"
+        actions={
+          <Space>
+            <Button
+              icon={<RefreshCw size={14} />}
+              loading={loading || refreshingAll}
+              onClick={() => void refreshAllWorkspaces()}
+            >
+              刷新
+            </Button>
+            <Button
+              icon={<FolderOpen size={14} />}
+              loading={scanning}
+              onClick={() => void pickAndScanRoot()}
+            >
+              选择并扫描目录
+            </Button>
+            <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
+              手动添加
+            </Button>
+          </Space>
+        }
+      />
+      <Alert
+        type="info"
+        showIcon
+        message="工作区只保存本地 Git 仓库路径和安全凭证引用；凭证密钥仍保存在凭证库，不会写入仓库配置或返回给 AI。"
+        style={{ marginBottom: 16 }}
+      />
+      {scanStatusText ? (
+        <Alert type="info" showIcon message={scanStatusText} style={{ marginBottom: 16 }} />
+      ) : null}
+      <Card style={{ marginBottom: 16 }}>
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Input.Search
+            allowClear
+            placeholder="搜索名称 / 路径 / 备注"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            onSearch={() => void load()}
+            style={{ width: 320 }}
+          />
+          <Select
+            allowClear
+            placeholder="Git 凭证"
+            value={credentialFilter || undefined}
+            options={credentialOptions}
+            onChange={(value) => setCredentialFilter(value ?? "")}
+            style={{ width: 260 }}
+          />
+        </Space>
+      </Card>
+
+      {items.length === 0 ? (
+        <Card>
+          <Empty description="还没有 Git 工作区。可以手动添加一个仓库目录，或扫描 GitHub 目录。" />
+        </Card>
+      ) : (
+        <div className="prototype-grid prototype-grid-3">
+          {items.map((item) => (
+            <Card
+              className="prototype-git-workspace-card"
+              key={item.workspaceKey}
+              title={
+                <Space className="prototype-git-workspace-title">
+                  <GitBranch size={18} />
+                  <Text strong>{item.name}</Text>
+                </Space>
+              }
+              extra={
+                <Space>
+                  <Button
+                    type="text"
+                    title="编辑 Git 凭证"
+                    icon={<KeyRound size={15} />}
+                    onClick={() => openEditCredential(item)}
+                  />
+                  <Popconfirm title="删除该 Git 工作区？" onConfirm={() => void deleteItem(item)}>
+                    <Button type="text" danger icon={<Trash2 size={15} />} />
+                  </Popconfirm>
+                </Space>
+              }
+            >
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                <Text type="secondary" ellipsis={{ tooltip: item.repoPath }}>
+                  {item.repoPath}
+                </Text>
+                <Space className="prototype-git-workspace-tags" wrap>
+                  <Tag className="prototype-git-workspace-tag" color="blue" icon={<GitBranch size={12} />}>
+                    {item.branch || "HEAD"}
+                  </Tag>
+                  {item.credentialKey ? (
+                    <Tag className="prototype-git-workspace-tag" color="green">
+                      🔑 {item.credentialKey}
+                    </Tag>
+                  ) : (
+                    <Tag className="prototype-git-workspace-tag">未绑定凭证</Tag>
+                  )}
+                  {gitWorkspaceStatusTag(item.status)}
+                  {item.changedFiles > 0 ? (
+                    <Tag className="prototype-git-workspace-tag" color="orange">
+                      {item.changedFiles} 项改动
+                    </Tag>
+                  ) : null}
+                  {item.ahead > 0 ? (
+                    <Tag className="prototype-git-workspace-tag" color="blue">
+                      ahead {item.ahead}
+                    </Tag>
+                  ) : null}
+                  {item.behind > 0 ? (
+                    <Tag className="prototype-git-workspace-tag" color="purple">
+                      behind {item.behind}
+                    </Tag>
+                  ) : null}
+                </Space>
+                <Paragraph type="secondary" style={{ marginBottom: 0 }} ellipsis={{ rows: 2 }}>
+                  {item.description || item.remoteUrl || "暂无备注"}
+                </Paragraph>
+                <Space className="prototype-git-workspace-actions" wrap>
+                  <Button size="small" onClick={() => void openDetail(item)}>
+                    详情 / diff / log
+                  </Button>
+                  <Button
+                    size="small"
+                    loading={pullingKey === item.workspaceKey}
+                    onClick={() => void pullWorkspace(item)}
+                  >
+                    Pull 更新
+                  </Button>
+                  <Button size="small" onClick={() => void openSwitchBranch(item)}>
+                    切换分支
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<GitCommit size={14} />}
+                    loading={committingKey === item.workspaceKey}
+                    onClick={() => void aiCommit(item)}
+                  >
+                    AI 提交
+                  </Button>
+                  <Button size="small" onClick={() => void refreshOne(item)}>
+                    刷新状态
+                  </Button>
+                </Space>
+                <Text type="secondary">扫描：{item.lastScannedAt ?? "-"}</Text>
+              </Space>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Drawer
+        title="添加 Git 工作区"
+        open={drawerOpen}
+        width={560}
+        onClose={() => setDrawerOpen(false)}
+        extra={
+          <Button type="primary" loading={saving} onClick={() => void submit()}>
+            保存
+          </Button>
+        }
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="workspaceKey" label="工作区 Key" rules={[{ required: true }]}>
+            <Input placeholder="tauri_ssh" autoCapitalize="off" />
+          </Form.Item>
+          <Form.Item name="name" label="显示名称" rules={[{ required: true }]}>
+            <Input placeholder="tauri_ssh" autoCapitalize="off" />
+          </Form.Item>
+          <Form.Item name="repoPath" label="本地仓库目录" rules={[{ required: true }]}>
+            <Input.Search
+              placeholder="/Users/bin/Documents/GitHub/tauri_ssh"
+              enterButton="选择"
+              onSearch={() => void pickDirectory()}
+              autoCapitalize="off"
+            />
+          </Form.Item>
+          <Form.Item name="credentialKey" label="关联 Git 凭证">
+            <Select allowClear options={credentialOptions} placeholder="从安全凭证库选择 Git 凭证" />
+          </Form.Item>
+          <Form.Item name="description" label="备注">
+            <Input.TextArea rows={3} placeholder="例如：Tauri SSH 主源码仓库" />
+          </Form.Item>
+        </Form>
+      </Drawer>
+
+      <Modal
+        title={editingCredential ? `编辑 Git 凭证：${editingCredential.name}` : "编辑 Git 凭证"}
+        open={Boolean(editingCredential)}
+        confirmLoading={credentialSaving}
+        okText="保存"
+        cancelText="取消"
+        onOk={() => void saveWorkspaceCredential()}
+        onCancel={() => setEditingCredential(null)}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item label="工作区路径">
+            <Text type="secondary">{editingCredential?.repoPath}</Text>
+          </Form.Item>
+          <Form.Item name="credentialKey" label="关联 Git 凭证">
+            <Select allowClear options={credentialOptions} placeholder="从安全凭证库选择 Git 凭证" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={branchModalWorkspace ? `切换分支：${branchModalWorkspace.name}` : "切换分支"}
+        open={Boolean(branchModalWorkspace)}
+        confirmLoading={switchingBranch}
+        okButtonProps={{ disabled: !targetBranch || targetBranch === branchModalWorkspace?.branch }}
+        okText="切换"
+        cancelText="取消"
+        onOk={() => void switchBranch()}
+        onCancel={() => setBranchModalWorkspace(null)}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Text type="secondary">{branchModalWorkspace?.repoPath}</Text>
+          <Select
+            showSearch
+            loading={branchLoading}
+            value={targetBranch || undefined}
+            placeholder="选择目标分支"
+            optionFilterProp="label"
+            style={{ width: "100%" }}
+            options={branchOptions.map((branch) => ({
+              label: branch.isCurrent ? `${branch.displayName}（当前）` : branch.displayName,
+              value: branch.name,
+            }))}
+            onChange={(value) => setTargetBranch(value)}
+          />
+          <Text type="secondary">
+            切换分支前会检查工作区是否有未提交改动；如有改动，将拒绝切换以避免覆盖本地文件。
+          </Text>
+        </Space>
+      </Modal>
+
+      <Modal
+        title={detail ? `${detail.workspace.name} 详情` : "Git 工作区详情"}
+        open={Boolean(detail) || detailLoading}
+        loading={detailLoading}
+        width={860}
+        footer={<Button onClick={() => setDetail(null)}>关闭</Button>}
+        onCancel={() => setDetail(null)}
+      >
+        {detail ? (
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Text type="secondary">{detail.workspace.repoPath}</Text>
+            <Space wrap>
+              {gitWorkspaceStatusTag(detail.workspace.status)}
+              <Tag>{detail.workspace.branch || "HEAD"}</Tag>
+              <Tag>{detail.workspace.changedFiles} 项改动</Tag>
+              <Tag>ahead {detail.workspace.ahead}</Tag>
+              <Tag>behind {detail.workspace.behind}</Tag>
+            </Space>
+            <Card size="small" title="状态 / diff 摘要">
+              <pre className="prototype-code" style={{ maxHeight: 220, overflow: "auto", margin: 0 }}>
+                {detail.statusText || "clean"}
+              </pre>
+            </Card>
+            <Card size="small" title="最近提交">
+              <pre className="prototype-code" style={{ maxHeight: 220, overflow: "auto", margin: 0 }}>
+                {detail.recentLog.join("\n") || "暂无提交记录"}
+              </pre>
+            </Card>
+          </Space>
         ) : null}
       </Modal>
     </div>

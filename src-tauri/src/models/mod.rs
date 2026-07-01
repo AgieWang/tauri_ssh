@@ -853,6 +853,123 @@ pub struct SecureCredentialGitWriteResult {
     pub body: serde_json::Value,
 }
 
+/// 安全凭证模块中的本地 Git 工作区。只保存仓库路径和凭证引用，不保存任何 Git 密钥。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspace {
+    pub id: i64,
+    pub workspace_key: String,
+    pub name: String,
+    pub repo_path: String,
+    pub credential_key: String,
+    pub branch: String,
+    pub remote_url: String,
+    pub status: String,
+    pub changed_files: i64,
+    pub ahead: i64,
+    pub behind: i64,
+    pub description: String,
+    pub last_scanned_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListGitWorkspacesInput {
+    pub keyword: Option<String>,
+    pub credential_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertGitWorkspaceInput {
+    pub id: Option<i64>,
+    pub workspace_key: String,
+    pub name: String,
+    pub repo_path: String,
+    pub credential_key: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanGitWorkspaceRootInput {
+    pub root_path: String,
+    pub credential_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanGitWorkspaceRootResult {
+    pub workspaces: Vec<GitWorkspace>,
+    pub discovered: i64,
+    pub scanned_entries: i64,
+    pub skipped_entries: i64,
+    pub limited: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceScanStartResult {
+    pub job_id: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceScanJobStatus {
+    pub job_id: String,
+    pub status: String,
+    pub message: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub result: Option<ScanGitWorkspaceRootResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceDetail {
+    pub workspace: GitWorkspace,
+    pub status_text: String,
+    pub recent_log: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCommitGitWorkspaceInput {
+    pub workspace_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCommitGitWorkspaceResult {
+    pub workspace: GitWorkspace,
+    pub commit_message: String,
+    pub commit_hash: String,
+    pub provider_name: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceBranch {
+    pub name: String,
+    pub display_name: String,
+    pub is_current: bool,
+    pub is_remote: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchGitWorkspaceBranchInput {
+    pub workspace_key: String,
+    pub branch: String,
+}
+
 /// 数据库连接配置。敏感密码只返回掩码状态，不返回明文。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
