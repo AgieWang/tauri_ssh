@@ -143,6 +143,7 @@ function HeaderUpdateButton() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [appVersion, setAppVersion] = useState(packageJson.version);
+  const versionLabel = `v${appVersion}${import.meta.env.DEV ? " DEV" : ""}`;
 
   useEffect(() => {
     systemApi
@@ -175,7 +176,7 @@ function HeaderUpdateButton() {
 
   return (
     <>
-      <Tooltip title={`当前版本：${appVersion}，点击检查更新`}>
+      <Tooltip title={`当前版本：${versionLabel}，点击检查更新`}>
         <Button
           size="small"
           className="header-pill-toggle header-update-toggle"
@@ -184,7 +185,7 @@ function HeaderUpdateButton() {
           onClick={() => void checkUpdate()}
         >
           <span className="header-pill-toggle-dot header-update-toggle-dot" />
-          <span>v{appVersion}</span>
+          <span>{versionLabel}</span>
         </Button>
       </Tooltip>
       <UpdateModal

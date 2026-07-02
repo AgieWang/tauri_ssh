@@ -1543,14 +1543,14 @@ export function SecureCredentialGitWorkspacesPage() {
         <Alert type="info" showIcon message={scanStatusText} style={{ marginBottom: 16 }} />
       ) : null}
       <Card style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space wrap size="middle" style={{ width: "100%" }}>
           <Input.Search
             allowClear
             placeholder="搜索名称 / 路径 / 备注"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             onSearch={() => void load()}
-            style={{ width: 320 }}
+            style={{ width: 360 }}
           />
           <Select
             allowClear
@@ -1558,7 +1558,7 @@ export function SecureCredentialGitWorkspacesPage() {
             value={credentialFilter || undefined}
             options={credentialOptions}
             onChange={(value) => setCredentialFilter(value ?? "")}
-            style={{ width: 260 }}
+            style={{ width: 280 }}
           />
         </Space>
       </Card>

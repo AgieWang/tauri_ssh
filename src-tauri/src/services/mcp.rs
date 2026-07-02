@@ -563,6 +563,46 @@ impl McpService {
                 policy: "只读审批状态；即使通过也不返回凭据明文".into(),
                 audit: "记录审批 ID 和状态".into(),
             },
+            McpToolPermission {
+                tool: "git_workspaces_list".into(),
+                policy: "只读，返回本地 Git 工作区脱敏状态".into(),
+                audit: "记录筛选条件和工作区数量".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_detail".into(),
+                policy: "只读，返回工作区状态和最近提交".into(),
+                audit: "记录 workspaceKey 和读取结果".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_refresh".into(),
+                policy: "只读刷新本地 Git 状态，不修改远端".into(),
+                audit: "记录 workspaceKey 和刷新结果".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_branches_list".into(),
+                policy: "只读，返回本地/远程分支和最后提交摘要".into(),
+                audit: "记录 workspaceKey 和分支数量".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_pull".into(),
+                policy: "本地 Git pull --ff-only；凭据由后端注入，不返回密钥".into(),
+                audit: "记录 workspaceKey、分支和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_push".into(),
+                policy: "推送当前分支；凭据由后端注入，不返回密钥".into(),
+                audit: "记录 workspaceKey、分支和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_switch_branch".into(),
+                policy: "切换分支；工作区有未提交改动时拒绝".into(),
+                audit: "记录 workspaceKey、目标分支和执行结果".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_merge_branch".into(),
+                policy: "合并分支；工作区有未提交改动时拒绝".into(),
+                audit: "记录 workspaceKey、源/目标分支和执行结果".into(),
+            },
         ];
         tools.extend(secure_credential_semantic_tool_permissions());
         tools

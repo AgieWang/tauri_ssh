@@ -17,7 +17,7 @@ import { AiInsightPanel, CodeBlock, PageHeader, RiskBadge, SectionGrid, StatCard
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { aiProviderApi, aiSkillApi, approvalApi, auditApi, credentialVaultApi, getErrorMessage, hasTauriRuntime, jumpserverApi, mcpApi, sftpApi, sshServerApi, systemSettingsApi, terminalApi } from "@/lib/api";
 import { useAppStore } from "@/store";
-import type { AiProvider, AiProviderModelListInput, AiProviderRegion, ApprovalRequest, ApprovalStatus, AuditLog, AuditRisk, CreateApprovalRequestInput, CredentialStatus, CredentialType, CredentialVaultItem, JumpServerAiMode, JumpServerProtocol, JumpServerSession, JumpServerStatus, ListAuditLogsInput, McpClientConfig, McpOverview, SftpFileEntry, SshServer, SshServerPolicy, SshServerSource, SystemSettings, TerminalCommandResult, TerminalSessionEvent, UpsertCredentialInput, UpsertJumpServerSessionInput, UpsertSshServerInput } from "@/types";
+import type { AiProvider, AiProviderModelListInput, AiProviderRegion, ApprovalRequest, ApprovalStatus, AuditLog, AuditRisk, CreateApprovalRequestInput, CredentialStatus, CredentialType, CredentialVaultItem, JumpServerAiMode, JumpServerProtocol, JumpServerSession, JumpServerStatus, ListAuditLogsInput, McpClientConfig, McpOverview, SftpFileEntry, SshServer, SshServerAuthType, SshServerPolicy, SshServerSource, SystemSettings, TerminalCommandResult, TerminalSessionEvent, UpsertCredentialInput, UpsertJumpServerSessionInput, UpsertSshServerInput } from "@/types";
 
 const { Paragraph, Text, Title } = Typography;
 const ALL_PROVIDER_TEST_KEY = "__all_configured_providers__";
@@ -150,9 +150,16 @@ const sshServerStatusMeta: Record<SshServer["status"], { text: string; color: st
 };
 
 const sshServerSourceLabel: Record<SshServerSource, string> = {
-  manual: "manual",
-  ssh_config: "~/.ssh/config",
-  jumpserver: "jumpserver",
+  manual: "手工维护",
+  ssh_config: "SSH Config",
+  jumpserver: "JumpServer",
+};
+
+const sshServerAuthTypeLabel: Record<SshServerAuthType, string> = {
+  key: "密钥文件",
+  password_ref: "凭据保险库",
+  direct_password: "直接密码",
+  session_reference: "会话引用",
 };
 
 const sshPolicyOptions: Array<{ value: SshServerPolicy; label: string }> = [
@@ -174,6 +181,34 @@ const sshPolicyColor: Record<SshServerPolicy, string> = {
   L3: "red",
   blocked: "red",
 };
+
+function formatSshServerSource(value: SshServerSource | string) {
+  return sshServerSourceLabel[value as SshServerSource] ?? (value || "-");
+}
+
+function formatSshServerAuth(record: SshServer) {
+  if (record.hasPassword) {
+    return "已保存密码";
+  }
+  const authType = sshServerAuthTypeLabel[record.authType] ?? record.authType;
+  const authRef = record.authRef || "";
+  if (!authRef) {
+    return authType;
+  }
+  if (authRef.startsWith("vault:")) {
+    return `凭据保险库：${authRef.replace(/^vault:/, "")}`;
+  }
+  if (authRef.startsWith("key:")) {
+    return `密钥文件：${authRef.replace(/^key:/, "")}`;
+  }
+  if (authRef.startsWith("password:")) {
+    return "已保存密码";
+  }
+  if (authRef.startsWith("session:")) {
+    return `会话引用：${authRef.replace(/^session:/, "")}`;
+  }
+  return `${authType}：${authRef}`;
+}
 
 type LogWatchStatus = "tailing" | "paused" | "error";
 
@@ -1646,8 +1681,8 @@ export function ServersPage() {
             },
             { title: "分组", dataIndex: "groupName" },
             { title: "地址", render: (_, record) => formatServerAddress(record) },
-            { title: "来源", dataIndex: "source", render: (value: SshServerSource) => sshServerSourceLabel[value] },
-            { title: "认证", dataIndex: "authRef", render: (value: string, record) => record.hasPassword ? "已保存密码" : value || record.authType },
+            { title: "来源", dataIndex: "source", render: (value: SshServerSource) => formatSshServerSource(value) },
+            { title: "认证", dataIndex: "authRef", render: (_, record) => formatSshServerAuth(record) },
             { title: "AI 权限", dataIndex: "aiPolicy", render: (value: SshServerPolicy) => <Tag>{sshPolicyLabel[value] ?? value}</Tag> },
             {
               title: "状态",
@@ -1840,6 +1875,7 @@ export function VaultPage() {
   const [loadingCredentials, setLoadingCredentials] = useState(false);
   const [credentialDrawerOpen, setCredentialDrawerOpen] = useState(false);
   const [selectedCredential, setSelectedCredential] = useState<CredentialVaultItem | null>(null);
+  const [editingCredential, setEditingCredential] = useState<CredentialVaultItem | null>(null);
   const [scopeModalOpen, setScopeModalOpen] = useState(false);
   const [rotateModalOpen, setRotateModalOpen] = useState(false);
   const [savingCredential, setSavingCredential] = useState(false);
@@ -1887,6 +1923,7 @@ export function VaultPage() {
 
   function openCredentialDrawer() {
     setSelectedCredential(null);
+    setEditingCredential(null);
     credentialForm.resetFields();
     credentialForm.setFieldsValue({
       credentialType: "password",
@@ -1896,14 +1933,32 @@ export function VaultPage() {
     setCredentialDrawerOpen(true);
   }
 
+  function openEditCredentialDrawer(item: CredentialVaultItem) {
+    setSelectedCredential(null);
+    setEditingCredential(item);
+    credentialForm.resetFields();
+    credentialForm.setFieldsValue({
+      key: item.key,
+      credentialType: item.credentialType,
+      scope: item.scope,
+      status: item.status,
+      description: item.description,
+      secret: "",
+      enabled: item.enabled,
+    });
+    setCredentialDrawerOpen(true);
+  }
+
   async function handleSaveCredential(values: Record<string, unknown>) {
+    const key = String(values.key ?? editingCredential?.key ?? "").trim();
+    const secret = String(values.secret ?? "").trim();
     const input: UpsertCredentialInput = {
-      key: String(values.key ?? "").trim(),
+      key,
       credentialType: (values.credentialType ?? "password") as CredentialType,
       scope: String(values.scope ?? "").trim(),
       status: (values.status ?? "normal") as CredentialStatus,
       description: String(values.description ?? "").trim(),
-      secret: values.secret ? String(values.secret) : null,
+      secret: secret ? secret : null,
       clearSecret: false,
       enabled: Boolean(values.enabled ?? true),
     };
@@ -1912,6 +1967,7 @@ export function VaultPage() {
       await credentialVaultApi.upsert(input);
       message.success("凭据已保存");
       setCredentialDrawerOpen(false);
+      setEditingCredential(null);
       await loadCredentials();
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -2017,6 +2073,7 @@ export function VaultPage() {
               render: (_, record) => (
                 <Space size={8}>
                   <Button size="small" onClick={() => openScopeModal(record)}>授权</Button>
+                  <Button size="small" onClick={() => openEditCredentialDrawer(record)}>编辑</Button>
                   <Button size="small" onClick={() => openRotateModal(record)}>轮换</Button>
                   <Popconfirm title="删除凭据？" okText="删除" cancelText="取消" onConfirm={() => void handleDeleteCredential(record.key)}>
                     <Button size="small" danger>删除</Button>
@@ -2028,14 +2085,17 @@ export function VaultPage() {
         />
       </Card>
       <Drawer
-        title="新增凭据"
+        title={editingCredential ? `编辑凭据：${editingCredential.key}` : "新增凭据"}
         open={credentialDrawerOpen}
-        onClose={() => setCredentialDrawerOpen(false)}
+        onClose={() => {
+          setCredentialDrawerOpen(false);
+          setEditingCredential(null);
+        }}
         width={560}
       >
         <Form form={credentialForm} layout="vertical" onFinish={(values) => void handleSaveCredential(values)}>
           <Form.Item label="凭据 Key" name="key" rules={[{ required: true, message: "请填写凭据 Key" }]}>
-            <Input placeholder="password-prod-api" />
+            <Input disabled={Boolean(editingCredential)} placeholder="password-prod-api" />
           </Form.Item>
           <Form.Item label="类型" name="credentialType" rules={[{ required: true, message: "请选择类型" }]}>
             <Select options={credentialTypeOptions} />
@@ -2051,8 +2111,15 @@ export function VaultPage() {
           <Form.Item label="状态" name="status">
             <Select options={Object.entries(credentialStatusMeta).map(([value, meta]) => ({ value, label: meta.text }))} />
           </Form.Item>
-          <Form.Item label="凭据内容" name="secret" rules={[{ required: true, message: "请填写凭据内容" }]}>
-            <Input.TextArea rows={5} placeholder="密码、私钥、Token 或会话引用内容" />
+          <Form.Item
+            label="凭据内容"
+            name="secret"
+            rules={editingCredential?.hasSecret ? [] : [{ required: true, message: "请填写凭据内容" }]}
+          >
+            <Input.TextArea
+              rows={5}
+              placeholder={editingCredential?.hasSecret ? "留空则保留已保存密文；填写则更新密文" : "密码、私钥、Token 或会话引用内容"}
+            />
           </Form.Item>
           <Form.Item label="说明" name="description">
             <Input placeholder="用途说明，非敏感信息" />

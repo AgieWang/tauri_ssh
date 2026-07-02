@@ -18,15 +18,16 @@ use crate::models::{
     CreateDeploymentRollbackDryRunInput, CreateSecureCredentialSessionInput,
     DecideApprovalRequestInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
     EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput, ExecuteDeploymentRunInput,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListDeploymentRunsInput,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListDeploymentRunsInput, ListGitWorkspacesInput,
     ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
-    ListSecureCredentialSessionsInput, ListSecureCredentialsInput, ResourceSnapshotListInput,
-    RotateSecureCredentialInput, RunAiRunbookInput, SecureCredentialGitReadInput,
-    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
+    ListSecureCredentialSessionsInput, ListSecureCredentialsInput, MergeGitWorkspaceBranchInput,
+    ResourceSnapshotListInput, RotateSecureCredentialInput, RunAiRunbookInput,
+    SecureCredentialGitReadInput, SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
     SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
     SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
-    UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
-    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    SwitchGitWorkspaceBranchInput, UpdateSecureCredentialPolicySettingsInput,
+    UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
+    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
     UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
 };
@@ -37,6 +38,7 @@ use crate::services::audit::AuditService;
 use crate::services::credential_vault::CredentialVaultService;
 use crate::services::database_ops::DatabaseOpsService;
 use crate::services::deployment::DeploymentService;
+use crate::services::git_workspace::GitWorkspaceService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
 use crate::services::resource_monitor::ResourceMonitorService;
@@ -942,6 +944,87 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                     "bodyJson": { "type": "object" }
                 },
                 "required": ["approvalId", "sessionId", "method", "path"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspaces_list",
+            "description": "列出本机已登记 Git 工作区，优先返回已绑定安全凭证的工作区。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string" },
+                    "credentialKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_detail",
+            "description": "读取本地 Git 工作区详情、当前状态和最近提交记录。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_refresh",
+            "description": "刷新本地 Git 工作区状态，更新分支、remote、changed/ahead/behind。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_branches_list",
+            "description": "列出本地 Git 工作区分支，包含当前分支、远程分支和最后提交摘要。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_pull",
+            "description": "对本地 Git 工作区执行 git pull --ff-only；绑定凭证时由后端注入凭据，不返回密钥。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_push",
+            "description": "推送本地 Git 工作区当前分支；绑定凭证时由后端注入凭据，不返回密钥。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_switch_branch",
+            "description": "切换本地 Git 工作区分支；工作区存在未提交改动时会拒绝。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "branch": { "type": "string" }
+                },
+                "required": ["workspaceKey", "branch"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_merge_branch",
+            "description": "将源分支合并到目标分支；工作区存在未提交改动时会拒绝。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "sourceBranch": { "type": "string" },
+                    "targetBranch": { "type": "string" }
+                },
+                "required": ["workspaceKey", "sourceBranch", "targetBranch"]
             }
         }),
         serde_json::json!({
@@ -2763,6 +2846,93 @@ async fn call_mcp_tool_inner(
                         path,
                         query_json: arguments.get("queryJson").cloned(),
                         body_json: arguments.get("bodyJson").cloned(),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "git_workspaces_list" => {
+            let state = app_state(ctx);
+            let workspaces = GitWorkspaceService::list(
+                &state.db,
+                Some(ListGitWorkspacesInput {
+                    keyword: optional_string(&arguments, "keyword"),
+                    credential_key: optional_string(&arguments, "credentialKey"),
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "items": workspaces,
+                "count": workspaces.len()
+            }))
+        }
+        "git_workspace_detail" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::detail(
+                    &state.db,
+                    &required_string(&arguments, "workspaceKey")?,
+                )
+                .await?,
+            )?)
+        }
+        "git_workspace_refresh" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::refresh(
+                    &state.db,
+                    &required_string(&arguments, "workspaceKey")?,
+                )
+                .await?,
+            )?)
+        }
+        "git_workspace_branches_list" => {
+            let state = app_state(ctx);
+            let branches = GitWorkspaceService::branches(
+                &state.db,
+                &required_string(&arguments, "workspaceKey")?,
+            )
+            .await?;
+            Ok(serde_json::json!({
+                "items": branches,
+                "count": branches.len()
+            }))
+        }
+        "git_workspace_pull" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::pull(&state.db, &required_string(&arguments, "workspaceKey")?)
+                    .await?,
+            )?)
+        }
+        "git_workspace_push" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::push(&state.db, &required_string(&arguments, "workspaceKey")?)
+                    .await?,
+            )?)
+        }
+        "git_workspace_switch_branch" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::switch_branch(
+                    &state.db,
+                    SwitchGitWorkspaceBranchInput {
+                        workspace_key: required_string(&arguments, "workspaceKey")?,
+                        branch: required_string(&arguments, "branch")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "git_workspace_merge_branch" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::merge_branch(
+                    &state.db,
+                    MergeGitWorkspaceBranchInput {
+                        workspace_key: required_string(&arguments, "workspaceKey")?,
+                        source_branch: required_string(&arguments, "sourceBranch")?,
+                        target_branch: required_string(&arguments, "targetBranch")?,
                     },
                 )
                 .await?,
