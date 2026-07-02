@@ -18,7 +18,7 @@ dangerous_commands:
 
 适用：用户报"容器起不来"/"接口 502 但服务在跑"/"磁盘满了不知道谁占的"/"容器互通有问题"/"compose 起了一半"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -30,7 +30,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**（含 readonly 档）；改 `daemon.json` / `docker-compose.yml` 走 `sftp_read`+`sftp_write`（无 shell 转义坑），写完 `ssh_exec systemctl reload docker` / `docker compose up -d`。
 
-⚠️ `docker ps` / `docker logs` / `docker inspect` 是只读判定，但 `docker rm` / `docker stop` / `docker compose down` / `prune` 等是写操作，会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ `docker ps` / `docker logs` / `docker inspect` 是只读判定，但 `docker rm` / `docker stop` / `docker compose down` / `prune` 等是写操作，会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 注：很多机器用户在 `docker` 组里，docker 命令本身不需 `sudo`；但停容器/删卷仍受策略档位约束。
 
 ## 第一步：容器状态

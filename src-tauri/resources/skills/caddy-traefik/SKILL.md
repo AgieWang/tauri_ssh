@@ -17,7 +17,7 @@ dangerous_commands:
 
 适用：想要"配置短小、HTTPS 自动"的场景。**Caddy** 单文件配置最简单；**Traefik** 与 Docker/K8s 标签集成最强。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -31,7 +31,7 @@ dangerous_commands:
 
 ⚠️ **改完先校验再 reload**：Caddy 用 `ssh_exec caddy validate --config /etc/caddy/Caddyfile`，过了再 `systemctl reload caddy`；Traefik 动态配置（dynamic/*.yml）`watch:true` 会**自动 reload**（无需重启），但静态配置（traefik.yml）改完需 `systemctl restart traefik`。含 sudo 的 reload/restart 会触发**用户审批**——提前告知用户，被拒后不要原样重试。
 
-> `acme.json` / Caddy 证书目录里的私钥文件 Reeve 禁止 AI 写（SFTP 写黑名单）——涉及私钥操作交用户处理；改配置前把现配置 `sftp_read` 出来留底（或落 `~/.reeve/backups`）便于回滚。
+> `acme.json` / Caddy 证书目录里的私钥文件 Tauri SSH 禁止 AI 写（SFTP 写黑名单）——涉及私钥操作交用户处理；改配置前把现配置 `sftp_read` 出来留底（或落 `~/.tauri-ssh/backups`）便于回滚。
 
 ## 一、Caddy
 

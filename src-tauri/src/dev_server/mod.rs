@@ -474,8 +474,12 @@ async fn disable_ai_unrestricted_mode(
     )?))
 }
 
-async fn get_mcp_overview() -> DevApiResult<crate::models::McpOverview> {
-    Ok(Json(McpService::overview()?))
+async fn get_mcp_overview(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::McpOverview> {
+    let state = app_state(&ctx);
+    let enabled = SystemSettingsService::is_mcp_enabled(&state.db)?;
+    Ok(Json(McpService::overview_with_enabled(enabled)?))
 }
 
 async fn configure_mcp_client(
@@ -582,20 +586,28 @@ async fn delete_jumpserver_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn mcp_server_info() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "name": "tauri-ssh",
-        "protocol": "mcp",
-        "transport": "streamable-http",
-        "localOnly": true,
-        "methods": ["initialize", "tools/list", "tools/call"]
-    }))
+async fn mcp_server_info(State(ctx): State<DevApiState>) -> Json<serde_json::Value> {
+    let state = app_state(&ctx);
+    let enabled = SystemSettingsService::is_mcp_enabled(&state.db).unwrap_or(false);
+    Json(if enabled {
+        McpService::enabled_info()
+    } else {
+        McpService::disabled_info()
+    })
 }
 
 async fn mcp_rpc(
     State(ctx): State<DevApiState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    let id = payload
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let state = app_state(&ctx);
+    if !SystemSettingsService::is_mcp_enabled(&state.db).unwrap_or(false) {
+        return Json(McpService::disabled_json_rpc_error(id));
+    }
     Json(handle_mcp_rpc(&ctx, payload).await)
 }
 
@@ -1925,7 +1937,11 @@ async fn call_mcp_tool_inner(
     arguments: serde_json::Value,
 ) -> Result<serde_json::Value, AppError> {
     match tool_name {
-        "mcp_status" => Ok(serde_json::to_value(McpService::status())?),
+        "mcp_status" => {
+            let state = app_state(ctx);
+            let enabled = SystemSettingsService::is_mcp_enabled(&state.db)?;
+            Ok(serde_json::to_value(McpService::status_for_tool(enabled))?)
+        }
         "ssh_servers_list" => {
             let state = app_state(ctx);
             let servers = SshServerService::list(&state.db)?

@@ -12,7 +12,7 @@ dangerous_commands:
 
 适用：用户跑 WordPress / Laravel / Symfony / MediaWiki / Nextcloud 等 PHP 应用；想"502 怎么排"/"接口慢"/"php-fpm 进程数怎么配"/"opcache 命中"/"加 pool"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看 php-fpm 服务状态** → `service_status(server, "php8.2-fpm")`（包名按发行版可能是 `php-fpm`/`php7.4-fpm`，任何档位放行，比 `ssh_exec systemctl status` 稳）。
 - **看错误日志 / 慢日志** → `tail_log(server, "/var/log/php8.2-fpm.log")` / `tail_log(server, "/var/log/php8.2-fpm.slow.log")`（任何档位放行）；502 还要看 `tail_log(server, "/var/log/nginx/error.log")`。

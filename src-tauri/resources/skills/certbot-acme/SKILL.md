@@ -16,15 +16,15 @@ dangerous_commands:
 
 适用：用户报"证书过期"/"想给域名加 HTTPS"/"通配符证书怎么搞"/"certbot renew 失败"/"证书装了但浏览器不认"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看证书文件 / 续期配置** → `sftp_read(server, "/etc/letsencrypt/live/<域名>/cert.pem")`（公钥证书可读，看有效期）、`sftp_list(server, "/etc/letsencrypt/live/")`（看签了哪些域名）。
 - **看证书续期日志** → `tail_log(server, "/var/log/letsencrypt/letsencrypt.log")`。
 - **看 certbot.timer 状态** → `service_status(server, "certbot.timer")`（任何档位放行）。
 - **改 nginx 的 ssl_certificate 配置** → `sftp_read` 看现状 + `sftp_write` 整文件写站点 conf（指向 fullchain.pem / privkey.pem 的那两行）。
-- ⚠️ **签发 / 续期本质是改动型 shell（certbot/acme.sh）+ 多需 sudo**，会触发**用户审批**——执行前先告诉用户"申请/续期证书这步需要你在 Reeve 批准"，被拒后不要原样重试。
+- ⚠️ **签发 / 续期本质是改动型 shell（certbot/acme.sh）+ 多需 sudo**，会触发**用户审批**——执行前先告诉用户"申请/续期证书这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
-> 🔴 **私钥文件 Reeve 禁止 AI 写**：`privkey.pem` / `*.key` 在 SFTP 写黑名单里，`sftp_write` 写不进去（也不应该）。AI 能做的是：读公钥证书看有效期、改 nginx 配置指向证书路径、引导用户跑 certbot/acme.sh 命令；**真正落盘私钥的动作由 certbot/acme.sh 自己完成或交用户处理**，AI 不碰私钥内容。
+> 🔴 **私钥文件 Tauri SSH 禁止 AI 写**：`privkey.pem` / `*.key` 在 SFTP 写黑名单里，`sftp_write` 写不进去（也不应该）。AI 能做的是：读公钥证书看有效期、改 nginx 配置指向证书路径、引导用户跑 certbot/acme.sh 命令；**真正落盘私钥的动作由 certbot/acme.sh 自己完成或交用户处理**，AI 不碰私钥内容。
 
 ## 第一步：选工具
 

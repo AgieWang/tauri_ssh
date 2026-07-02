@@ -12,7 +12,7 @@ dangerous_commands:
 
 适用：用户报"Java 进程内存爆 / CPU 飙 / Full GC 频繁 / OOM"；想"看线程栈"/"dump 堆"/"在线诊断"/"看 GC 日志"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看 Java 服务状态** → `service_status(server, "<app>")`（systemd 托管的 Spring Boot/Tomcat，任何档位放行，比 `ssh_exec systemctl status` 稳）。
 - **看 GC 日志 / 应用日志** → `tail_log(server, "/var/log/<app>/gc.log")` / `tail_log(server, "<app>.log")`（任何档位放行；OOM 自动 dump 的 hprof 路径也先用 `sftp_list` 确认大小再决定要不要拉）。

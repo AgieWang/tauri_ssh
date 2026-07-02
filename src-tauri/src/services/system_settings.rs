@@ -13,6 +13,7 @@ pub struct SystemSettingsService;
 
 const KEY_THEME: &str = "settings.theme";
 const KEY_AUTO_UPDATE: &str = "settings.auto_update";
+const KEY_MCP_ENABLED: &str = "settings.mcp_enabled";
 const KEY_LAUNCH_ON_STARTUP: &str = "settings.launch_on_startup";
 const KEY_AUDIT_RETENTION_DAYS: &str = "settings.audit_retention_days";
 const KEY_LOG_LEVEL: &str = "settings.log_level";
@@ -39,6 +40,7 @@ impl SystemSettingsService {
         Ok(SystemSettings {
             theme: get_value(db, KEY_THEME, "system")?,
             auto_update: get_bool(db, KEY_AUTO_UPDATE, true)?,
+            mcp_enabled: Self::is_mcp_enabled(db)?,
             launch_on_startup: get_bool(db, KEY_LAUNCH_ON_STARTUP, false)?,
             audit_retention_days: get_i64(db, KEY_AUDIT_RETENTION_DAYS, 90)?,
             log_level: get_value(db, KEY_LOG_LEVEL, "info")?,
@@ -64,6 +66,7 @@ impl SystemSettingsService {
         validate(&input)?;
         db.set_config(KEY_THEME, &input.theme)?;
         db.set_config(KEY_AUTO_UPDATE, bool_text(input.auto_update))?;
+        db.set_config(KEY_MCP_ENABLED, bool_text(input.mcp_enabled))?;
         db.set_config(KEY_LAUNCH_ON_STARTUP, bool_text(input.launch_on_startup))?;
         db.set_config(
             KEY_AUDIT_RETENTION_DAYS,
@@ -92,6 +95,7 @@ impl SystemSettingsService {
             UpdateSystemSettingsInput {
                 theme: "system".into(),
                 auto_update: true,
+                mcp_enabled: default_mcp_enabled(),
                 launch_on_startup: false,
                 audit_retention_days: 90,
                 log_level: "info".into(),
@@ -142,6 +146,10 @@ impl SystemSettingsService {
     ) -> Result<SystemSettings, AppError> {
         Self::set_launch_on_startup(app, false)?;
         Self::reset(db)
+    }
+
+    pub fn is_mcp_enabled(db: &Database) -> Result<bool, AppError> {
+        get_bool(db, KEY_MCP_ENABLED, default_mcp_enabled())
     }
 
     fn is_launch_on_startup_enabled(app: &tauri::AppHandle) -> Result<bool, AppError> {
@@ -299,6 +307,10 @@ fn bool_text(value: bool) -> &'static str {
     } else {
         "false"
     }
+}
+
+fn default_mcp_enabled() -> bool {
+    !cfg!(debug_assertions)
 }
 
 fn default_database_download_dir() -> String {

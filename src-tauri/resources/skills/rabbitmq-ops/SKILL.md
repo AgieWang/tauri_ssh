@@ -13,9 +13,9 @@ dangerous_commands:
 
 适用：用户用 RabbitMQ 做消息队列；想"消费跟不上"/"queue 堆积"/"集群脑裂"/"加 vhost / user"/"配死信"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 RabbitMQ 优先用 `install_app(server, "rabbitmq")`**（在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装 RabbitMQ 优先用 `install_deployment_image_store_app（镜像商店应用 "rabbitmq"）`**（在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -26,7 +26,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**；改配置走 `sftp_read`+`sftp_write`，写完 `ssh_exec sudo systemctl restart rabbitmq-server`；后文 `rabbitmqctl` 命令仅在工具不够用时走 `ssh_exec`。
 
-⚠️ 几乎所有 `rabbitmqctl` 写操作（add/delete user、set_permissions、purge_queue、reset、改配置后 restart）都含 `sudo` 或属危险命令 → **触发用户审批**。执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试，改只读探查（`list_queues`/`status`）或问用户。
+⚠️ 几乎所有 `rabbitmqctl` 写操作（add/delete user、set_permissions、purge_queue、reset、改配置后 restart）都含 `sudo` 或属危险命令 → **触发用户审批**。执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试，改只读探查（`list_queues`/`status`）或问用户。
 
 ## 第一步：状态总览
 
@@ -234,7 +234,7 @@ sudo systemctl restart rabbitmq-server          # 改配置要 restart（reload 
 
 - **生产用 quorum queue** 不要再用 mirrored queue —— 后者出问题（split brain / 同步慢）几乎是无解的。
 - erlang cookie 不一致是新手集群最常见的错；首次安装时**第一件事**就是 `scp` cookie 到所有节点 + `chmod 400`。
-- management UI 默认 admin/admin 凭据**必改** —— Reeve 敏感库会自动捕获，但用户初装时多半还没接 Reeve。
+- management UI 默认 admin/admin 凭据**必改** —— Tauri SSH 凭据保险库会自动捕获，但用户初装时多半还没接 Tauri SSH。
 - queue 堆积时**先看消费者**：`list_consumers` 看 channel 数 / unacked 数；多半是消费者卡死不是 broker 慢。
 - `purge_queue` 是核武器：误清 = 业务数据全丢；除非用 DLX 死信再消费一遍。
 - 跨数据中心：**不要用集群**（节点间要求低延迟），用 federation / shovel 单向同步。

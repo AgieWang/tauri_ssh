@@ -15,16 +15,16 @@ dangerous_commands:
 
 适用：用户用 ClickHouse 做 OLAP；想"查表慢"/"part 太多"/"replica 不同步"/"备份"/"加节点"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 ClickHouse 优先用 `install_app(server, "clickhouse")`**（在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` / apt 装仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装 ClickHouse 优先用 `install_deployment_image_store_app（镜像商店应用 "clickhouse"）`**（在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` / apt 装仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。
 
 - **看 clickhouse-server 服务状态** → `service_status(server, "clickhouse-server")`（任何档位放行）。
 - **看日志尾部** → `tail_log(server, "/var/log/clickhouse-server/clickhouse-server.err.log")`。
 - **查端口** → `port_check(server, 9000)`（TCP）/ `port_check(server, 8123)`（HTTP）。
 - **改 config.xml / users.xml** → `sftp_read` 看现状 + `sftp_write` 整文件写，写完 `ssh_exec clickhouse-client -q "SYSTEM RELOAD CONFIG"`。
 
-🔴 **ClickHouse 的查询/DDL（SELECT、ALTER、OPTIMIZE 等）走 `ssh_exec clickhouse-client --query '...'`**——Reeve 的 `db_*` 工具**只认 mysql/postgres/sqlite**（`detect_driver_from_kind`），**没有 ClickHouse 适配**。Reeve 能加密存 ClickHouse 凭据供「人用数据库工作台」，但 AI 侧不能用 `db_query` 查 CH，别尝试。
+🔴 **ClickHouse 的查询/DDL（SELECT、ALTER、OPTIMIZE 等）走 `ssh_exec clickhouse-client --query '...'`**——Tauri SSH 的 `db_*` 工具**只认 mysql/postgres/sqlite**（`detect_driver_from_kind`），**没有 ClickHouse 适配**。Tauri SSH 能加密存 ClickHouse 凭据供「人用数据库工作台」，但 AI 侧不能用 `db_query` 查 CH，别尝试。
 
 ⚠️ 写 SQL（DROP/ALTER/OPTIMIZE）、改配置、`sudo` 重启都会触发**用户审批**——提前告知用户，被拒后不要原样重试。
 
@@ -35,7 +35,7 @@ clickhouse-client -h host -u default --password 'xxx' --database mydb
 clickhouse-client -h host -q "SHOW DATABASES"
 clickhouse-client --multiquery < script.sql
 clickhouse-client --format Pretty -q "..."
-clickhouse-client --format CSVWithNames -q "SELECT ..." > ~/.reeve/backups/export-$(date +%F).csv   # 导出落 Reeve 工作区
+clickhouse-client --format CSVWithNames -q "SELECT ..." > ~/.tauri-ssh/backups/export-$(date +%F).csv   # 导出落 Tauri SSH 工作区
 
 # HTTP 接口
 curl 'http://host:8123/?query=SHOW%20DATABASES' -u 'default:xxx'

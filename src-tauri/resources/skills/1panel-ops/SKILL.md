@@ -1,7 +1,7 @@
 ---
 name: 1panel-ops
-description: 1Panel 国产 Linux 运维面板速查 —— 状态 / 服务管理 / 应用商店容器路径 / 备份 / 改端口入口密码 / 重置。
-触发词: 1panel, 1panel-core, 一面板, 1pctl, 国产面板, 应用商店, 面板登录, 面板密码, 改端口, 改入口, 改面板用户, 改面板域名, 装 1panel, 1panel 安装, 装面板, 面板挂了, 面板打不开, 面板进不去, 面板起不来, 面板登不上, 忘了面板密码, 重置面板, 面板重置, 面板备份, 面板恢复, 面板卸载, 卸载 1panel, fit2cloud, 面板用户名, 安全入口, 面板入口, 面板端口
+description: 1Panel 国产 Linux 运维面板速查 —— 状态 / 服务管理 / 镜像商店容器路径 / 备份 / 改端口入口密码 / 重置。
+触发词: 1panel, 1panel-core, 一面板, 1pctl, 国产面板, 镜像商店, 面板登录, 面板密码, 改端口, 改入口, 改面板用户, 改面板域名, 装 1panel, 1panel 安装, 装面板, 面板挂了, 面板打不开, 面板进不去, 面板起不来, 面板登不上, 忘了面板密码, 重置面板, 面板重置, 面板备份, 面板恢复, 面板卸载, 卸载 1panel, fit2cloud, 面板用户名, 安全入口, 面板入口, 面板端口
 dangerous_commands:
   # 1pctl reset / uninstall —— 但允许 --help / -h 查询（用 [^-] 排除 --help / -h 开头）
   # 末尾必须是行尾、; & |，或一个非 - 字符（避免 --help/--force 等查询型 flag 误中）
@@ -13,7 +13,7 @@ dangerous_commands:
 
 适用：用户报"装 1Panel"/"面板登录不上"/"应用挂了"/"忘了面板密码"/"装了 1Panel 但不熟命令"/"想知道 MySQL/Redis 容器配置文件在哪"。
 
-## 🤖 第零步：优先用 Reeve 专用工具（面板探测/改配置先走这些）
+## 🤖 第零步：优先用 Tauri SSH 专用工具（面板探测/改配置先走这些）
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -25,7 +25,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**。注意：`1pctl` 是面板专属 CLI（探测真实端口/入口/用户名、改配置），**只能走 `ssh_exec`**——本技能后文的 1pctl 流程不可替代。docker 应用的 compose/.env 用 `sftp_read`+`sftp_write` 写（无 heredoc 转义坑）。
 
-⚠️ `1pctl update *` / `reset` / `uninstall` / `docker compose down` 等都是写操作，会触发**用户审批**——提前告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ `1pctl update *` / `reset` / `uninstall` / `docker compose down` 等都是写操作，会触发**用户审批**——提前告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 ## ⚠️ 版本铁律：v1 和 v2 的 systemd 服务名不一样
 
@@ -42,7 +42,7 @@ dangerous_commands:
 
 ### ⛔ 六条绝对禁止
 
-1. **绝不**用 `install_with_secret` 装 1Panel。`public` 字段是你单向输入，1Panel 脚本不会读 → 你塞的 `PANEL_USERNAME=admin` 进 vault 全是幻觉值。**必须**用纯 ssh_exec。
+1. **绝不**用 `临时自定义脚本` 装 1Panel。`public` 字段是你单向输入，1Panel 脚本不会读 → 你塞的 `PANEL_USERNAME=admin` 进 vault 全是幻觉值。**必须**用纯 ssh_exec。
 
 2. **绝不**调 `1pctl update username/entrance/port`。1Panel 装好时已经随机生成了，**保留就好** —— 你的任务是 *探测* 真实值告诉用户，不是 *改成你想要的值*。这三条命令只在用户**主动说**「我要把端口改成 X / 入口改成 Y / 用户名改成 Z」时才能调。
 
@@ -96,8 +96,8 @@ echo "USERNAME: $(echo "$INFO" | grep -iE '用户名|username' | grep -oE '[A-Za
 NEW_PWD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 16)
 printf '%s\ny\n' "$NEW_PWD" | 1pctl update password
 
-# ⚠️ 必须 echo 一次让明文回到 stdout —— **不是给 AI 看的**，是触发 Reeve redaction 引擎
-# 把它捕获进敏感库，tool_result.vaultRefs 里会带回 vault_id（如 sv_xxx）。
+# ⚠️ 必须 echo 一次让明文回到 stdout —— **不是给 AI 看的**，是触发 Tauri SSH
+# 把它捕获进凭据保险库，命令输出会被脱敏，明文不向 AI 回显。
 # AI 看到的是 [REDACTED:generic_password_line] 占位符，**永远不接触明文**。
 echo "PANEL_PASSWORD_NEW=$NEW_PWD"
 
@@ -123,24 +123,13 @@ printf 'myadmin\ny\n' | 1pctl update username
 
 **没明说要改的项不要动**。
 
-### Step 6：把真实凭据入「服务凭据」库（**必做，且 AI 不接触密码**）
+### Step 6：把真实凭据入「安全凭证」库（**必做，且 AI 不接触密码**）
 
-Step 4 的 stdout 里 `PANEL_PASSWORD_NEW=...` 这一行触发 Reeve redaction 引擎 → 密码进敏感库，**ssh_exec 的 tool_result 里会返回 `vaultRefs`**，形如：
-
-```json
-{
-  "stdout": "...PANEL_PASSWORD_NEW=[REDACTED:generic_password_line]\n",
-  "vaultRefs": [
-    { "vaultId": "sv_a1b2c3d4...", "label": "命令输出中的密码", "preview": "B4****Zh", "hint": "..." }
-  ]
-}
-```
-
-AI **看不到密码明文**，只看到 vault_id。然后调 save_credential 用 `fieldsFromVault` 指针把密码引到「服务凭据」库（后端 reveal vault → AES-GCM 加密入库；AI 全程只见 vault_id）：
+Step 4 的 stdout 中密码必须被 Tauri SSH 脱敏；AI 不能在对话中复述明文。随后在「安全凭证」中保存 1Panel 登录信息，密码字段由后端加密保存，不向 AI 回显：
 
 ```json
 {
-  "tool": "save_credential",
+  "tool": "upsert_secure_credential",
   "args": {
     "server": "<服务器别名>",
     "kind": "1panel",
@@ -149,21 +138,18 @@ AI **看不到密码明文**，只看到 vault_id。然后调 save_credential �
       "PANEL_PORT": "<Step 3 解析的 PORT>",
       "PANEL_ENTRANCE": "<Step 3 解析的 ENTRANCE>",
       "PANEL_USERNAME": "<Step 3 解析的 USERNAME>"
-    },
-    "fieldsFromVault": {
-      "PANEL_PASSWORD": "<上一步 vaultRefs[0].vaultId，形如 sv_xxx>"
     }
   }
 }
 ```
 
-工具返回 `vault_id`，用户能在「服务凭据」页 Reveal 看到完整凭据。
-**这一步不做用户就找不到这套凭据**（敏感库 vault 是兜底，不是结构化凭据库）。
+保存后用户能在「安全凭证」页查看和管理完整凭据。
+**这一步不做用户就找不到这套凭据**（凭据保险库只是底层加密存储，不替代结构化安全凭证）。
 **严禁用 fields.PANEL_PASSWORD 传明文** —— 那是 AI 见过密码的违规路径。
 
 ### ✅ 装完告知用户
 
-把 Step 3 解析出的 URL / PORT / ENTRANCE / USERNAME **一字不改**贴给用户。密码已通过 save_credential 加密入库 —— 告诉用户："凭据已入「服务凭据」库（vault_id=xxx），点 Reveal 查看密码"。
+把 Step 3 解析出的 URL / PORT / ENTRANCE / USERNAME **一字不改**贴给用户。密码已保存到「安全凭证」，告诉用户可在该页面查看和管理。
 
 ### ❓ 用户后续问凭据
 
@@ -249,7 +235,7 @@ echo "y" | 1pctl update port 32279
 - ❌ `systemctl stop 1panel; sed -i ... /opt/1panel/conf/app.yaml; systemctl start 1panel`
 - ❌ 任何"绕过 1pctl 自己改文件"的尝试 —— 1Panel 把配置放数据库 + 内存缓存里，手改不一定生效，且面板下次写回时可能覆盖你的改动
 
-## 第三步：应用商店容器路径约定
+## 第三步：镜像商店容器路径约定
 
 1Panel 通过 Docker 部署应用，**路径强约定**（卸载/迁移/备份必须知道）：
 
@@ -265,9 +251,9 @@ echo "y" | 1pctl update port 32279
 
 例：MySQL 配置 = `/opt/1panel/apps/mysql/mysql/conf/my.cnf`。
 
-## 🤖 AI 自动部署应用（不依赖 1Panel 应用商店 UI）
+## 🤖 AI 自动部署应用（不依赖 1Panel 镜像商店 UI）
 
-> ⚠️ **关键认知**：1Panel 的"应用商店一键装"只能通过 Web UI 触发；`1pctl` CLI 不支持 `install <app>`。
+> ⚠️ **关键认知**：1Panel 的"镜像商店一键装"只能通过 Web UI 触发；`1pctl` CLI 不支持 `install <app>`。
 > 所以 AI 收到「装 mysql/redis/nginx...」时**不要让用户去打开浏览器**，而是**自己写 1Panel 兼容布局的 compose 部署**——这样面板「容器 → 编排」会自动识别并能托管。
 
 ### 标准动作（AI 必须按这套来）
@@ -277,7 +263,7 @@ echo "y" | 1pctl update port 32279
    mkdir -p /opt/1panel/apps/<app>/<name>/{data,conf,log}
    ```
 
-2. **生成 root 密码 + 写到敏感库**（用 `openssl rand` 即可；输出会被 Reeve 敏感库自动捕获）：
+2. **生成 root 密码 + 写到凭据保险库**（用 `openssl rand` 即可；输出会被 Tauri SSH 凭据保险库自动捕获）：
    ```bash
    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24
    ```
@@ -399,7 +385,7 @@ ls -lh /opt/1panel/backup/system     # 看现有备份
 
 ### Q3: 数据库密码忘了
 - 1Panel 安装应用时会在 UI 显示一次密码 + 落进 `/opt/1panel/apps/<app>/.../docker-compose.yml` 的环境变量
-- `grep -i password /opt/1panel/apps/mysql/mysql/docker-compose.yml`（⚠️ 这条命令的输出会被 Reeve 敏感库捕获脱敏；用 Reeve 敏感库页查看明文）
+- `grep -i password /opt/1panel/apps/mysql/mysql/docker-compose.yml`（⚠️ 这条命令的输出会被 Tauri SSH 凭据保险库捕获脱敏；用 Tauri SSH 凭据保险库页查看明文）
 - 实在拿不到 → 进容器手动改：`docker exec -it 1panel-mysql-* mysql -uroot -p<旧密码> -e "ALTER USER 'root'@'%' IDENTIFIED BY '新密码';"`
 
 ### Q4: 磁盘满了
@@ -413,22 +399,22 @@ docker system df    # 镜像和卷
 
 清理顺序：① 老备份（UI 删）② 用过即弃的应用（停 + 删数据卷）③ docker 镜像 `docker image prune -a`
 
-## 卸载后清理 Reeve 凭据登记
+## 卸载后清理 Tauri SSH 凭据登记
 
-`1pctl uninstall` 跑成功后（远端已经把 1Panel 真卸了），**调一次 `delete_installed_service`** 把 Reeve 这边登记的 1Panel 凭据（initial password / panel entrance / port 等）也清掉 —— 否则"已装服务"页里残留的旧凭据没用又有泄漏面。
+`1pctl uninstall` 跑成功后（远端已经把 1Panel 真卸了），**调一次 `delete_secure_credential`** 把 Tauri SSH 这边登记的 1Panel 凭据（initial password / panel entrance / port 等）也清掉 —— 否则"已装服务"页里残留的旧凭据没用又有泄漏面。
 
 标准流程：
 
-1. `list_installed_services({ server: "<别名>" })` → 找到 `kind === "1panel"` 的那一条，记下 `id`（形如 `vs_a1b2c3d4`）
+1. `list_secure_credentials` → 找到 `kind === "1panel"` 的那一条，记下 `id`（形如 `vs_a1b2c3d4`）
 2. 跑卸载（先做完，得到 exit=0）：`1pctl uninstall`（含 `[reset/uninstall]` 默认拦截，正常服务器是 approval 档；trusted 档自动放）
-3. 卸载成功后：`delete_installed_service({ vaultId: "<上一步的 id>" })`
-4. 工具会走 ai-policy 判定（trusted 档自动；其它档暂为 denied —— 那种情况让用户在「服务凭据」页手动删）
+3. 卸载成功后：`delete_secure_credential({ credentialKey: "<上一步的 id>" })`
+4. 工具会走 ai-policy 判定（trusted 档自动；其它档暂为 denied —— 那种情况让用户在「安全凭证」页手动删）
 
-⚠️ **顺序很关键**：先卸再删，反过来会让 Reeve 端没有可参考的端口/路径，万一卸载失败也找不回。
+⚠️ **顺序很关键**：先卸再删，反过来会让 Tauri SSH 端没有可参考的端口/路径，万一卸载失败也找不回。
 
 ## 教训
 
 - `1pctl reset` 会清面板配置（监听端口、安全入口、登录密码），**不会**删应用数据；但用户密码丢了再装回去要重新关联应用，强烈建议先 `1pctl user-info` 留存当前用户名 + 入口。
 - 面板默认端口和入口路径是**安全防线**，不要给改成 `/panel` 之类容易被扫的；保留随机字符。
-- 应用商店里的"修改配置"会**重建容器**而不是热重载，重的应用（MySQL、Redis）切勿在业务高峰随手改。
-- **卸载完务必清凭据登记**：跑 `delete_installed_service` 把 Reeve 端的 row 也删掉，避免残留旧密码。
+- 镜像商店里的"修改配置"会**重建容器**而不是热重载，重的应用（MySQL、Redis）切勿在业务高峰随手改。
+- **卸载完务必清凭据登记**：跑 `delete_secure_credential` 把 Tauri SSH 端的 row 也删掉，避免残留旧密码。

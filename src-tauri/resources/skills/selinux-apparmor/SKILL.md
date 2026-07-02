@@ -14,7 +14,7 @@ dangerous_commands:
 
 适用：用户报"操作权限明明对但还是 denied"/"文件权限对但程序读不到"/"systemd 服务起不来无明显报错"。多半是 MAC（强制访问控制）层拦截。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看出问题的服务状态** → `service_status(server, "<svc>")`（任何档位放行）——MAC 拦截常表现为"服务起不来但 systemctl 无明显原因"，先看状态。
 - **读 audit 日志找 denied** → `tail_log(server, "/var/log/audit/audit.log", lines?)`（= tail -n，只读放行）；要 `grep denied/AVC` 过滤时再走 `ssh_exec`。
@@ -22,7 +22,7 @@ dangerous_commands:
 - **改策略**（`semanage` / `setsebool -P` / `restorecon` / `audit2allow` / `aa-enforce`）属**改动型**，走 `ssh_exec` 过策略档位 + 审批。
 
 ⚠️ `setenforce 0`（临时关 SELinux）/ 改 `/etc/selinux/config` / `aa-disable` 关键服务 profile 会触发**用户审批**——执行前告诉用户"这步会降级安全防护、需要你批准"，**被拒后不要原样重试**。
-🔴 **关 SELinux 重启有"再也起不来"风险**：标签一旦失效，重新开 enforcing 时服务可能全拒。生成的自定义 module（`.pp`）、收集的 audit 片段放 `~/.reeve/scripts/` 或 `~/.reeve/tmp/`（Reeve 统一工作区），别散落 /tmp。
+🔴 **关 SELinux 重启有"再也起不来"风险**：标签一旦失效，重新开 enforcing 时服务可能全拒。生成的自定义 module（`.pp`）、收集的 audit 片段放 `~/.tauri-ssh/scripts/` 或 `~/.tauri-ssh/tmp/`（Tauri SSH 统一工作区），别散落 /tmp。
 
 ## 对照
 

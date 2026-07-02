@@ -1,15 +1,15 @@
 ---
 name: db-tools
-description: Reeve 数据库直连工具 db_query / db_execute —— 通过已登记的 DB 凭据（mysql_conn / postgres_conn / sqlite_conn）跑 SQL，避免 ssh_exec + mysql/psql CLI 的密码暴露 + 输出解析坑。
+description: Tauri SSH 数据库直连工具 db_query / db_execute —— 通过已登记的 DB 凭据（mysql_conn / postgres_conn / sqlite_conn）跑 SQL，避免 ssh_exec + mysql/psql CLI 的密码暴露 + 输出解析坑。
 触发词: 数据库, db, 查表, 查记录, 查询数据, mysql 查询, postgres 查询, sqlite 查询, SQL 查询, 数据库连接, db_query, db_execute, 数据条数, select 数据, insert 数据, update 数据, 看表, 看库, 表结构, desc 表, show tables, show databases, 跑 sql, 执行 sql, count 行, 多少条数据, 表里有多少, 查一下, 数据库直连, 不用 ssh 查库, 给我看, 表数据, explain, explain analyze, 查询计划
 dangerous_commands:
-  # 这些匹配 pseudo command "[reeve-internal] db_<op> <sql 首 80 字>"。SQL 文本前 80 字内匹配即拦。
+  # 这些匹配 pseudo command "[tauri-ssh-internal] db_<op> <sql 首 80 字>"。SQL 文本前 80 字内匹配即拦。
   # 主防线在 services/db_exec/safe_sql.rs（任何档都拦库级 D-R-O-P / TRUNCATE / 无 WHERE 全表删改）；
   # 这里加一些 SQL 特有的高风险补充，让 trusted 档也能挡住。
-  - '(?i)\[reeve-internal\]\s+db_execute\s+[^\n]*\bDROP\s+USER\b'
-  - '(?i)\[reeve-internal\]\s+db_execute\s+[^\n]*\bALTER\s+USER\s+[^\n]*\bIDENTIFIED\s+BY\b'
-  - '(?i)\[reeve-internal\]\s+db_execute\s+[^\n]*\bFLUSH\s+PRIVILEGES\b'
-  - '(?i)\[reeve-internal\]\s+db_execute\s+[^\n]*\bSHUTDOWN\b'
+  - '(?i)\[tauri-ssh-internal\]\s+db_execute\s+[^\n]*\bDROP\s+USER\b'
+  - '(?i)\[tauri-ssh-internal\]\s+db_execute\s+[^\n]*\bALTER\s+USER\s+[^\n]*\bIDENTIFIED\s+BY\b'
+  - '(?i)\[tauri-ssh-internal\]\s+db_execute\s+[^\n]*\bFLUSH\s+PRIVILEGES\b'
+  - '(?i)\[tauri-ssh-internal\]\s+db_execute\s+[^\n]*\bSHUTDOWN\b'
 ---
 
 # db-tools —— 数据库直连（首选 db_query / db_execute）
@@ -17,13 +17,13 @@ dangerous_commands:
 ## 🤖 适用场景
 
 用户问"查一下 X 表"、"看下 users 表里有多少条"、"统计今日订单"、"改一下某用户的状态"、"加个索引"、"看下表结构"、"导出数据"……
-**只要能通过 SQL 完成、且用户在 Reeve 里登记过 DB 凭据，AI 都应该用 `db_query` / `db_execute`，而不是 `ssh_exec mysql -e ...`**。
+**只要能通过 SQL 完成、且用户在 Tauri SSH 里登记过 DB 凭据，AI 都应该用 `db_query` / `db_execute`，而不是 `ssh_exec mysql -e ...`**。
 
 ## 🔴 为什么不用 ssh_exec + mysql CLI？
 
 | 坑 | db_query/db_execute（推荐） | ssh_exec mysql -e |
 |----|---------------------------|-------------------|
-| 密码暴露 | 永远在 Reeve 加密金库里，AI 看不到 | `-p<pwd>` 留在 shell 历史 + ps + audit |
+| 密码暴露 | 永远在 Tauri SSH 凭据保险库里，AI 看不到 | `-p<pwd>` 留在 shell 历史 + ps + audit |
 | 结果格式 | 结构化 JSON（columns + rows）直接用 | 文本表格，AI 容易解析错 |
 | 危险 SQL 拦截 | 内置黑名单 + 出口脱敏，任何档都拦 | 完全裸跑 |
 | 多库支持 | 同一接口跑 MySQL / PostgreSQL / SQLite | 每个 CLI 都不一样 |
@@ -35,16 +35,16 @@ dangerous_commands:
 ## 用前必读：先查可用凭据
 
 ```text
-1. list_installed_services()
-   → 返回所有服务凭据；筛选 kind ∈ {mysql_conn, postgres_conn, sqlite_conn}
+1. list_database_connections()
+   → 返回所有数据库连接；筛选 kind ∈ {mysql_conn, postgres_conn, sqlite_conn}
 2. 拿 label 或 id (vs_xxx) 作为 db_query / db_execute 的 `credential` 参数
    - 优先用 label（更直观）；label 同名时会报 ambiguous，再用 id
 ```
 
-如果用户说"查一下我那个 RDS"但 `list_installed_services` 里没找到，应该：
+如果用户说"查一下我那个 RDS"但 `list_database_connections` 里没找到，应该：
 - 询问用户：是哪台 DB？host / port / user / database 各是什么？
-- 引导用户去「服务凭据」页点"+ 新建 DB 凭据"，或者
-- 让用户在对话里把凭据信息告诉你，你用 install_with_secret 或直接 fallback ssh_exec（仅当用户授权）
+- 引导用户去「数据库管理」页新建数据库连接，或者
+- 让用户在对话里把凭据信息告诉你，你用 数据库管理连接登记 或直接 fallback ssh_exec（仅当用户授权）
 
 ## db_query —— 只读查询
 
@@ -52,7 +52,7 @@ dangerous_commands:
 
 ```jsonc
 {
-  "credential": "阿里云 RDS - 主库",  // label 或 vault_id
+  "credential": "阿里云 RDS - 主库",  // label 或 connection_key
   "sql": "SELECT id, name, created_at FROM users WHERE status=? ORDER BY id DESC",
   "params": [1],                       // 占位符按位置绑定；MySQL/SQLite 用 ?，PostgreSQL 用 $1
   "limit": 50                          // 可选；默认 100，最大 10000
@@ -87,7 +87,7 @@ dangerous_commands:
 
 ### 结果脱敏
 
-行里的字符串值如果命中 redaction 规则（含 "password" / "token" / "secret" / "api_key" 等关键词的列名值），会被替换为 `[REDACTED:rule_id]`，明文进入用户的「敏感库」可后续 reveal。这意味着 AI 看到的查询结果**绝不会包含明文凭据**。
+行里的字符串值如果命中 redaction 规则（含 "password" / "token" / "secret" / "api_key" 等关键词的列名值），会被替换为 `[REDACTED:rule_id]`，明文进入用户的「凭据保险库」可后续 reveal。这意味着 AI 看到的查询结果**绝不会包含明文凭据**。
 
 ## db_execute —— 写入 / DDL
 
@@ -276,7 +276,7 @@ EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM orders WHERE created_at >= '2026-01-01'
 
 | 现象 | 排查 |
 |------|------|
-| 连接超时（5s） | host/port 不可达 → 让用户在「服务凭据」页点"测试连接"验证 |
+| 连接超时（5s） | host/port 不可达 → 让用户在「安全凭证」页点"测试连接"验证 |
 | Access denied | user/password 错 → reveal 字段对比 |
 | Unknown database | database 名错 → `SHOW DATABASES` |
 | 字符集乱码 | MySQL connect 默认 utf8mb4；DB 端字符集不对头 |

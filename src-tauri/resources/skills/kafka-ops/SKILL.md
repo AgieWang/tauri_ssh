@@ -16,9 +16,9 @@ dangerous_commands:
 
 适用：用户运维 Apache Kafka；想"消费者 lag 大"/"加 topic"/"看分区/副本/ISR"/"切到 KRaft 抛弃 ZK"/"备份/迁移"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 Kafka 优先用 `install_app(server, "kafka")`**（Kafka 在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义场景 fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装 Kafka 优先用 `install_deployment_image_store_app（镜像商店应用 "kafka"）`**（Kafka 在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义场景 fallback（手装的**不进记录、工作台看不到**）。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -29,7 +29,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**；改配置走 `sftp_read`+`sftp_write`，写完 `ssh_exec sudo systemctl restart kafka`；后文 `kafka-*.sh` 命令仅在工具不够用时走 `ssh_exec`。
 
-⚠️ topic / consumer-group / configs 的写操作（create/delete/alter、reset-offsets、reassign）和 restart 会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试，改只读探查（`--list`/`--describe`）或问用户。
+⚠️ topic / consumer-group / configs 的写操作（create/delete/alter、reset-offsets、reassign）和 restart 会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试，改只读探查（`--list`/`--describe`）或问用户。
 
 ## 第一步：环境
 
@@ -174,7 +174,7 @@ kafka-reassign-partitions.sh $BOOTSTRAP --verify --reassignment-json-file reassi
 
 > ⚠️ reassignment 会**复制大量数据**到新 broker，会饱和网络与磁盘 —— 用 `--throttle 50000000`（B/s）限速。
 >
-> 临时 plan 文件（`topics.json` / `reassign.json`）建议落 Reeve 统一工作区 `~/.reeve/tmp/`，别散落在当前目录或 `/tmp`；执行用的脚本放 `~/.reeve/scripts/`，便于审计回溯。
+> 临时 plan 文件（`topics.json` / `reassign.json`）建议落 Tauri SSH 统一工作区 `~/.tauri-ssh/tmp/`，别散落在当前目录或 `/tmp`；执行用的脚本放 `~/.tauri-ssh/scripts/`，便于审计回溯。
 
 ## 第七步：KRaft 模式（去 ZooKeeper）
 

@@ -18,9 +18,9 @@ dangerous_commands:
 
 适用：自建 Gitea / GitLab CE / Gogs；想"装一个内网 git"/"备份/迁移"/"用户管理"/"配 webhook"/"配 CI runner"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 Gitea 优先用 `install_app(server, "gitea")`**（Gitea 在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker compose` 仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。GitLab CE / Gogs 目录里没有 → 仍按下面手动装。
+> 🔴 **装 Gitea 优先用 `install_deployment_image_store_app（镜像商店应用 "gitea"）`**（Gitea 在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker compose` 仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。GitLab CE / Gogs 目录里没有 → 仍按下面手动装。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -31,7 +31,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**；改配置走 `sftp_read`+`sftp_write`，Gitea 写完 `ssh_exec sudo systemctl restart gitea`，GitLab 写完 `ssh_exec sudo gitlab-ctl reconfigure`；docker 部署看容器日志走 `ssh_exec docker logs`。
 
-⚠️ 备份/恢复、`gitlab-ctl reconfigure/restart`、`gitlab-rake`、删数据目录、改 hooks 都会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ 备份/恢复、`gitlab-ctl reconfigure/restart`、`gitlab-rake`、删数据目录、改 hooks 都会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 > 🔴 **hooks 安全**：服务端裸库的 `hooks/post-receive`（及 `pre-receive` / `update`）每次 push 都以 git 用户身份执行——能写它 = 能在每次推送时注入任意代码（挖矿 / 反弹 shell / 篡改提交）。Gitea/GitLab 自带的 hook 由应用管理，**不要手改裸库 hooks**；自定义需求走 Gitea 的「Git Hooks」管理页或 GitLab 的 server hooks 规范目录，并审查脚本来源。
 
@@ -185,8 +185,8 @@ sudo gitlab-ctl tail puma               # 应用层
 # 备份（写到 /var/opt/gitlab/backups/）
 sudo gitlab-backup create
 
-# 配置文件不在备份里 —— **必须单独备份**（落 Reeve 统一工作区，别散落 /backup 等臆造路径）
-sudo tar czf ~/.reeve/backups/gitlab-config-$(date +%F).tar.gz /etc/gitlab
+# 配置文件不在备份里 —— **必须单独备份**（落 Tauri SSH 统一工作区，别散落 /backup 等臆造路径）
+sudo tar czf ~/.tauri-ssh/backups/gitlab-config-$(date +%F).tar.gz /etc/gitlab
 
 # 恢复（⚠️ 走审批）
 # 1) 停 service

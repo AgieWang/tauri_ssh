@@ -14,11 +14,11 @@ dangerous_commands:
 
 适用：用户报"SSH 被爆破"/"想关密码登录改密钥"/"换端口"/"加 fail2ban"/"配 authorized_keys"/"加双因素"。
 
-## 🤖 Reeve 衔接（先读）
+## 🤖 Tauri SSH 衔接（先读）
 
 - **改 sshd_config / authorized_keys** → `sftp_read` 看现状 + `sftp_write` 整文件写（注：`/etc/ssh/sshd_config` 本身不在 SFTP 敏感路径黑名单，可写；但务必先备份，见下）。改完 `service_status(server, "sshd")` 看状态。
-- ⚠️ **这是最容易把自己锁外面的技能**：所有 sudo 改配置都会触发审批；且 Reeve 走的是同一条 SSH——改完若把自己锁了，下次工具调用就连不上。**保险绳是硬要求**，见下节。
-- Reeve 主连接由连接池维持（SessionPool），但改 sshd 配置 + reload 后**新建连接**会走新规则——若新规则锁了 Reeve 的登录方式（如关了密码但 Reeve 用的是密码凭据），池子重连即失败。改 auth 方式前先确认 Reeve 该服务器用的是密钥还是密码凭据。
+- ⚠️ **这是最容易把自己锁外面的技能**：所有 sudo 改配置都会触发审批；且 Tauri SSH 走的是同一条 SSH——改完若把自己锁了，下次工具调用就连不上。**保险绳是硬要求**，见下节。
+- Tauri SSH 主连接由连接池维持（SessionPool），但改 sshd 配置 + reload 后**新建连接**会走新规则——若新规则锁了 Tauri SSH 的登录方式（如关了密码但 Tauri SSH 用的是密码凭据），池子重连即失败。改 auth 方式前先确认 Tauri SSH 该服务器用的是密钥还是密码凭据。
 
 ## ⚠️ 远程加固前的保险绳（**必读**）
 
@@ -26,8 +26,8 @@ dangerous_commands:
 
 ```bash
 # 在改 sshd_config / 防火墙前，先布保险绳
-cp /etc/ssh/sshd_config ~/.reeve/backups/sshd_config.$(date +%s).bak   # 备份落 Reeve 工作区
-echo "cp ~/.reeve/backups/sshd_config.<ts>.bak /etc/ssh/sshd_config && systemctl reload sshd && iptables -F" | at now + 5 minutes
+cp /etc/ssh/sshd_config ~/.tauri-ssh/backups/sshd_config.$(date +%s).bak   # 备份落 Tauri SSH 工作区
+echo "cp ~/.tauri-ssh/backups/sshd_config.<ts>.bak /etc/ssh/sshd_config && systemctl reload sshd && iptables -F" | at now + 5 minutes
 atq                                          # 看看保险绳排队了
 # 改完测通了 → atrm <job-id>
 ```
@@ -204,7 +204,7 @@ ssh-keyscan -t ed25519,rsa example.com >> ~/.ssh/known_hosts
 ssh-keygen -R example.com                   # 删旧记录
 ```
 
-> Reeve 自己实现了 TOFU + HostKeyMismatch 检测，外部 ssh 客户端要手动维护 known_hosts。
+> Tauri SSH 自己实现了 TOFU + HostKeyMismatch 检测，外部 ssh 客户端要手动维护 known_hosts。
 
 ## 路径速查表
 

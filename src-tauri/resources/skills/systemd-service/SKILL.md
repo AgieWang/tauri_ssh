@@ -14,7 +14,7 @@ dangerous_commands:
 
 适用：用户想"开机启动自定义脚本"/"做定时任务（替代 cron）"/"服务挂了自动拉起"/"看服务为啥起不来"/"调依赖关系"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看服务状态** → `service_status(server, service)`（= systemctl status --lines=20，任何档位放行）——比 `ssh_exec systemctl status` 稳，readonly 档也不会被拒。
 - **写 unit 文件** → 先 `sftp_read` 看现状，再 `sftp_write(server, path, content)` 整文件写入——比 ssh_exec 里 heredoc/echo 拼接可靠（无 shell 转义坑），写完 `ssh_exec sudo systemctl daemon-reload`。

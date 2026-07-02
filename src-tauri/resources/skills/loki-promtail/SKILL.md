@@ -11,7 +11,7 @@ dangerous_commands:
 
 适用：用户想"加日志聚合"/"在 Grafana 里看日志"/"按服务名/级别筛"/"日志和 metrics 同时间轴联动"；不想花 ELK 那么多内存。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -23,7 +23,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**。改配置走 `sftp_read`+`sftp_write`（无 shell heredoc 转义坑），写完重启容器/服务生效。后文 `curl` / `docker` 命令仅在工具不够用时走 `ssh_exec`。
 
-⚠️ 重启服务 / `curl .../delete` 删日志 / 改 retention 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ 重启服务 / `curl .../delete` 删日志 / 改 retention 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 ## 选型对照
 
@@ -34,7 +34,7 @@ dangerous_commands:
 | **Vector** | 现代采集 / 转换 / 路由（替代 fluent-bit / promtail） | 低（Rust 实现） |
 | **Grafana Alloy** | Grafana 新一代采集器（合并 promtail / fluent-bit / opentelemetry collector） | 低 |
 
-Reeve 用户大多场景：**Loki + Promtail（或 Alloy）+ Grafana**。
+Tauri SSH 用户大多场景：**Loki + Promtail（或 Alloy）+ Grafana**。
 
 ## 一、Loki 部署（docker compose）
 

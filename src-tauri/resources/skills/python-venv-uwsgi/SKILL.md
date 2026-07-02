@@ -14,7 +14,7 @@ dangerous_commands:
 
 适用：用户部署 Django / Flask / FastAPI；想"装 python 多版本 / 创建虚拟环境 / 用 uWSGI 或 gunicorn 跑 / 装到 systemd"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看服务状态** → `service_status(server, "uwsgi")` / `service_status(server, "<app>")`（systemd 托管的 gunicorn/uvicorn，任何档位放行）。
 - **看应用日志** → `tail_log(server, "/var/log/uwsgi/myapp.log")` / `tail_log(server, "/var/log/gunicorn/error.log")`（任何档位放行）；systemd 直管的看 `journalctl`（仍走 `ssh_exec journalctl -u <app>`）。

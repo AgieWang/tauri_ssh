@@ -4948,7 +4948,11 @@ export function McpPage() {
         description="把 Tauri SSH 暴露的 MCP 服务接到 Claude Code / Codex / Cursor / Cline / Zed / OpenCode 等 Agent 工具。"
         actions={
           <Space>
-            {status ? <Tag color={status.httpReachable ? "green" : "orange"}>{status.httpReachable ? "HTTP 可用" : "等待本地端点"}</Tag> : null}
+            {status ? (
+              <Tag color={!status.enabled ? "default" : status.httpReachable ? "green" : "orange"}>
+                {!status.enabled ? "MCP 已关闭" : status.httpReachable ? "HTTP 可用" : "等待本地端点"}
+              </Tag>
+            ) : null}
             <Button icon={<RefreshCw size={15} />} loading={loadingMcp} onClick={() => void loadMcpOverview()}>刷新</Button>
           </Space>
         }
@@ -4960,6 +4964,15 @@ export function McpPage() {
         extra={<Button onClick={() => status && void copyMcpText(status.streamableHttpUrl)}>复制端点</Button>}
         loading={loadingMcp && !mcpOverview}
       >
+        {status && !status.enabled ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="MCP Server 已关闭"
+            description="可在系统设置中开启。开发环境默认关闭，release 版本默认开启。"
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
         {status ? (
           <div className="prototype-mcp-endpoint-grid">
             <div>
@@ -5703,6 +5716,14 @@ export function PrototypeSettingsPage() {
               <Switch checkedChildren="开启" unCheckedChildren="关闭" />
             </Form.Item>
             <Form.Item
+              label="MCP Server"
+              name="mcpEnabled"
+              valuePropName="checked"
+              tooltip="控制本地 MCP endpoint 是否允许 Agent 调用；开发版本默认关闭，release 版本默认开启。"
+            >
+              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+            </Form.Item>
+            <Form.Item
               label="随系统启动"
               name="launchOnStartup"
               valuePropName="checked"
@@ -5802,6 +5823,7 @@ export function PrototypeSettingsPage() {
         <Descriptions column={3} size="small" bordered>
           <Descriptions.Item label="主题">{settings?.theme ?? "-"}</Descriptions.Item>
           <Descriptions.Item label="自动更新">{settings?.autoUpdate ? "开启" : "关闭"}</Descriptions.Item>
+          <Descriptions.Item label="MCP Server">{settings?.mcpEnabled ? "开启" : "关闭"}</Descriptions.Item>
           <Descriptions.Item label="随系统启动">{settings?.launchOnStartup ? "开启" : "关闭"}</Descriptions.Item>
           <Descriptions.Item label="审计保留">{settings ? `${settings.auditRetentionDays} 天` : "-"}</Descriptions.Item>
           <Descriptions.Item label="日志级别">{settings?.logLevel ?? "-"}</Descriptions.Item>

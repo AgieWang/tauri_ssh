@@ -15,7 +15,7 @@ dangerous_commands:
 
 适用：用户报"resty 起不来"/"Lua 脚本不生效"/"动态路由没切过去"/"WAF 拦了正常请求"/"想用 Lua 做鉴权但不知道从哪下手"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看服务状态** → `service_status(server, "openresty")`（编译版可能注册成 `nginx` unit，两个都试；任何档位放行）。
 - **看错误日志** → `tail_log(server, "/usr/local/openresty/nginx/logs/error.log")`（Lua 编译错都写这里）。
@@ -24,7 +24,7 @@ dangerous_commands:
 - ⚠️ **铁律：`sftp_write` 改完，先 `ssh_exec sudo nginx -t` 校验通过，再 reload**。OpenResty 的坑更深——`nginx -t` 过了 reload 仍可能因 **Lua 运行时错**让新 worker 全退（命中坏 worker 报 502），所以 reload 后必须 `tail_log` error.log 确认 worker 起来了。
 - ⚠️ `sudo nginx -t` / `sudo nginx -s reload` / `sudo systemctl reload` 含 sudo 会触发**用户审批**——提前告知用户，被拒后不要原样重试。
 
-> 改配置前先把现配置 `sftp_read` 出来留底（或落 `~/.reeve/backups`），reload 翻车能整文件 `sftp_write` 回滚。
+> 改配置前先把现配置 `sftp_read` 出来留底（或落 `~/.tauri-ssh/backups`），reload 翻车能整文件 `sftp_write` 回滚。
 
 ## 第一步：服务和配置语法
 

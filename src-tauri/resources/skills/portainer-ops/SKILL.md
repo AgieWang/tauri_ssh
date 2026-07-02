@@ -14,22 +14,22 @@ dangerous_commands:
 
 适用：用户用 Portainer 管理多 Docker 节点 / Swarm / K8s；想"装 portainer"/"忘了 admin 密码"/"加新 endpoint"/"备份"/"装 agent"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看 docker 是否在跑**（portainer 是容器，daemon 挂了它也起不来）→ `service_status(server, "docker")`（任何档位放行）。
 - **查面板/agent 端口** → `port_check(server, 9443)`（Web UI）/ `port_check(server, 9001)`（agent）。
 - **看 portainer 容器日志** → `tail_log(server, "/var/lib/docker/containers/<id>/<id>-json.log")`，或 `ssh_exec docker logs --tail 200 portainer`（只读判定）。
 - ⚠️ 装 portainer 的 `docker run`、`docker rm`、备份恢复、重置密码这些都是写操作，会触发**用户审批**——提前告知用户，被拒后不要原样重试。
 
-## ⛔ 装机：**禁止用 `install_with_secret`**（后端硬拒）
+## ⛔ 装机：**禁止用 `临时自定义脚本`**（后端硬拒）
 
-Reeve 后端 `KIND_BLOCKLIST` 把 `portainer` 列在禁止列表（同 1panel/baota/aapanel）—— **理由**：Portainer **首次访问 https://<host>:9443 时由用户在浏览器创建 admin**，不接受外部传入的 username/password，你在 `public` 里塞的账号不会被识别，会原封不动写进 vault 误导用户。
+Tauri SSH 后端 `KIND_BLOCKLIST` 把 `portainer` 列在禁止列表（同 1panel/baota/aapanel）—— **理由**：Portainer **首次访问 https://<host>:9443 时由用户在浏览器创建 admin**，不接受外部传入的 username/password，你在 `public` 里塞的账号不会被识别，会原封不动写进 vault 误导用户。
 
 **正确做法**：
 
 1. 用 `ssh_exec` 跑下面第一步的 docker run 命令装 portainer
 2. 告诉用户「打开 https://<host>:9443，**5 分钟内**创建第一个 admin 账号」（错过窗口要 `docker restart portainer` 重新打开）
-3. 用户创建完账号后，**他自己**通过 Reeve「服务凭据」页手动新增一条 portainer 凭据（kind 用通用的 `"web_admin"` 或 `"portainer"`，**不带 `_conn` 后缀**）—— 不要让 AI 替用户填密码
+3. 用户创建完账号后，**他自己**通过 Tauri SSH「安全凭证」页手动新增一条 portainer 凭据（kind 用通用的 `"web_admin"` 或 `"portainer"`，**不带 `_conn` 后缀**）—— 不要让 AI 替用户填密码
 
 > 同理：用户问"装个 portainer" → AI 应该装 + 提示首次访问步骤，**绝不**自己生成密码塞过去；问"重置 admin 密码" → 见下方"忘密码"章节。
 
@@ -126,12 +126,12 @@ Stack 操作：
 
 UI 「Settings → General → Backup」直接下载 tar.gz（含数据库 + 加密的所有节点凭据）。
 
-CLI（容器跑）—— 备份产物统一落 Reeve 工作区 `~/.reeve/backups`（别散落当前目录/`/tmp`）：
+CLI（容器跑）—— 备份产物统一落 Tauri SSH 工作区 `~/.tauri-ssh/backups`（别散落当前目录/`/tmp`）：
 
 ```bash
-mkdir -p ~/.reeve/backups
+mkdir -p ~/.tauri-ssh/backups
 docker run --rm -v portainer_data:/data alpine \
-    tar czf - -C /data . > ~/.reeve/backups/portainer-backup-$(date +%F).tgz
+    tar czf - -C /data . > ~/.tauri-ssh/backups/portainer-backup-$(date +%F).tgz
 ```
 
 ### 恢复
@@ -217,17 +217,17 @@ Portainer 的 RBAC：
 | 改 portainer 端口（9000/9443） + 防火墙不同步 | **管理员被锁外** |
 | Stack Delete 含 volume 的 stack | 数据卷可能一起被删（按 compose 设计） |
 
-## 卸载后清理 Reeve 凭据登记
+## 卸载后清理 Tauri SSH 凭据登记
 
-跑完真正的卸载（`docker rm -fv portainer && docker volume rm portainer_data`）后，**调一次 `delete_installed_service`** 把 Reeve 这边登记的 portainer 凭据登记也清掉。
+跑完真正的卸载（`docker rm -fv portainer && docker volume rm portainer_data`）后，**调一次 `delete_secure_credential`** 把 Tauri SSH 这边登记的 portainer 凭据登记也清掉。
 
 ```
-1. list_installed_services({ server: "<别名>" }) → 找 kind === "portainer" 的 id
+1. list_secure_credentials → 找 kind === "portainer" 的 id
 2. （卸载远端）→ exit 0
-3. delete_installed_service({ vaultId: "<上一步 id>" })
+3. delete_secure_credential({ credentialKey: "<上一步 id>" })
 ```
 
-⚠️ 顺序：先卸再删；trusted 档 AI 自治，其他档暂为 denied → 让用户在「服务凭据」页手动删。
+⚠️ 顺序：先卸再删；trusted 档 AI 自治，其他档暂为 denied → 让用户在「安全凭证」页手动删。
 
 ## 教训
 

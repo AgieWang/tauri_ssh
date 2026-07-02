@@ -11,11 +11,11 @@ dangerous_commands:
 
 # ollama-vllm —— 本地 LLM 部署
 
-适用：用户想"自托管开源 LLM"/"接 Reeve 内置对话页"/"装 ollama 跑 llama / qwen / deepseek"/"vLLM 高性能服务"。
+适用：用户想"自托管开源 LLM"/"接 Tauri SSH 内置对话页"/"装 ollama 跑 llama / qwen / deepseek"/"vLLM 高性能服务"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 Ollama 优先用 `install_app(server, "ollama")`**（Ollama 在 Reeve 应用商店目录里，另有 `open-webui`）——应用商店同款：进「容器/编排」台账、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` 仅作教学 / 自定义（如 GPU/vLLM，目录里没有）fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装 Ollama 优先用 `install_deployment_image_store_app（镜像商店应用 "ollama"）`**（Ollama 在 Tauri SSH 镜像商店目录里，另有 `open-webui`）——镜像商店同款：进「容器/编排」记录、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` 仅作教学 / 自定义（如 GPU/vLLM，目录里没有）fallback（手装的**不进记录、工作台看不到**）。
 
 - **看推理服务状态** → Ollama 用 `service_status(server, "ollama")`；vLLM 多为 docker 容器，用 `ssh_exec(server, "docker ps --filter name=vllm")`（任何档位放行的 `service_status` 不覆盖容器）。
 - **看推理日志** → systemd Ollama：`ssh_exec(server, "journalctl -u ollama -n 200 --no-pager")`；vLLM 容器：`ssh_exec(server, "docker logs --tail 200 vllm")`；落了文件就 `tail_log(server, "<path>")`（任何档位放行）。
@@ -88,7 +88,7 @@ curl http://localhost:11434/v1/chat/completions \
     }'
 ```
 
-> 在 Reeve「LLM Profile」里配 endpoint = `http://<host>:11434/v1`，base = openai-compatible，key 随便填即可。
+> 在 Tauri SSH「LLM Profile」里配 endpoint = `http://<host>:11434/v1`，base = openai-compatible，key 随便填即可。
 
 ### 自定义模型（Modelfile）
 
@@ -266,4 +266,4 @@ Ollama 没原生 metrics endpoint；用 nvidia-smi / DCGM exporter 看 GPU。
 - 量化首选顺序：`AWQ ≈ GPTQ > GGUF q4_K_M > FP16`；4-bit 量化质量损失通常 < 5%。
 - Ollama 模型版本约定：`<name>:<size>[-<quant>]`；同名版本 `pull` 会覆盖；想固定版本用 digest。
 - 大于 70B 模型**单卡跑不动**，至少 2×80GB（A100/H100）+ tensor parallel；预算有限优先量化（72B → AWQ 4bit ≈ 40GB）。
-- Reeve 的「LLM Profile」可以同时配多个 endpoint —— 调试用 Ollama，生产切 vLLM 不用动代码。
+- Tauri SSH 的「LLM Profile」可以同时配多个 endpoint —— 调试用 Ollama，生产切 vLLM 不用动代码。

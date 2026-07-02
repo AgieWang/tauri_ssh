@@ -1551,6 +1551,7 @@ pub struct ListResourceAlertEventsInput {
 pub struct SystemSettings {
     pub theme: String,
     pub auto_update: bool,
+    pub mcp_enabled: bool,
     pub launch_on_startup: bool,
     pub audit_retention_days: i64,
     pub log_level: String,
@@ -1568,6 +1569,8 @@ pub struct SystemSettings {
 pub struct UpdateSystemSettingsInput {
     pub theme: String,
     pub auto_update: bool,
+    #[serde(default = "default_mcp_enabled_setting")]
+    pub mcp_enabled: bool,
     pub launch_on_startup: bool,
     pub audit_retention_days: i64,
     pub log_level: String,
@@ -1599,6 +1602,10 @@ pub struct EnableAiUnrestrictedInput {
 pub struct SystemSettingsExportResult {
     pub file_name: String,
     pub content: String,
+}
+
+fn default_mcp_enabled_setting() -> bool {
+    !cfg!(debug_assertions)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1779,6 +1786,7 @@ pub struct McpServerStatus {
     pub streamable_http_url: String,
     pub stdio_command: String,
     pub stdio_args: Vec<String>,
+    pub enabled: bool,
     pub local_only: bool,
     pub http_reachable: bool,
     pub platform: String,

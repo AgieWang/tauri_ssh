@@ -27,8 +27,8 @@ struct McpClientTemplate {
 pub struct McpService;
 
 impl McpService {
-    pub fn overview() -> Result<McpOverview, AppError> {
-        let status = Self::status();
+    pub fn overview_with_enabled(enabled: bool) -> Result<McpOverview, AppError> {
+        let status = Self::status_with_enabled(enabled);
         Ok(McpOverview {
             clients: Self::clients()?,
             tools: Self::tools(),
@@ -38,23 +38,98 @@ impl McpService {
     }
 
     pub fn status() -> McpServerStatus {
+        Self::status_with_enabled(true)
+    }
+
+    pub fn status_with_enabled(enabled: bool) -> McpServerStatus {
         McpServerStatus {
             server_name: MCP_SERVER_KEY.into(),
             streamable_http_url: MCP_HTTP_URL.into(),
             // 用 mcp-remote 作为 stdio bridge，可兼容只支持 stdio 的 Agent 客户端。
             stdio_command: "npx".into(),
             stdio_args: vec!["-y".into(), "mcp-remote".into(), MCP_HTTP_URL.into()],
+            enabled,
             local_only: true,
-            http_reachable: tcp_reachable("127.0.0.1:17321"),
+            http_reachable: enabled && tcp_reachable("127.0.0.1:17321"),
             platform: std::env::consts::OS.into(),
-            notes: vec![
-                "端点仅监听 127.0.0.1，不直接暴露公网。".into(),
-                "仅覆盖客户端配置中的 tauri-ssh 条目，写入前会备份原配置文件。".into(),
-                "仅支持本地 Streamable HTTP；stdio 客户端通过 mcp-remote 桥接。".into(),
-            ],
+            notes: mcp_status_notes(enabled),
         }
     }
 
+    pub fn disabled_error_message() -> &'static str {
+        "MCP 功能已在系统设置中关闭"
+    }
+
+    pub fn disabled_json_rpc_error(id: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": -32001,
+                "message": Self::disabled_error_message()
+            }
+        })
+    }
+
+    pub fn disabled_info() -> serde_json::Value {
+        serde_json::json!({
+            "name": MCP_SERVER_KEY,
+            "protocol": "mcp",
+            "transport": "streamable-http",
+            "enabled": false,
+            "localOnly": true,
+            "message": Self::disabled_error_message()
+        })
+    }
+
+    pub fn enabled_info() -> serde_json::Value {
+        serde_json::json!({
+            "name": MCP_SERVER_KEY,
+            "protocol": "mcp",
+            "transport": "streamable-http",
+            "enabled": true,
+            "localOnly": true,
+            "methods": ["initialize", "tools/list", "tools/call"]
+        })
+    }
+
+    pub fn status_for_tool(enabled: bool) -> McpServerStatus {
+        Self::status_with_enabled(enabled)
+    }
+
+    pub fn is_enabled_note(enabled: bool) -> &'static str {
+        if enabled {
+            "MCP Server 已开启。"
+        } else {
+            "MCP Server 已关闭；可在系统设置中开启。"
+        }
+    }
+
+    pub fn is_enabled_policy_text(enabled: bool) -> &'static str {
+        if enabled {
+            "系统设置已允许 MCP 调用。"
+        } else {
+            "系统设置已关闭 MCP 调用。"
+        }
+    }
+}
+
+fn mcp_status_notes(enabled: bool) -> Vec<String> {
+    let mut notes = vec![
+        McpService::is_enabled_note(enabled).into(),
+        McpService::is_enabled_policy_text(enabled).into(),
+    ];
+    if enabled {
+        notes.extend([
+            "端点仅监听 127.0.0.1，不直接暴露公网。".into(),
+            "仅覆盖客户端配置中的 tauri-ssh 条目，写入前会备份原配置文件。".into(),
+            "仅支持本地 Streamable HTTP；stdio 客户端通过 mcp-remote 桥接。".into(),
+        ]);
+    }
+    notes
+}
+
+impl McpService {
     pub fn clients() -> Result<Vec<McpClientConfig>, AppError> {
         client_templates()
             .iter()

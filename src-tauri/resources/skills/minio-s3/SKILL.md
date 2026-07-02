@@ -16,9 +16,9 @@ dangerous_commands:
 
 适用：自建对象存储替代 S3；想"装 minio"/"装 mc 客户端"/"用 minio 给 GitLab/Loki/备份做存储"/"配置 lifecycle / replication"/"权限管理"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 MinIO 优先用 `install_app(server, "minio")`**（MinIO 在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码（AccessKey/SecretKey）托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装 MinIO 优先用 `install_deployment_image_store_app（镜像商店应用 "minio"）`**（MinIO 在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码（AccessKey/SecretKey）托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -30,8 +30,8 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**；改 `docker-compose.yml` / env 走 `sftp_read`+`sftp_write`（无 shell 转义坑），写完 `ssh_exec docker compose up -d`。后文 `mc` 命令仅在工具不够用时走 `ssh_exec`。
 
-⚠️ 含 `sudo` / `mc rb` / `mc rm --recursive` 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
-> 本地导出/备份对象（`mc cp` 拉到本机临时盘、`mc mirror` 落地、restic/borg 还原产物）统一落 **`~/.reeve/backups`** 或 **`~/.reeve/tmp`**（Reeve 远程统一工作区），**不要臆造 `/data/backup`、`/mnt/backup` 等可能不存在的路径**。
+⚠️ 含 `sudo` / `mc rb` / `mc rm --recursive` 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
+> 本地导出/备份对象（`mc cp` 拉到本机临时盘、`mc mirror` 落地、restic/borg 还原产物）统一落 **`~/.tauri-ssh/backups`** 或 **`~/.tauri-ssh/tmp`**（Tauri SSH 远程统一工作区），**不要臆造 `/data/backup`、`/mnt/backup` 等可能不存在的路径**。
 
 ## 第一步：部署形态
 
@@ -54,7 +54,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: <强密码>           # ⚠️ 必改 + 进敏感库
+      MINIO_ROOT_PASSWORD: <强密码>           # ⚠️ 必改 + 进凭据保险库
       MINIO_BROWSER_REDIRECT_URL: https://minio-console.example.com
       MINIO_SERVER_URL: https://minio.example.com
     ports:
@@ -64,7 +64,7 @@ services:
       - /data/minio:/data
 ```
 
-> ⚠️ `MINIO_ROOT_PASSWORD` **8 位以上**且改默认；首次启动 1Panel 类面板会显示一次密码，**Reeve 敏感库**会自动捕获。
+> ⚠️ `MINIO_ROOT_PASSWORD` **8 位以上**且改默认；首次启动 1Panel 类面板会显示一次密码，**Tauri SSH 凭据保险库**会自动捕获。
 
 ### Distributed 部署示例（4 节点，每节点 4 盘）
 

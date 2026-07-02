@@ -1,14 +1,14 @@
 ---
 name: redis-tools
-description: Reeve Redis 直连工具 redis_get / redis_set / redis_del / redis_scan / redis_exec —— 通过已登记的 redis_conn 凭据安全操作 Redis，密码加密 + 危险命令永久拦截。
+description: Tauri SSH Redis 直连工具 redis_get / redis_set / redis_del / redis_scan / redis_exec —— 通过已登记的 redis_conn 凭据安全操作 Redis，密码加密 + 危险命令永久拦截。
 触发词: redis, 缓存, redis 查询, redis 写入, redis 删除, KEYS, SCAN, GET, SET, HGETALL, LRANGE, ZRANGE, INFO, 慢日志, slowlog, redis 密码, redis 连接, redis_get, redis_set, redis_del, redis_scan, redis_exec, 看 redis, 查 redis, 取 key, 写 key, 删 key, 扫 key, 看 key, redis 直连, 不用 ssh 跑 redis, redis ttl, expire, hash 字段, list 元素, zset 排名
 dangerous_commands:
-  # AI 经 redis_exec 跑的 pseudo command 形如 "[reeve-internal] redis_exec <args...>"。这里加一些
+  # AI 经 redis_exec 跑的 pseudo command 形如 "[tauri-ssh-internal] redis_exec <args...>"。这里加一些
   # 跟主防线（redis_exec.rs::check_dangerous_redis）独立的补充模式，trusted 档也挡住。
-  - '(?i)\[reeve-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bFLUSHALL\b'
-  - '(?i)\[reeve-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bFLUSHDB\b'
-  - '(?i)\[reeve-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bSHUTDOWN\b'
-  - '(?i)\[reeve-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bCONFIG\s+(?:SET|RESETSTAT)\b'
+  - '(?i)\[tauri-ssh-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bFLUSHALL\b'
+  - '(?i)\[tauri-ssh-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bFLUSHDB\b'
+  - '(?i)\[tauri-ssh-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bSHUTDOWN\b'
+  - '(?i)\[tauri-ssh-internal\]\s+redis_(?:exec|set|del)\s+[^\n]*\bCONFIG\s+(?:SET|RESETSTAT)\b'
 ---
 
 # redis-tools —— Redis 直连工具
@@ -16,13 +16,13 @@ dangerous_commands:
 ## 🤖 适用场景
 
 用户问"看下 Redis 里 user:42 的值"、"清缓存"、"统计有多少 session"、"批量删过期 key"、"查 INFO" ……
-**只要用户在 Reeve 登记过 redis_conn 凭据，AI 都应该用 redis_* 工具，而不是 `ssh_exec redis-cli ...`**。
+**只要用户在 Tauri SSH 登记过 redis_conn 凭据，AI 都应该用 redis_* 工具，而不是 `ssh_exec redis-cli ...`**。
 
 ## 🔴 为什么不用 ssh_exec + redis-cli？
 
 | 坑 | redis_* 工具（推荐） | ssh_exec redis-cli |
 |----|---------------------|--------------------|
-| 密码暴露 | 永远在加密金库；AI 看不到 | `-a <pwd>` 留 shell 历史 / ps |
+| 密码暴露 | 永远在凭据保险库；AI 看不到 | `-a <pwd>` 留 shell 历史 / ps |
 | 结果格式 | 结构化 JSON（含 nil / 数组 / map） | 文本难解析 |
 | 危险命令拦截 | 永久黑名单 + 出口审计 | 完全裸跑（FLUSHALL 就没了） |
 | KEYS 阻塞坑 | 内置 SCAN，不让你用 KEYS * | redis-cli KEYS * 会阻塞生产 |
@@ -31,11 +31,11 @@ dangerous_commands:
 ## 用前必读：先查可用凭据
 
 ```text
-list_installed_services() → 筛 kind="redis_conn"
+list_database_connections() → 筛 kind="redis_conn"
 拿 label 或 id（vs_xxx）作为 `credential` 参数
 ```
 
-如果用户没登记，引导他去「服务凭据」页"+ 新建 DB 凭据"选 Redis kind。
+如果用户没登记，引导他去「安全凭证」页"+ 新建 DB 凭据"选 Redis kind。
 
 ## 工具一览
 
@@ -123,7 +123,7 @@ list_installed_services() → 筛 kind="redis_conn"
 
 | 现象 | 排查 |
 |------|------|
-| 连接超时（5s） | host/port 不可达 → 让用户在「服务凭据」页点"测试连接"验证 |
+| 连接超时（5s） | host/port 不可达 → 让用户在「安全凭证」页点"测试连接"验证 |
 | NOAUTH Authentication required | 密码错；reveal password 字段对比 |
 | MOVED / ASK / CLUSTERDOWN | 是 Redis Cluster，单 endpoint 不能跨槽访问 |
 | `[binary:Nb]` 占位 | value 是二进制，不是 UTF-8；用 redis_exec + 对应命令显式处理 |

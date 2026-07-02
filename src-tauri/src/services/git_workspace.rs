@@ -15,6 +15,7 @@ use crate::models::{
     UpsertGitWorkspaceInput,
 };
 use crate::services::ai_provider::AiProviderService;
+use crate::services::secure_credential::SecureCredentialService;
 use crate::state::AppState;
 use std::collections::HashMap;
 use tauri::Manager;
@@ -270,7 +271,14 @@ impl GitWorkspaceService {
         let workspace = load_workspace(db, workspace_key)?;
         let repo = Path::new(&workspace.repo_path);
         ensure_git_repo(repo)?;
-        git_command_output(repo, &["pull", "--ff-only"], Duration::from_secs(90)).await?;
+        git_command_output_with_workspace_credential(
+            db,
+            &workspace,
+            repo,
+            &["pull", "--ff-only"],
+            Duration::from_secs(90),
+        )
+        .await?;
         Self::refresh(db, &workspace.workspace_key).await
     }
 
@@ -300,14 +308,23 @@ impl GitWorkspaceService {
         .await
         .unwrap_or_default();
         if upstream.trim().is_empty() {
-            git_command_output(
+            git_command_output_with_workspace_credential(
+                db,
+                &workspace,
                 repo,
                 &["push", "-u", "origin", branch.as_str()],
                 Duration::from_secs(120),
             )
             .await?;
         } else {
-            git_command_output(repo, &["push"], Duration::from_secs(120)).await?;
+            git_command_output_with_workspace_credential(
+                db,
+                &workspace,
+                repo,
+                &["push"],
+                Duration::from_secs(120),
+            )
+            .await?;
         }
         Self::refresh(db, &workspace.workspace_key).await
     }
@@ -875,18 +892,31 @@ async fn run_git_output(
     args: &[&str],
     duration: Duration,
 ) -> Result<String, AppError> {
-    let output = timeout(
-        duration,
-        Command::new("git")
-            .args(args)
-            .current_dir(repo)
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Custom(format!("git {:?} 执行超时", args)))??;
+    run_git_output_with_env(repo, args, duration, &[], &[]).await
+}
+
+async fn run_git_output_with_env(
+    repo: &Path,
+    args: &[&str],
+    duration: Duration,
+    envs: &[(&str, String)],
+    sensitive_values: &[String],
+) -> Result<String, AppError> {
+    let mut command = Command::new("git");
+    command
+        .args(args)
+        .current_dir(repo)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .kill_on_drop(true);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = timeout(duration, command.output())
+        .await
+        .map_err(|_| AppError::Custom(format!("git {:?} 执行超时", args)))??;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let message = redact_git_sensitive_message(&message, sensitive_values);
         return Err(AppError::Custom(if message.is_empty() {
             format!("git {:?} 执行失败", args)
         } else {
@@ -902,6 +932,35 @@ async fn git_command_output(
     duration: Duration,
 ) -> Result<String, AppError> {
     run_git_output(repo, args, duration).await
+}
+
+async fn git_command_output_with_workspace_credential(
+    db: &Database,
+    workspace: &GitWorkspace,
+    repo: &Path,
+    args: &[&str],
+    duration: Duration,
+) -> Result<String, AppError> {
+    let credential_key = workspace.credential_key.trim();
+    if credential_key.is_empty() {
+        return git_command_output(repo, args, duration).await;
+    }
+
+    let credential = db
+        .get_secure_credential(credential_key)?
+        .ok_or_else(|| AppError::NotFound(format!("安全凭证 '{}' 不存在", credential_key)))?;
+    validate_git_workspace_credential(&credential)?;
+    let secret = SecureCredentialService::get_secret(db, credential_key)?;
+    let username = git_username_for_credential(&credential);
+    let askpass = write_git_workspace_askpass_script()?;
+    let envs = vec![
+        ("GIT_ASKPASS", askpass.to_string_lossy().to_string()),
+        ("GIT_WORKSPACE_USERNAME", username),
+        ("GIT_WORKSPACE_TOKEN", secret.clone()),
+    ];
+    let result = run_git_output_with_env(repo, args, duration, &envs, &[secret]).await;
+    let _ = fs::remove_file(&askpass);
+    result
 }
 
 async fn git_commit(repo: &Path, message: &str) -> Result<(), AppError> {
@@ -1089,6 +1148,75 @@ fn normalize_remote_host(value: &str) -> Option<String> {
         .trim()
         .to_lowercase();
     (!host.is_empty()).then_some(host)
+}
+
+fn validate_git_workspace_credential(credential: &SecureCredential) -> Result<(), AppError> {
+    if !credential.enabled || credential.status != "active" {
+        return Err(AppError::InvalidInput(format!(
+            "安全凭证 '{}' 当前不可用",
+            credential.credential_key
+        )));
+    }
+    if !credential.has_secret {
+        return Err(AppError::InvalidInput(format!(
+            "安全凭证 '{}' 未保存密钥内容",
+            credential.credential_key
+        )));
+    }
+    if !["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str()) {
+        return Err(AppError::InvalidInput(format!(
+            "安全凭证 '{}' 不是 Git Provider 凭证",
+            credential.credential_key
+        )));
+    }
+    Ok(())
+}
+
+fn git_username_for_credential(credential: &SecureCredential) -> String {
+    let account_name = credential.account_name.trim();
+    if !account_name.is_empty() {
+        return account_name.to_string();
+    }
+    match credential.provider.as_str() {
+        "github" => "x-access-token",
+        "gitlab" | "gitcode" | "gitee" => "oauth2",
+        _ => "git",
+    }
+    .into()
+}
+
+fn write_git_workspace_askpass_script() -> Result<PathBuf, AppError> {
+    let path = std::env::temp_dir().join(format!(
+        "tauri-ssh-git-workspace-askpass-{}-{}.{}",
+        std::process::id(),
+        chrono::Local::now().timestamp_millis(),
+        if cfg!(windows) { "bat" } else { "sh" }
+    ));
+    let content = if cfg!(windows) {
+        "@echo off\r\necho %1 | findstr /I \"Username\" >NUL\r\nif %ERRORLEVEL%==0 (\r\n  echo %GIT_WORKSPACE_USERNAME%\r\n) else (\r\n  echo %GIT_WORKSPACE_TOKEN%\r\n)\r\n"
+    } else {
+        "#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' \"$GIT_WORKSPACE_USERNAME\" ;;\n  *) printf '%s\\n' \"$GIT_WORKSPACE_TOKEN\" ;;\nesac\n"
+    };
+    fs::write(&path, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path)?.permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&path, permissions)?;
+    }
+    Ok(path)
+}
+
+fn redact_git_sensitive_message(message: &str, sensitive_values: &[String]) -> String {
+    let mut output = sanitize_remote_url(message);
+    for value in sensitive_values {
+        let value = value.trim();
+        if !value.is_empty() {
+            output = output.replace(value, "***");
+        }
+    }
+    output
 }
 
 fn parse_ahead_behind(value: &str) -> (i64, i64) {

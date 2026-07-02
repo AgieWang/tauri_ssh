@@ -14,7 +14,7 @@ dangerous_commands:
 
 适用：用户报"redis 内存炸了"/"接口慢都是 redis 拖的"/"主从切完了没同步上"/"忘了 requirepass"/"想备份单库"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - 🔴 **数据 CRUD（GET/SET/DEL/SCAN/HGETALL/慢日志查询等）走 `redis_*` 工具**（`redis_get` / `redis_set` / `redis_del` / `redis_scan` / `redis_exec`，详见 **redis-tools** 技能）——密码不进 shell history、SCAN 不阻塞、`FLUSHALL`/`CONFIG`/`SHUTDOWN` 在 executor 永久拦。**别用 `ssh_exec redis-cli` 去读写 key**。
 - **本技能讲的是服务端运维**（redis.conf 配置、RDB/AOF 持久化、主从/哨兵/Cluster 拓扑、内存淘汰/maxmemory 调优）——这些不是数据 CRUD，走 `sftp_*` + `ssh_exec`：
@@ -25,20 +25,20 @@ dangerous_commands:
 
 ⚠️ 写操作、`sudo` 重启会触发**用户审批**——提前告知用户，被拒后不要原样重试。
 
-## ⭐ 装机：`install_app(server, "redis")` 一把过（应用商店同款，进台账）
+## ⭐ 装机：`install_deployment_image_store_app（镜像商店应用 "redis"）` 一把过（镜像商店同款，进记录）
 
 ### 装前**强制**探测（避免重复装/撞端口）
-1. MCP `list_installed_services` 查现有 `redis_conn`——🔴 **Redis 是全机共享设施，已装就复用、别重复装**。
+1. MCP `list_database_connections` 查现有 `redis_conn`——🔴 **Redis 是全机共享设施，已装就复用、别重复装**。
 2. 端口 6379 是否占用（`port_check`）。
 
-🔴 **装 Redis 一律用 `install_app`**——Redis 在 Reeve 应用商店目录里，`install_app` = 应用商店 UI 同款：密码 Reeve 生成并**同步进容器+凭据库（两边一致、必连得上）**、容器 `reeve-redis`、绑 `127.0.0.1`、compose 落 `/opt/reeve/stacks/redis`、**自动登记 `redis_conn` 凭据带 SSH 隧道**（「数据库→Redis」页即装即连）。
+🔴 **装 Redis 一律用 `install_deployment_image_store_app`**——Redis 在 Tauri SSH 镜像商店目录里，`install_deployment_image_store_app` = 镜像商店 UI 同款：密码 Tauri SSH 生成并**同步进容器+安全凭证库（两边一致、必连得上）**、容器 `tauri-ssh-redis`、绑 `127.0.0.1`、compose 落 `/opt/tauri-ssh/stacks/redis`、**生成对应数据库管理连接，凭据由后端加密保存**（「数据库→Redis」页即装即连）。
 
 ```json
-{ "tool": "install_app", "args": { "server": "<别名>", "app": "redis" } }
+{ "tool": "install_deployment_image_store_app", "args": { "serverAlias": "<别名>", "appKey": "redis" } }
 ```
 可选 `version` / `port`（默认 6379）。label 通用名 `Redis`，第二个项目共用同一套。
 
-> ⛔ **别用 `install_with_secret` 手写 docker-compose 装 Redis**——手写易致"存的密码≠容器密码"（工作台连不上）、容器命名/路径不规范。`install_with_secret` 只留给应用商店目录里没有的自定义服务。
+> ⛔ **别用 `自定义部署脚本` 手写 docker-compose 装 Redis**——手写易致"存的密码≠容器密码"（工作台连不上）、容器命名/路径不规范。`自定义部署脚本` 只留给镜像商店目录里没有的自定义服务。
 
 ## 第一步：连接和健康
 
@@ -118,7 +118,7 @@ redis-cli LASTSAVE                           # 上次成功 RDB 的 unix 时间�
 redis-cli BGSAVE
 # 2) 等到 LASTSAVE 时间戳变化
 redis-cli LASTSAVE
-# 3) 拷走 dump.rdb（用 Reeve SFTP）
+# 3) 拷走 dump.rdb（用 Tauri SSH SFTP）
 ls -lh "$(redis-cli CONFIG GET dir | tail -n1)/dump.rdb"
 ```
 

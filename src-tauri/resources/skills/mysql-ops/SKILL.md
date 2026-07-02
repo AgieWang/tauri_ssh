@@ -17,7 +17,7 @@ dangerous_commands:
 
 适用：用户报"装一个 mysql / 数据库连不上 / 慢死 / 锁住了 / 主从延迟大 / 想备份恢复 / 改用户密码 / 看 binlog"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -29,19 +29,19 @@ dangerous_commands:
 | 查 3306 端口监听 | `port_check(server, 3306)` | ss -tlnH |
 | 改 my.cnf | `sftp_read` 看现状 + `sftp_write` 整文件写 | vi / sed -i |
 
-`credential` = Reeve 登记的 DB 凭据 label 或 vault_id（kind=`mysql_conn`，经 `list_installed_services` 筛）。
+`credential` = Tauri SSH 登记的 DB 数据库连接 label 或 credential_key（kind=`mysql_conn`，经 `list_database_connections` 筛）。
 
-🔴 **AI 查/改 MySQL 数据，优先 `db_*` 工具而非 `ssh_exec mysql -e`**，理由：① 密码不进 shell history / `ps`（`db_*` 由 Reeve 后端注入解密凭据）；② 结构化结果（带列名/类型），不用解析文本；③ 危险 SQL 自动拦（见下）；④ 出口脱敏。`db_query` 只读（仅 SELECT/WITH），**readonly 档也放行**。
-- 🛑 **executor 硬拦截**（任何档位永久 blocked）：`DROP` / `TRUNCATE` / 无 WHERE 的 `UPDATE`/`DELETE` —— 这些被 `db_*` 拒掉是 Reeve 的安全设计，不要绕道改用 `ssh_exec mysql -e` 去执行，那是越权。
+🔴 **AI 查/改 MySQL 数据，优先 `db_*` 工具而非 `ssh_exec mysql -e`**，理由：① 密码不进 shell history / `ps`（`db_*` 由 Tauri SSH 后端注入解密凭据）；② 结构化结果（带列名/类型），不用解析文本；③ 危险 SQL 自动拦（见下）；④ 出口脱敏。`db_query` 只读（仅 SELECT/WITH），**readonly 档也放行**。
+- 🛑 **executor 硬拦截**（任何档位永久 blocked）：`DROP` / `TRUNCATE` / 无 WHERE 的 `UPDATE`/`DELETE` —— 这些被 `db_*` 拒掉是 Tauri SSH 的安全设计，不要绕道改用 `ssh_exec mysql -e` 去执行，那是越权。
 - **服务端运维**（启停 mysqld、改 my.cnf、主从复制配置、mysqldump 备份、慢日志开关）仍走 `service_status` / `sftp_*` / `ssh_exec`——这些不是 SQL，`db_*` 不覆盖。
 
-⚠️ 含 `sudo` 或写操作的命令会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ 含 `sudo` 或写操作的命令会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 ## 🤖 安装 MySQL（AI 应该自己装，不让用户去 Web UI 点）
 
 ### Step 0：问用户版本偏好（强制）
 
-首次决定装 MySQL 时，**必须**先问用户。Reeve 内置默认 **MySQL 8.4 LTS**。当前版本生命周期（2026 状态）：
+首次决定装 MySQL 时，**必须**先问用户。Tauri SSH 内置默认 **MySQL 8.4 LTS**。当前版本生命周期（2026 状态）：
 
 | 版本 | 类型 | 状态 | 推荐 |
 |------|------|------|------|
@@ -65,7 +65,7 @@ dangerous_commands:
 
 光看 `dpkg -l | grep mysql` 或 `systemctl is-active mysql` **远远不够** —— docker 容器形态的 MySQL 既不在 dpkg 也不在 systemd 里，漏检会撞端口。**必须四件套全跑**：
 
-1. **MCP `list_installed_services`**（不是 ssh_exec！）：查 Reeve「服务凭据」里有没有 `kind=mysql_conn` 的同主机记录。已存在 → 询问用户是「复用现有」还是「另装新实例」，**不要直接装第二份**。
+1. **MCP `list_database_connections`**（不是 ssh_exec！）：查 Tauri SSH「安全凭证」里有没有 `kind=mysql_conn` 的同主机记录。已存在 → 询问用户是「复用现有」还是「另装新实例」，**不要直接装第二份**。
 2. **`docker ps -a` 查容器**（覆盖 docker 路径）：
    ```bash
    docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' | grep -iE 'mysql|mariadb' || echo "no docker mysql"
@@ -82,8 +82,8 @@ dangerous_commands:
    ⚠️ **MySQL 容器的 `MYSQL_ROOT_PASSWORD` env 只在 data 卷为空时生效**！data 卷非空 = MySQL 复用旧数据 = root 密码沿用第一次初始化的那份。如果之前装过失败 → data 卷已被初始化 → vault 里存的"新生成密码"跟实际容器里的密码**对不上**，安装看似成功但「测试连接」必报 1045 access denied。
 
    data 卷非空时**必须**先跟用户确认：
-   - 「清空重装」→ `rm -rf <install_dir>/data` + 然后重新 `install_app(server,"mysql")`
-   - 「复用旧数据」→ 用户得提供旧密码（`install_app` 会生成新密码、对不上旧数据）→ 用 `save_credential` 把旧密码登记成 `mysql_conn`（密码经脱敏 vaultRef 传 `fieldsFromVault`）
+   - 「清空重装」→ `rm -rf <install_dir>/data` + 然后重新 `install_deployment_image_store_app（镜像商店应用 "mysql"）`
+   - 「复用旧数据」→ 用户得提供旧密码（`install_deployment_image_store_app` 会生成新密码、对不上旧数据）→ 用 `upsert_secure_credential` 把旧密码登记成 `mysql_conn`（密码由后端加密保存，不向 AI 回显明文）
    - 默认走「清空重装」（绝大多数场景都是装失败 + 想重来）
 
 ### 路线决策（按已有环境从上到下选）
@@ -99,7 +99,7 @@ dangerous_commands:
 ### 路线 B：纯 Docker（无 1Panel）—— AI 自动跑
 
 ```bash
-# 1. 生成强密码（输出会被 Reeve 敏感库捕获）
+# 1. 生成强密码（输出会被 Tauri SSH 凭据保险库捕获）
 MYSQL_PWD=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)
 echo "ROOT_PASSWORD=${MYSQL_PWD}"
 
@@ -178,18 +178,18 @@ performance_schema=OFF
 skip-name-resolve
 ```
 
-### ⭐ 推荐：用 `install_app(server, "mysql")` 一把过（应用商店同款，进台账）
+### ⭐ 推荐：用 `install_deployment_image_store_app（镜像商店应用 "mysql"）` 一把过（镜像商店同款，进记录）
 
-🔴 **装 MySQL 一律用 `install_app`**——MySQL 在 Reeve 应用商店目录里，`install_app` = 应用商店 UI 同款：密码 Reeve 生成并**同步进容器+凭据库（两边一致、必连得上）**、容器规范命名 `reeve-mysql`、绑 `127.0.0.1`、compose 落 `/opt/reeve/stacks/mysql`、**自动登记 `mysql_conn` 凭据并带 SSH 隧道**（「数据库」页即装即连）。
+🔴 **装 MySQL 一律用 `install_deployment_image_store_app`**——MySQL 在 Tauri SSH 镜像商店目录里，`install_deployment_image_store_app` = 镜像商店 UI 同款：密码 Tauri SSH 生成并**同步进容器+安全凭证库（两边一致、必连得上）**、容器规范命名 `tauri-ssh-mysql`、绑 `127.0.0.1`、compose 落 `/opt/tauri-ssh/stacks/mysql`、**生成 MySQL 数据库管理连接，凭据由后端加密保存**（「数据库」页即装即连）。
 
 ```json
-{ "tool": "install_app", "args": { "server": "<别名>", "app": "mysql" } }
+{ "tool": "install_deployment_image_store_app", "args": { "serverAlias": "<别名>", "appKey": "mysql" } }
 ```
-可选 `version`（如 `"8.4"`）/ `port`（默认 3306，绑 127.0.0.1）。MySQL 是**全机共享设施**：一台机装一套、label 通用名 `MySQL`、第二个项目复用同一套（在它上面建独立库账号，见 reeve-app-deploy 的 `compose.db`）。
+可选 `version`（如 `"8.4"`）/ `port`（默认 3306，绑 127.0.0.1）。MySQL 是**全机共享设施**：一台机装一套、label 通用名 `MySQL`、第二个项目复用同一套（在它上面建独立库账号，见 tauri-ssh-app-deploy 的 `serviceAccounts.database`）。
 
-> ⛔ **别再用 `install_with_secret` 手写 docker-compose 装 MySQL**——手写脚本极易出"存进凭据库的密码 ≠ 容器实际密码"（工作台连不上，本项目踩过的坑），且容器命名 / 路径不规范。`install_with_secret` 只留给**应用商店目录里没有的自定义服务**。
+> ⛔ **别再用 `自定义部署脚本` 手写 docker-compose 装 MySQL**——手写脚本极易出"存进安全凭证库的密码 ≠ 容器实际密码"（工作台连不上，本项目踩过的坑），且容器命名 / 路径不规范。`自定义部署脚本` 只留给**镜像商店目录里没有的自定义服务**。
 
-装完 AI 收到 `vault_id`，用户在「服务凭据」页 / 「数据库」页都能用。
+装完会生成数据库管理连接，用户在「数据库管理」页可直接测试和使用。
 
 ### 路线 C：原生 apt 安装（无 Docker）
 
@@ -209,7 +209,7 @@ dnf install -y mysql-server   # 实际可能是 mysql-community-server，要先�
 
 ### ⚠️ 关键：不要让用户去面板 UI 点
 
-用户即使有 1Panel，**AI 也直接用上面的 compose 在 `/opt/1panel/apps/mysql/<name>/` 里部署**，装完告诉用户「在 1Panel 容器页能看到」。**绝不要写**「请打开 1Panel 应用商店 → 搜索 MySQL → 点安装」这类把任务推回去给用户的话。
+用户即使有 1Panel，**AI 也直接用上面的 compose 在 `/opt/1panel/apps/mysql/<name>/` 里部署**，装完告诉用户「在 1Panel 容器页能看到」。**绝不要写**「请打开 1Panel 镜像商店 → 搜索 MySQL → 点安装」这类把任务推回去给用户的话。
 
 ## 第一步：连接
 
@@ -297,23 +297,23 @@ KILL <thread_id>;            -- 从 processlist / trx 表拿 id
 
 ### 逻辑备份（mysqldump）
 
-> 💾 **备份产物统一落 `~/.reeve/backups/`**（Reeve 远程工作区，便于统一管理 + 后续 SFTP 取回），别散落 `/tmp` 或臆造 `/data/backup`。先 `ssh_exec mkdir -p ~/.reeve/backups`。
+> 💾 **备份产物统一落 `~/.tauri-ssh/backups/`**（Tauri SSH 远程工作区，便于统一管理 + 后续 SFTP 取回），别散落 `/tmp` 或臆造 `/data/backup`。先 `ssh_exec mkdir -p ~/.tauri-ssh/backups`。
 
 ```bash
 # 单库
-mysqldump -u root -p --single-transaction --routines --triggers --events <db> > ~/.reeve/backups/<db>-$(date +%F).sql
+mysqldump -u root -p --single-transaction --routines --triggers --events <db> > ~/.tauri-ssh/backups/<db>-$(date +%F).sql
 
 # 多库
-mysqldump -u root -p --single-transaction --databases db1 db2 > ~/.reeve/backups/multi-$(date +%F).sql
+mysqldump -u root -p --single-transaction --databases db1 db2 > ~/.tauri-ssh/backups/multi-$(date +%F).sql
 
 # 全库（含 mysql 系统库）
-mysqldump -u root -p --all-databases --single-transaction --master-data=2 > ~/.reeve/backups/all-$(date +%F).sql
+mysqldump -u root -p --all-databases --single-transaction --master-data=2 > ~/.tauri-ssh/backups/all-$(date +%F).sql
 
 # 只导结构
-mysqldump -u root -p --no-data <db> > ~/.reeve/backups/<db>-schema.sql
+mysqldump -u root -p --no-data <db> > ~/.tauri-ssh/backups/<db>-schema.sql
 
 # 只导数据
-mysqldump -u root -p --no-create-info <db> > ~/.reeve/backups/<db>-data.sql
+mysqldump -u root -p --no-create-info <db> > ~/.tauri-ssh/backups/<db>-data.sql
 ```
 
 > ⚠️ `mysqldump ... > file.sql` 的 `>` 会**覆盖**同名文件——给文件名带日期（`$(date +%F)`）避免误覆盖昨天的备份。

@@ -14,14 +14,14 @@ dangerous_commands:
 
 适用：用户想"装 NFS 共享给多台 Linux"/"装 Samba 给 Windows 用户访问"/"挂载远程文件"/"挂了不通"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看服务状态** → `service_status(server, "nfs-server")` / `service_status(server, "smbd")`（任何档位放行，比 ssh_exec 稳）。
 - **查端口** → `port_check(server, 2049)`（NFSv4）/ `port_check(server, 445)`（SMB）；NFSv3 还会用到 111。
 - **看日志** → `tail_log(server, "/var/log/samba/log.smbd")`；NFS 走 `service_status` 自带的 systemctl 尾部，或 `ssh_exec journalctl -u nfs-server`。
 - **改配置** → 先 `sftp_read` 看 `/etc/exports` / `/etc/samba/smb.conf` 现状，再 `sftp_write` 整文件写（无 shell heredoc 转义坑），写完 `ssh_exec sudo exportfs -ra` / `ssh_exec sudo systemctl reload smbd`。
 - ⚠️ `sudo mount` / `exportfs -ra` / `systemctl restart` 等写操作会触发**用户审批**——提前告知用户，被拒后不要原样重试。
-> 临时挂载点（SSHFS / 验证用的 `mount` 目标）建议落 **`~/.reeve/tmp`**（Reeve 远程统一工作区），别散落 `/mnt/xxx` 等可能不存在的目录。
+> 临时挂载点（SSHFS / 验证用的 `mount` 目标）建议落 **`~/.tauri-ssh/tmp`**（Tauri SSH 远程统一工作区），别散落 `/mnt/xxx` 等可能不存在的目录。
 
 ## 对照
 

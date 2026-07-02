@@ -206,6 +206,48 @@ const credentialTypeOptions = [
   { label: "会话引用", value: "session_reference" },
 ];
 
+const scopeLabelMap = Object.values(scopeOptionsByProvider).reduce<Record<string, string>>((mapping, groups) => {
+  groups.forEach((group) => {
+    group.options.forEach((option) => {
+      mapping[option.value] = trimScopeValueFromLabel(option.label, option.value);
+    });
+  });
+  return mapping;
+}, {});
+
+function trimScopeValueFromLabel(label: string, value: string) {
+  const normalizedLabel = label.trim();
+  const normalizedValue = value.trim();
+  if (!normalizedValue) {
+    return normalizedLabel;
+  }
+  return normalizedLabel.endsWith(normalizedValue)
+    ? normalizedLabel.slice(0, -normalizedValue.length).trim()
+    : normalizedLabel;
+}
+
+function scopeLabel(scope: string) {
+  return scopeLabelMap[scope] ?? scope;
+}
+
+function localizedScopeOptions(provider: SecureCredentialProvider) {
+  return scopeOptionsByProvider[provider].map((group) => ({
+    ...group,
+    options: group.options.map((option) => ({
+      ...option,
+      label: trimScopeValueFromLabel(option.label, option.value),
+    })),
+  }));
+}
+
+function scopeTags(scopes: string[]) {
+  return scopes.map((scope) => (
+    <Tag key={scope} title={scope}>
+      {scopeLabel(scope)}
+    </Tag>
+  ));
+}
+
 const tagPresetOptions = [
   { label: "生产", value: "生产" },
   { label: "测试", value: "测试" },
@@ -624,7 +666,7 @@ export function SecureCredentialVaultPage() {
       title: "授权范围",
       dataIndex: "scopes",
       width: 180,
-      render: (scopes: string[]) => scopes.map((scope) => <Tag key={scope}>{scope}</Tag>),
+      render: scopeTags,
     },
     { title: "状态", dataIndex: "status", width: 100, render: statusTag },
     {
@@ -765,7 +807,7 @@ export function SecureCredentialVaultPage() {
           <Form.Item name="scopes" label="授权范围">
             <Select
               mode="tags"
-              options={scopeOptionsByProvider[selectedProvider ?? "github"]}
+              options={localizedScopeOptions(selectedProvider ?? "github")}
               optionFilterProp="label"
               placeholder="选择读写权限，也可输入自定义 scope"
             />
@@ -848,7 +890,7 @@ export function SecureCredentialSessionsPage() {
   const sessionScopeOptions = useMemo(
     () =>
       (selectedSessionCredential?.scopes ?? []).map((scope) => ({
-        label: scope,
+        label: scopeLabel(scope),
         value: scope,
       })),
     [selectedSessionCredential],
@@ -922,7 +964,7 @@ export function SecureCredentialSessionsPage() {
       title: "Scope",
       dataIndex: "scopes",
       width: 180,
-      render: (scopes: string[]) => scopes.map((scope) => <Tag key={scope}>{scope}</Tag>),
+      render: scopeTags,
     },
     { title: "状态", dataIndex: "status", width: 100, render: sessionStatusTag },
     { title: "过期时间", dataIndex: "expiresAt", width: 170 },

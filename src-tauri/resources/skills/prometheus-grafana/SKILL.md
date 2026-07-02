@@ -13,9 +13,9 @@ dangerous_commands:
 
 适用：用户报"想加监控"/"机器卡了不知道为啥（缺指标）"/"配 grafana dashboard"/"写告警规则"/"prometheus 占地方"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装监控栈优先用 `install_app(server, "grafana-stack")`**（Reeve 应用商店里有 Prometheus+Grafana 栈）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。
+> 🔴 **装监控栈优先用 `install_deployment_image_store_app（镜像商店应用 "grafana-stack"）`**（Tauri SSH 镜像商店里有 Prometheus+Grafana 栈）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run`/`compose` 仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -27,7 +27,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**。改配置走 `sftp_read`+`sftp_write`（无 shell heredoc 转义坑），写完用 `ssh_exec curl -X POST .../-/reload`（需 `--web.enable-lifecycle`）或重启容器生效。后文 `curl` / `amtool` / `docker` 命令仅在工具不够用时走 `ssh_exec`。
 
-⚠️ 重启服务 / 删 series / 改 retention 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ 重启服务 / 删 series / 改 retention 等写操作会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 ## 一、Prometheus 部署
 

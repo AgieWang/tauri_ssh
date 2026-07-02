@@ -8,6 +8,7 @@ export type SystemLanguage = "zh-CN" | "en-US";
 export interface SystemSettings {
   theme: ThemeMode;
   autoUpdate: boolean;
+  mcpEnabled: boolean;
   launchOnStartup: boolean;
   auditRetentionDays: number;
   logLevel: SystemLogLevel;

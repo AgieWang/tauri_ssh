@@ -14,7 +14,7 @@ dangerous_commands:
 
 适用：用户部署 Node 应用；想"装 node"/"切版本"/"用 pm2 守护进程"/"日志在哪"/"内存泄漏"/"零停机部署"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看 pm2 进程列表 / 应用状态** → 不需要 sudo（pm2 在用户态）：`ssh_exec(server, "pm2 jlist")`（JSON 输出，比 `pm2 list` 表格好解析）或 `ssh_exec(server, "pm2 status")`。若用 systemd 托管则 `service_status(server, "<app>")`（任何档位放行）。
 - **看应用日志** → `tail_log(server, "~/.pm2/logs/<app>-error.log")` / `tail_log(server, "~/.pm2/logs/<app>-out.log")`（任何档位放行，比 `pm2 logs` 实时流稳）；ecosystem 自定义了 `error_file`/`out_file` 就读那个路径。

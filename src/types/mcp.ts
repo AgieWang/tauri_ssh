@@ -3,6 +3,7 @@ export interface McpServerStatus {
   streamableHttpUrl: string;
   stdioCommand: string;
   stdioArgs: string[];
+  enabled: boolean;
   localOnly: boolean;
   httpReachable: boolean;
   platform: string;

@@ -15,9 +15,9 @@ dangerous_commands:
 
 适用：用户自建 Jenkins / GitLab Runner / Gitea Actions Runner；想"装 runner"/"作业卡 pending"/"workspace 占地方"/"agent 离线"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
-> 🔴 **装 Jenkins 优先用 `install_app(server, "jenkins")`**（在 Reeve 应用商店目录里）——应用商店同款：进「容器/编排」台账、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` 仅作教学 / 自定义 fallback（手装的**不进台账、工作台看不到**）。Runner（gitlab-runner / gitea actions runner）目录里没有 → 仍按下面手动装。
+> 🔴 **装 Jenkins 优先用 `install_deployment_image_store_app（镜像商店应用 "jenkins"）`**（在 Tauri SSH 镜像商店目录里）——镜像商店同款：进「容器/编排」记录、密码托管、容器规范命名、绑 127.0.0.1。下面的手动 `docker run` 仅作教学 / 自定义 fallback（手装的**不进记录、工作台看不到**）。Runner（gitlab-runner / gitea actions runner）目录里没有 → 仍按下面手动装。
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -28,7 +28,7 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**；改配置走 `sftp_read`+`sftp_write`，写完 `ssh_exec sudo gitlab-runner restart` / `sudo systemctl restart jenkins`；docker 部署的 Jenkins 看日志走 `ssh_exec docker logs jenkins`。
 
-⚠️ runner 注册/注销、restart、删数据目录、清 workspace 都会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ runner 注册/注销、restart、删数据目录、清 workspace 都会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
 ## 选型
 
@@ -76,8 +76,8 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ### 备份
 
 ```bash
-# 简单：tar 整个 volume（落 Reeve 统一工作区 ~/.reeve/backups，别散落随机目录）
-docker run --rm -v jenkins_home:/src -v ~/.reeve/backups:/dst alpine \
+# 简单：tar 整个 volume（落 Tauri SSH 统一工作区 ~/.tauri-ssh/backups，别散落随机目录）
+docker run --rm -v jenkins_home:/src -v ~/.tauri-ssh/backups:/dst alpine \
     tar czf /dst/jenkins-$(date +%F).tgz -C /src .
 
 # 推荐：装 ThinBackup / Configuration as Code (JCasC) 插件，定期跑 + 走 git

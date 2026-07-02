@@ -17,7 +17,7 @@ dangerous_commands:
 
 适用：用户报 nginx 起不来 / 502 / 504 / 反向代理失败 / 改完配置不生效 / 想看 upstream 命中哪台后端 / 证书路径。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -30,9 +30,9 @@ dangerous_commands:
 
 这些只读工具**任何策略档位都放行**（含 readonly 档）。**改 nginx 配置优先 `sftp_read`+`sftp_write` 整文件写**（无 shell 转义坑），别用 `echo >>` / `sed -i` 拼 conf——一处引号/分号错就能把整站搞挂。写完再走第五步 reload。
 
-⚠️ **铁律：`sftp_write` 改完配置，先 `ssh_exec sudo nginx -t` 校验，通过了再 reload**——配置语法坏的 reload 虽不挂旧进程，但你以为生效了其实没生效，更隐蔽。`sudo nginx -t` / `sudo systemctl reload nginx` 含 sudo 会触发**用户审批**——执行前先告诉用户"这步需要你在 Reeve 批准"，被拒后不要原样重试。
+⚠️ **铁律：`sftp_write` 改完配置，先 `ssh_exec sudo nginx -t` 校验，通过了再 reload**——配置语法坏的 reload 虽不挂旧进程，但你以为生效了其实没生效，更隐蔽。`sudo nginx -t` / `sudo systemctl reload nginx` 含 sudo 会触发**用户审批**——执行前先告诉用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试。
 
-> 证书私钥（`*.key` / `privkey.pem`）在 SFTP 写黑名单里，**Reeve 禁止 AI 写私钥文件**——涉及私钥的步骤交给用户自己处理，AI 只读不写。
+> 证书私钥（`*.key` / `privkey.pem`）在 SFTP 写黑名单里，**Tauri SSH 禁止 AI 写私钥文件**——涉及私钥的步骤交给用户自己处理，AI 只读不写。
 
 ## 第一步：服务状态
 

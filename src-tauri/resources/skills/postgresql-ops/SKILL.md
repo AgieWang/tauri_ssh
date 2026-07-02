@@ -15,7 +15,7 @@ dangerous_commands:
 
 适用：用户报"pg 连不上 / 慢死 / 表锁 / 主从延迟 / vacuum 跑不停 / 想备份 / 改用户权限"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 | 要做什么 | 用这个工具 | 等价命令 |
 |---------|-----------|---------|
@@ -27,29 +27,29 @@ dangerous_commands:
 | 查 5432 端口监听 | `port_check(server, 5432)` | ss -tlnH |
 | 改 postgresql.conf / pg_hba.conf | `sftp_read` 看现状 + `sftp_write` 整文件写 | vi / sed -i |
 
-`credential` = Reeve 登记的 DB 凭据 label 或 vault_id（kind=`postgres_conn`，经 `list_installed_services` 筛）。
+`credential` = Tauri SSH 登记的 DB 数据库连接 label 或 credential_key（kind=`postgres_conn`，经 `list_database_connections` 筛）。
 
-🔴 **AI 查/改 PostgreSQL 数据，优先 `db_*` 工具而非 `ssh_exec psql -c`**，理由：① 密码不进 shell history / `ps`（`db_*` 由 Reeve 后端注入解密凭据，不用 `PGPASSWORD=` 暴露）；② 结构化结果（带列名/类型）；③ 危险 SQL 自动拦（见下）；④ 出口脱敏。`db_query` 只读（仅 SELECT/WITH），**readonly 档也放行**。
-- 🛑 **executor 硬拦截**（任何档位永久 blocked）：`DROP` / `TRUNCATE` / 无 WHERE 的 `UPDATE`/`DELETE` —— 被 `db_*` 拒掉是 Reeve 安全设计，**不要绕道改用 `ssh_exec psql -c`** 执行，那是越权。
+🔴 **AI 查/改 PostgreSQL 数据，优先 `db_*` 工具而非 `ssh_exec psql -c`**，理由：① 密码不进 shell history / `ps`（`db_*` 由 Tauri SSH 后端注入解密凭据，不用 `PGPASSWORD=` 暴露）；② 结构化结果（带列名/类型）；③ 危险 SQL 自动拦（见下）；④ 出口脱敏。`db_query` 只读（仅 SELECT/WITH），**readonly 档也放行**。
+- 🛑 **executor 硬拦截**（任何档位永久 blocked）：`DROP` / `TRUNCATE` / 无 WHERE 的 `UPDATE`/`DELETE` —— 被 `db_*` 拒掉是 Tauri SSH 安全设计，**不要绕道改用 `ssh_exec psql -c`** 执行，那是越权。
 - **服务端运维**（启停 postgres、改 postgresql.conf/pg_hba.conf、流复制、pg_dump 备份、vacuum 配置）仍走 `service_status` / `sftp_*` / `ssh_exec`——这些不是 SQL，`db_*` 不覆盖。
 
 ⚠️ 含 `sudo` 或写操作的命令会触发**用户审批**——执行前先告诉用户，被拒后不要原样重试。
 
-## ⭐ 装机：`install_app(server, "postgres")` 一把过（应用商店同款，进台账）
+## ⭐ 装机：`install_deployment_image_store_app（镜像商店应用 "postgres"）` 一把过（镜像商店同款，进记录）
 
 ### 装前**强制**探测（避免重复装/撞端口）
-1. MCP `list_installed_services` 查现有 `postgres_conn`——已装就复用（共享设施）。
+1. MCP `list_database_connections` 查现有 `postgres_conn`——已装就复用（共享设施）。
 2. 端口 5432 是否占用（`port_check`）。
 
-🔴 **装 PostgreSQL 一律用 `install_app`**——postgres 在 Reeve 应用商店目录里，`install_app` = 应用商店 UI 同款：密码 Reeve 生成并**同步进容器+凭据库（两边一致、必连得上）**、容器 `reeve-postgres`、绑 `127.0.0.1`、compose 落 `/opt/reeve/stacks/postgres`、**自动登记 `postgres_conn` 凭据带 SSH 隧道**（「数据库」页即装即连）。
+🔴 **装 PostgreSQL 一律用 `install_deployment_image_store_app`**——postgres 在 Tauri SSH 镜像商店目录里，`install_deployment_image_store_app` = 镜像商店 UI 同款：密码 Tauri SSH 生成并**同步进容器+安全凭证库（两边一致、必连得上）**、容器 `tauri-ssh-postgres`、绑 `127.0.0.1`、compose 落 `/opt/tauri-ssh/stacks/postgres`、**生成对应数据库管理连接，凭据由后端加密保存**（「数据库」页即装即连）。
 
 ```json
-{ "tool": "install_app", "args": { "server": "<别名>", "app": "postgres" } }
+{ "tool": "install_deployment_image_store_app", "args": { "serverAlias": "<别名>", "appKey": "postgres" } }
 ```
 可选 `version` / `port`（默认 5432）。label 通用名、共享复用。
 
-> ⛔ **别用 `install_with_secret` 手写 docker-compose 装 PostgreSQL**——手写易致"存的密码≠容器密码"（尤其 PGDATA 非空时新密码用不了 → password authentication failed），且容器命名/路径不规范。`install_with_secret` 只留给应用商店目录里没有的自定义服务。
-> 注：data 卷非空（装失败重来）→ 先 `rm -rf <stacks>/postgres/data` 再重 `install_app`；要复用旧数据则需旧密码、用 `save_credential` 登记。
+> ⛔ **别用 `自定义部署脚本` 手写 docker-compose 装 PostgreSQL**——手写易致"存的密码≠容器密码"（尤其 PGDATA 非空时新密码用不了 → password authentication failed），且容器命名/路径不规范。`自定义部署脚本` 只留给镜像商店目录里没有的自定义服务。
+> 注：data 卷非空（装失败重来）→ 先 `rm -rf <stacks>/postgres/data` 再重 `install_deployment_image_store_app`；要复用旧数据则需旧密码、用 `upsert_secure_credential` 登记。
 
 ## 第一步：连接
 
@@ -162,16 +162,16 @@ WHERE datname = 'mydb' AND pid <> pg_backend_pid();
 
 ### 逻辑备份（pg_dump）
 
-> 💾 **备份产物统一落 `~/.reeve/backups/`**（Reeve 远程工作区），别臆造 `/backup`、`/data/backup`。先 `ssh_exec mkdir -p ~/.reeve/backups`；文件名带日期避免覆盖旧备份。
+> 💾 **备份产物统一落 `~/.tauri-ssh/backups/`**（Tauri SSH 远程工作区），别臆造 `/backup`、`/data/backup`。先 `ssh_exec mkdir -p ~/.tauri-ssh/backups`；文件名带日期避免覆盖旧备份。
 
 ```bash
 # 单库
-pg_dump -h host -U postgres -F c -f ~/.reeve/backups/mydb-$(date +%F).dump mydb    # custom format（推荐）
-pg_dump -h host -U postgres -F p -f ~/.reeve/backups/mydb-$(date +%F).sql mydb     # plain SQL
+pg_dump -h host -U postgres -F c -f ~/.tauri-ssh/backups/mydb-$(date +%F).dump mydb    # custom format（推荐）
+pg_dump -h host -U postgres -F p -f ~/.tauri-ssh/backups/mydb-$(date +%F).sql mydb     # plain SQL
 
 # 全库（集群级，含角色）
-pg_dumpall -h host -U postgres > ~/.reeve/backups/all-$(date +%F).sql
-pg_dumpall -h host -U postgres -g > ~/.reeve/backups/globals.sql       # 只角色 + tablespace
+pg_dumpall -h host -U postgres > ~/.tauri-ssh/backups/all-$(date +%F).sql
+pg_dumpall -h host -U postgres -g > ~/.tauri-ssh/backups/globals.sql       # 只角色 + tablespace
 
 # 参数
 -F c     # custom（推荐，可并行恢复）
@@ -198,8 +198,8 @@ psql -h host -U postgres -d mydb < mydb.sql
 ### 物理备份（pg_basebackup）
 
 ```bash
-# 全量基础备份（搭配 WAL 归档做 PITR）—— 落 Reeve 工作区
-pg_basebackup -h primary -U replicator -D ~/.reeve/backups/base -Ft -z -P -X stream
+# 全量基础备份（搭配 WAL 归档做 PITR）—— 落 Tauri SSH 工作区
+pg_basebackup -h primary -U replicator -D ~/.tauri-ssh/backups/base -Ft -z -P -X stream
 ```
 
 ## 第六步：流复制（主从）

@@ -17,13 +17,13 @@ dangerous_commands:
 
 适用：用户报"pod 起不来"/"deployment 不滚动"/"service 访问不到"/"helm 装的 chart 怎么改"/"k3s 节点没注册上"。
 
-## 🤖 第零步：优先用 Reeve 专用工具
+## 🤖 第零步：优先用 Tauri SSH 专用工具
 
 - **看 kubelet/containerd/k3s 是否在跑** → `service_status(server, "kubelet")` / `service_status(server, "k3s")`（任何档位放行，比 `ssh_exec systemctl status` 稳）。
 - **看 NodePort 是否被监听** → `port_check(server, 30080)`。
 - **看节点磁盘**（kubelet 因磁盘压力 evict pod 很常见）→ `disk_usage(server, "/var/lib")`。
 - **编辑 manifest / kubeconfig** → `sftp_read` 看现状 + `sftp_write` 整文件写（无 shell heredoc 转义坑），写完 `ssh_exec kubectl apply -f`。
-- ⚠️ `kubectl get/describe/logs` 是只读判定；但 `kubectl delete` / `drain` / `apply` / `rollout` / `helm install|uninstall` 是写操作，会触发**用户审批**——提前告知用户"这步需要你在 Reeve 批准"，被拒后不要原样重试，改只读探查或询问用户。
+- ⚠️ `kubectl get/describe/logs` 是只读判定；但 `kubectl delete` / `drain` / `apply` / `rollout` / `helm install|uninstall` 是写操作，会触发**用户审批**——提前告知用户"这步需要你在 Tauri SSH 批准"，被拒后不要原样重试，改只读探查或询问用户。
 - 注：kubectl 命令本身一般不需 `sudo`（凭 kubeconfig 鉴权），但删 namespace/pod、drain 节点等仍受策略档位约束。
 
 ## 第一步：kubectl context
