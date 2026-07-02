@@ -237,7 +237,7 @@ impl GitWorkspaceService {
                 prompt: build_commit_prompt(&workspace, &summary),
                 provider_key: None,
                 system_prompt: Some(
-                    "你是严谨的 Git 提交信息助手。只输出一条提交信息，第一行必须是简洁的 Conventional Commit 标题，不要输出 Markdown 代码块。"
+                    "你是严谨的 Git 提交信息助手。只输出一条提交信息，第一行必须是简洁的 Conventional Commit 标题，不要输出 Markdown 代码块。提交说明的自然语言内容默认使用中文，Conventional Commit 类型、scope、文件名和代码标识保持原格式。"
                         .into(),
                 ),
                 skill_scope: Some("git".into()),
@@ -1035,7 +1035,7 @@ async fn build_commit_summary(repo: &Path, porcelain: &str) -> String {
 
 fn build_commit_prompt(workspace: &GitWorkspace, summary: &str) -> String {
     format!(
-        "请为下面 Git 工作区生成一条提交信息。\n\n工作区: {}\n分支: {}\n路径: {}\n\n变更摘要:\n{}\n\n要求:\n1. 只输出提交信息，不要解释。\n2. 第一行使用 Conventional Commit，例如 feat: xxx / fix: xxx / chore: xxx。\n3. 如需正文，空一行后用 1-3 条短句描述关键变更。\n4. 不要包含 Markdown 代码块。",
+        "请为下面 Git 工作区生成一条中文提交信息。\n\n工作区: {}\n分支: {}\n路径: {}\n\n变更摘要:\n{}\n\n要求:\n1. 只输出提交信息，不要解释。\n2. 第一行使用 Conventional Commit，type 保持英文，说明内容使用中文，例如 feat: 增加工作区推送能力 / fix: 修复状态刷新超时。\n3. 如需正文，空一行后用 1-3 条中文短句描述关键变更。\n4. 文件名、命令、代码标识、scope 保持原格式。\n5. 不要包含 Markdown 代码块。",
         workspace.name,
         if workspace.branch.trim().is_empty() {
             "HEAD"

@@ -23,6 +23,8 @@ const SECRET_SEED_KEY: &str = "ai_provider_secret_seed";
 
 pub struct AiProviderService;
 
+const DEFAULT_AI_RESPONSE_LANGUAGE_PROMPT: &str = "全应用默认使用简体中文回答。除非用户明确要求其他语言，所有自然语言说明、分析、建议、摘要和生成内容都必须使用中文；代码、命令、SQL、配置键、JSON 字段名、Git 类型标识等固定格式内容保持原格式。";
+
 impl AiProviderService {
     pub fn list(db: &Database) -> Result<Vec<AiProvider>, AppError> {
         db.list_ai_providers()
@@ -212,9 +214,6 @@ impl AiProviderService {
         use_skill_trigger: bool,
         prompt: &str,
     ) -> Result<Option<String>, AppError> {
-        if !use_skill_trigger && system_prompt.map(str::trim).unwrap_or("").is_empty() {
-            return Ok(None);
-        }
         let skill_fragment = match skill_scope.map(str::trim).filter(|value| !value.is_empty()) {
             Some(scope) if use_skill_trigger => {
                 AiSkillService::build_prompt_for_ai(db, scope, prompt)?
@@ -222,13 +221,14 @@ impl AiProviderService {
             _ => String::new(),
         };
         let base = system_prompt.map(str::trim).unwrap_or("");
-        let merged = match (base.is_empty(), skill_fragment.is_empty()) {
-            (true, true) => String::new(),
-            (false, true) => base.to_string(),
-            (true, false) => skill_fragment,
-            (false, false) => format!("{}\n\n{}", base, skill_fragment),
-        };
-        Ok((!merged.trim().is_empty()).then_some(merged))
+        let mut parts = vec![DEFAULT_AI_RESPONSE_LANGUAGE_PROMPT.to_string()];
+        if !base.is_empty() {
+            parts.push(base.to_string());
+        }
+        if !skill_fragment.trim().is_empty() {
+            parts.push(skill_fragment);
+        }
+        Ok(Some(parts.join("\n\n")))
     }
 
     fn validate_provider(input: &UpsertAiProviderInput) -> Result<(), AppError> {
@@ -358,7 +358,7 @@ impl AiProviderService {
         let system_text = system_prompt
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("你是一个 SSH 运维助手。请用中文简洁回答，涉及命令时说明风险，不要假装已经执行命令。");
+            .unwrap_or(DEFAULT_AI_RESPONSE_LANGUAGE_PROMPT);
 
         if protocol.contains("ollama") || endpoint.contains(":11434") {
             let response = client
