@@ -579,6 +579,36 @@ impl McpService {
                 audit: "记录 workspaceKey 和刷新结果".into(),
             },
             McpToolPermission {
+                tool: "git_workspace_status".into(),
+                policy: "只读，返回 porcelain、已暂存、未暂存和未跟踪文件".into(),
+                audit: "记录 workspaceKey 和文件数量".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_diff".into(),
+                policy: "只读，返回受限长度 diff，可按 staged 或 path 过滤".into(),
+                audit: "记录 workspaceKey、path 和截断状态".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_stage_files_controlled".into(),
+                policy: "本地 Git 暂存只创建审批请求，固化 workspaceKey 和 paths 的 requestHash".into(),
+                audit: "记录 workspaceKey、paths、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_stage_files_approved".into(),
+                policy: "仅执行 approved 且 requestHash 匹配的按文件暂存".into(),
+                audit: "记录审批 ID、workspaceKey 和 paths".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_commit_controlled".into(),
+                policy: "本地 Git 提交只创建审批请求，固化 workspaceKey、message 和 paths 的 requestHash".into(),
+                audit: "记录 workspaceKey、message、paths、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_commit_approved".into(),
+                policy: "仅执行 approved 且 requestHash 匹配的本地 Git 提交；不会自动 add -A".into(),
+                audit: "记录审批 ID、workspaceKey、提交信息和提交哈希".into(),
+            },
+            McpToolPermission {
                 tool: "git_workspace_branches_list".into(),
                 policy: "只读，返回本地/远程分支和最后提交摘要".into(),
                 audit: "记录 workspaceKey 和分支数量".into(),
@@ -590,8 +620,18 @@ impl McpService {
             },
             McpToolPermission {
                 tool: "git_workspace_push".into(),
-                policy: "推送当前分支；凭据由后端注入，不返回密钥".into(),
-                audit: "记录 workspaceKey、分支和执行结果".into(),
+                policy: "兼容入口，仅创建 Git push 审批请求，不直接推送".into(),
+                audit: "记录 workspaceKey、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_push_controlled".into(),
+                policy: "本地 Git 推送只创建审批请求，固化 workspaceKey 的 requestHash".into(),
+                audit: "记录 workspaceKey、requestHash 和审批 ID".into(),
+            },
+            McpToolPermission {
+                tool: "git_workspace_push_approved".into(),
+                policy: "仅执行 approved 且 requestHash 匹配的 Git push；凭据由后端注入，不返回密钥".into(),
+                audit: "记录审批 ID、workspaceKey、分支和执行结果".into(),
             },
             McpToolPermission {
                 tool: "git_workspace_switch_branch".into(),

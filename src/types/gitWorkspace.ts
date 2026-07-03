@@ -80,6 +80,46 @@ export interface AiCommitGitWorkspaceResult {
   model: string;
 }
 
+export interface GitWorkspaceStatusResult {
+  workspace: GitWorkspace;
+  porcelain: string;
+  stagedFiles: string[];
+  unstagedFiles: string[];
+  untrackedFiles: string[];
+}
+
+export interface GitWorkspaceDiffInput {
+  workspaceKey: string;
+  staged?: boolean;
+  path?: string;
+  maxChars?: number;
+}
+
+export interface GitWorkspaceDiffResult {
+  workspaceKey: string;
+  staged: boolean;
+  path?: string | null;
+  diff: string;
+  truncated: boolean;
+}
+
+export interface StageGitWorkspaceFilesInput {
+  workspaceKey: string;
+  paths: string[];
+}
+
+export interface CommitGitWorkspaceInput {
+  workspaceKey: string;
+  message: string;
+  paths?: string[];
+}
+
+export interface CommitGitWorkspaceResult {
+  workspace: GitWorkspace;
+  commitMessage: string;
+  commitHash: string;
+}
+
 export interface GitWorkspaceBranch {
   name: string;
   displayName: string;

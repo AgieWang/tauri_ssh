@@ -8,10 +8,12 @@ use tokio::time::timeout;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
-    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, AiProviderAskInput, GitWorkspace,
-    GitWorkspaceBranch, GitWorkspaceDetail, GitWorkspaceScanJobStatus, GitWorkspaceScanStartResult,
-    ListGitWorkspacesInput, MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput,
-    ScanGitWorkspaceRootResult, SecureCredential, SwitchGitWorkspaceBranchInput,
+    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, AiProviderAskInput,
+    CommitGitWorkspaceInput, CommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch,
+    GitWorkspaceDetail, GitWorkspaceDiffInput, GitWorkspaceDiffResult, GitWorkspaceScanJobStatus,
+    GitWorkspaceScanStartResult, GitWorkspaceStatusResult, ListGitWorkspacesInput,
+    MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
+    SecureCredential, StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput,
     UpsertGitWorkspaceInput,
 };
 use crate::services::ai_provider::AiProviderService;
@@ -267,6 +269,111 @@ impl GitWorkspaceService {
         })
     }
 
+    pub async fn status(
+        db: &Database,
+        workspace_key: &str,
+    ) -> Result<GitWorkspaceStatusResult, AppError> {
+        let workspace = Self::refresh(db, workspace_key).await?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let porcelain = git_output(repo, &["status", "--porcelain"]).await?;
+        let (staged_files, unstaged_files, untracked_files) = parse_porcelain_files(&porcelain);
+        Ok(GitWorkspaceStatusResult {
+            workspace,
+            porcelain,
+            staged_files,
+            unstaged_files,
+            untracked_files,
+        })
+    }
+
+    pub async fn diff(
+        db: &Database,
+        input: GitWorkspaceDiffInput,
+    ) -> Result<GitWorkspaceDiffResult, AppError> {
+        let workspace = load_workspace(db, input.workspace_key.trim())?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let staged = input.staged.unwrap_or(false);
+        let mut args = if staged {
+            vec!["diff", "--cached", "--"]
+        } else {
+            vec!["diff", "--"]
+        };
+        let path = input
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(path) = path {
+            validate_git_relative_path(path)?;
+            args.push(path);
+        }
+        let diff = git_output(repo, &args).await?;
+        let max_chars = input.max_chars.unwrap_or(20000).clamp(1000, 100000);
+        let (diff, truncated) = truncate_with_flag(&diff, max_chars);
+        Ok(GitWorkspaceDiffResult {
+            workspace_key: workspace.workspace_key,
+            staged,
+            path: path.map(str::to_string),
+            diff,
+            truncated,
+        })
+    }
+
+    pub async fn stage_files(
+        db: &Database,
+        input: StageGitWorkspaceFilesInput,
+    ) -> Result<GitWorkspaceStatusResult, AppError> {
+        let workspace = load_workspace(db, input.workspace_key.trim())?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let paths = normalize_git_paths(&input.paths)?;
+        let mut args = vec!["add".to_string(), "--".to_string()];
+        args.extend(paths);
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        git_command_output(repo, &arg_refs, Duration::from_secs(30)).await?;
+        Self::status(db, &workspace.workspace_key).await
+    }
+
+    pub async fn commit(
+        db: &Database,
+        input: CommitGitWorkspaceInput,
+    ) -> Result<CommitGitWorkspaceResult, AppError> {
+        let workspace = load_workspace(db, input.workspace_key.trim())?;
+        let repo = Path::new(&workspace.repo_path);
+        ensure_git_repo(repo)?;
+        let message = normalize_commit_message(&input.message);
+        if message.trim().is_empty() {
+            return Err(AppError::InvalidInput("提交信息不能为空".into()));
+        }
+        if let Some(paths) = input.paths.as_ref() {
+            let paths = normalize_git_paths(paths)?;
+            let mut args = vec!["add".to_string(), "--".to_string()];
+            args.extend(paths);
+            let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+            git_command_output(repo, &arg_refs, Duration::from_secs(30)).await?;
+        }
+        let staged = git_output(repo, &["diff", "--cached", "--name-only"]).await?;
+        if staged.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "没有已暂存改动，请先调用 git_workspace_stage_files 或传入 paths".into(),
+            ));
+        }
+        git_commit(repo, &message).await?;
+        let commit_hash = git_output(repo, &["rev-parse", "--short", "HEAD"])
+            .await
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let refreshed = Self::refresh(db, &workspace.workspace_key).await?;
+        Ok(CommitGitWorkspaceResult {
+            workspace: refreshed,
+            commit_message: message,
+            commit_hash,
+        })
+    }
+
     pub async fn pull(db: &Database, workspace_key: &str) -> Result<GitWorkspace, AppError> {
         let workspace = load_workspace(db, workspace_key)?;
         let repo = Path::new(&workspace.repo_path);
@@ -476,6 +583,89 @@ fn ensure_git_repo(repo: &Path) -> Result<(), AppError> {
         return Err(AppError::InvalidInput("工作区路径不是有效 Git 仓库".into()));
     }
     Ok(())
+}
+
+fn parse_porcelain_files(porcelain: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    let mut untracked = Vec::new();
+    for line in porcelain.lines() {
+        if line.len() < 3 {
+            continue;
+        }
+        let status = &line[..2];
+        let path = line[3..]
+            .split(" -> ")
+            .last()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if path.is_empty() {
+            continue;
+        }
+        if status == "??" {
+            untracked.push(path);
+            continue;
+        }
+        let mut chars = status.chars();
+        let index_status = chars.next().unwrap_or(' ');
+        let worktree_status = chars.next().unwrap_or(' ');
+        if index_status != ' ' {
+            staged.push(path.clone());
+        }
+        if worktree_status != ' ' {
+            unstaged.push(path);
+        }
+    }
+    staged.sort();
+    staged.dedup();
+    unstaged.sort();
+    unstaged.dedup();
+    untracked.sort();
+    untracked.dedup();
+    (staged, unstaged, untracked)
+}
+
+fn validate_git_relative_path(path: &str) -> Result<(), AppError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput("文件路径不能为空".into()));
+    }
+    let value = Path::new(trimmed);
+    if value.is_absolute() || trimmed.contains('\0') {
+        return Err(AppError::InvalidInput("只能使用仓库内相对路径".into()));
+    }
+    if value
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(AppError::InvalidInput("文件路径不能包含 ..".into()));
+    }
+    Ok(())
+}
+
+fn normalize_git_paths(paths: &[String]) -> Result<Vec<String>, AppError> {
+    let mut normalized = Vec::new();
+    for path in paths {
+        let trimmed = path.trim();
+        validate_git_relative_path(trimmed)?;
+        if !normalized.iter().any(|item: &String| item == trimmed) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        return Err(AppError::InvalidInput("文件路径列表不能为空".into()));
+    }
+    Ok(normalized)
+}
+
+fn truncate_with_flag(value: &str, max_chars: usize) -> (String, bool) {
+    if value.chars().count() <= max_chars {
+        return (value.to_string(), false);
+    }
+    let mut output = value.chars().take(max_chars).collect::<String>();
+    output.push_str("\n...已截断...");
+    (output, true)
 }
 
 async fn ensure_clean_worktree(repo: &Path, message: &str) -> Result<(), AppError> {
@@ -1311,5 +1501,108 @@ fn normalize_workspace_key(name: &str) -> String {
         "git_workspace".into()
     } else {
         key
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::UpsertGitWorkspaceInput;
+
+    fn run_git(repo: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn test_repo_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "tauri-ssh-{}-{}-{}",
+            name,
+            std::process::id(),
+            chrono::Local::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_default()
+        ))
+    }
+
+    #[tokio::test]
+    async fn status_stage_and_commit_explicit_files() {
+        let repo = test_repo_path("git-workspace");
+        fs::create_dir_all(&repo).expect("create repo dir");
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.email", "test@example.local"]);
+        run_git(&repo, &["config", "user.name", "Tauri SSH Test"]);
+        fs::write(repo.join("README.md"), "initial\n").expect("write initial");
+        run_git(&repo, &["add", "--", "README.md"]);
+        run_git(&repo, &["commit", "-m", "chore: initial"]);
+        fs::write(repo.join("README.md"), "initial\nchanged\n").expect("write changed");
+
+        let db = Database::init(":memory:").expect("init db");
+        let workspace = GitWorkspaceService::upsert(
+            &db,
+            UpsertGitWorkspaceInput {
+                id: None,
+                workspace_key: "test_repo".into(),
+                name: "Test Repo".into(),
+                repo_path: repo.to_string_lossy().to_string(),
+                credential_key: None,
+                description: None,
+            },
+        )
+        .await
+        .expect("upsert workspace");
+
+        let status = GitWorkspaceService::status(&db, &workspace.workspace_key)
+            .await
+            .expect("status");
+        assert!(status.unstaged_files.contains(&"README.md".into()));
+
+        let diff = GitWorkspaceService::diff(
+            &db,
+            GitWorkspaceDiffInput {
+                workspace_key: workspace.workspace_key.clone(),
+                staged: Some(false),
+                path: Some("README.md".into()),
+                max_chars: Some(10000),
+            },
+        )
+        .await
+        .expect("diff");
+        assert!(diff.diff.contains("+changed"));
+
+        let staged = GitWorkspaceService::stage_files(
+            &db,
+            StageGitWorkspaceFilesInput {
+                workspace_key: workspace.workspace_key.clone(),
+                paths: vec!["README.md".into()],
+            },
+        )
+        .await
+        .expect("stage files");
+        assert!(staged.staged_files.contains(&"README.md".into()));
+
+        let committed = GitWorkspaceService::commit(
+            &db,
+            CommitGitWorkspaceInput {
+                workspace_key: workspace.workspace_key,
+                message: "test: commit explicit file".into(),
+                paths: None,
+            },
+        )
+        .await
+        .expect("commit");
+        assert_eq!(committed.commit_message, "test: commit explicit file");
+        assert!(!committed.commit_hash.is_empty());
+
+        let _ = fs::remove_dir_all(&repo);
     }
 }

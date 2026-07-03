@@ -956,6 +956,58 @@ pub struct AiCommitGitWorkspaceResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceStatusResult {
+    pub workspace: GitWorkspace,
+    pub porcelain: String,
+    pub staged_files: Vec<String>,
+    pub unstaged_files: Vec<String>,
+    pub untracked_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceDiffInput {
+    pub workspace_key: String,
+    pub staged: Option<bool>,
+    pub path: Option<String>,
+    pub max_chars: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkspaceDiffResult {
+    pub workspace_key: String,
+    pub staged: bool,
+    pub path: Option<String>,
+    pub diff: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageGitWorkspaceFilesInput {
+    pub workspace_key: String,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitGitWorkspaceInput {
+    pub workspace_key: String,
+    pub message: String,
+    pub paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitGitWorkspaceResult {
+    pub workspace: GitWorkspace,
+    pub commit_message: String,
+    pub commit_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitWorkspaceBranch {
     pub name: String,
     pub display_name: String,

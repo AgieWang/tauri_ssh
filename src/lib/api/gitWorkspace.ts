@@ -5,12 +5,18 @@ import type {
   GitWorkspaceDetail,
   GitWorkspaceScanJobStatus,
   GitWorkspaceScanStartResult,
+  GitWorkspaceStatusResult,
+  GitWorkspaceDiffInput,
+  GitWorkspaceDiffResult,
   AiCommitGitWorkspaceInput,
   AiCommitGitWorkspaceResult,
+  CommitGitWorkspaceInput,
+  CommitGitWorkspaceResult,
   ListGitWorkspacesInput,
   MergeGitWorkspaceBranchInput,
   ScanGitWorkspaceRootInput,
   ScanGitWorkspaceRootResult,
+  StageGitWorkspaceFilesInput,
   SwitchGitWorkspaceBranchInput,
   UpsertGitWorkspaceInput,
 } from "@/types";
@@ -58,6 +64,22 @@ export const gitWorkspaceApi = {
   aiCommit: (input: AiCommitGitWorkspaceInput) =>
     hasTauriRuntime()
       ? invoke<AiCommitGitWorkspaceResult>("ai_commit_git_workspace", { input })
+      : Promise.resolve(requireTauriRuntime()),
+  status: (workspaceKey: string) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspaceStatusResult>("get_git_workspace_status", { workspaceKey })
+      : Promise.resolve(requireTauriRuntime()),
+  diff: (input: GitWorkspaceDiffInput) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspaceDiffResult>("get_git_workspace_diff", { input })
+      : Promise.resolve(requireTauriRuntime()),
+  stageFiles: (input: StageGitWorkspaceFilesInput) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspaceStatusResult>("stage_git_workspace_files", { input })
+      : Promise.resolve(requireTauriRuntime()),
+  commit: (input: CommitGitWorkspaceInput) =>
+    hasTauriRuntime()
+      ? invoke<CommitGitWorkspaceResult>("commit_git_workspace", { input })
       : Promise.resolve(requireTauriRuntime()),
   pull: (workspaceKey: string) =>
     hasTauriRuntime()

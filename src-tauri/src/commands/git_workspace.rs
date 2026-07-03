@@ -1,9 +1,11 @@
 use crate::error::CommandError;
 use crate::models::{
-    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch,
-    GitWorkspaceDetail, GitWorkspaceScanJobStatus, GitWorkspaceScanStartResult,
-    ListGitWorkspacesInput, MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput,
-    ScanGitWorkspaceRootResult, SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
+    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, CommitGitWorkspaceInput,
+    CommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch, GitWorkspaceDetail,
+    GitWorkspaceDiffInput, GitWorkspaceDiffResult, GitWorkspaceScanJobStatus,
+    GitWorkspaceScanStartResult, GitWorkspaceStatusResult, ListGitWorkspacesInput,
+    MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
+    StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
 };
 use crate::services::git_workspace::GitWorkspaceService;
 use crate::state::AppState;
@@ -85,6 +87,46 @@ pub async fn ai_commit_git_workspace(
     input: AiCommitGitWorkspaceInput,
 ) -> Result<AiCommitGitWorkspaceResult, CommandError> {
     GitWorkspaceService::ai_commit(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn get_git_workspace_status(
+    state: tauri::State<'_, AppState>,
+    workspace_key: String,
+) -> Result<GitWorkspaceStatusResult, CommandError> {
+    GitWorkspaceService::status(&state.db, &workspace_key)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn get_git_workspace_diff(
+    state: tauri::State<'_, AppState>,
+    input: GitWorkspaceDiffInput,
+) -> Result<GitWorkspaceDiffResult, CommandError> {
+    GitWorkspaceService::diff(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn stage_git_workspace_files(
+    state: tauri::State<'_, AppState>,
+    input: StageGitWorkspaceFilesInput,
+) -> Result<GitWorkspaceStatusResult, CommandError> {
+    GitWorkspaceService::stage_files(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn commit_git_workspace(
+    state: tauri::State<'_, AppState>,
+    input: CommitGitWorkspaceInput,
+) -> Result<CommitGitWorkspaceResult, CommandError> {
+    GitWorkspaceService::commit(&state.db, input)
         .await
         .map_err(|e| e.into())
 }

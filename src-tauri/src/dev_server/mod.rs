@@ -14,22 +14,23 @@ use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
     AiSkillPromptPreviewInput, AiSkillTriggerInput, ApprovalRequest, CollectResourceBatchInput,
-    CreateApprovalRequestInput, CreateAuditLogInput, CreateCodeReviewBatchTasksInput,
-    CreateCodeReviewTaskInput, CreateDeploymentDryRunInput, CreateDeploymentRollbackDryRunInput,
-    CreateSecureCredentialSessionInput, DecideApprovalRequestInput, DeploymentAiAdviceInput,
-    DetectDeploymentProjectInput, EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput,
-    ExecuteDeploymentRunInput, ListAiSkillsInput, ListApprovalRequestsInput,
-    ListCodeReviewTasksInput, ListDeploymentRunsInput, ListGitWorkspacesInput,
-    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
+    CommitGitWorkspaceInput, CreateApprovalRequestInput, CreateAuditLogInput,
+    CreateCodeReviewBatchTasksInput, CreateCodeReviewTaskInput, CreateDeploymentDryRunInput,
+    CreateDeploymentRollbackDryRunInput, CreateSecureCredentialSessionInput,
+    DecideApprovalRequestInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
+    EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput, ExecuteDeploymentRunInput,
+    GitWorkspaceDiffInput, ListAiSkillsInput, ListApprovalRequestsInput, ListCodeReviewTasksInput,
+    ListDeploymentRunsInput, ListGitWorkspacesInput, ListResourceAlertEventsInput,
+    ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
     ListSecureCredentialSessionsInput, ListSecureCredentialsInput, MergeGitWorkspaceBranchInput,
     ParseCodeReviewBatchInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
     RunAiRunbookInput, RunCodeReviewAiInput, SecureCredentialGitReadInput,
     SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
     SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
     SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
-    SwitchGitWorkspaceBranchInput, UpdateSecureCredentialPolicySettingsInput,
-    UpdateSystemSettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput,
+    UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
+    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
     UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
 };
@@ -1006,6 +1007,85 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "git_workspace_status",
+            "description": "读取本地 Git 工作区状态，返回 porcelain、已暂存、未暂存和未跟踪文件列表。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "workspaceKey": { "type": "string" } },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_diff",
+            "description": "读取本地 Git 工作区 diff，可选择 staged、单文件路径和最大返回字符数。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "staged": { "type": "boolean" },
+                    "path": { "type": "string" },
+                    "maxChars": { "type": "number" }
+                },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_stage_files_controlled",
+            "description": "为本地 Git 工作区按文件暂存创建审批请求；审批通过后调用 git_workspace_stage_files_approved。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" } },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["workspaceKey", "paths"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_stage_files_approved",
+            "description": "执行已批准的本地 Git 工作区按文件暂存，approvalId 必须匹配 workspaceKey 和 paths。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "workspaceKey": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["approvalId", "workspaceKey", "paths"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_commit_controlled",
+            "description": "为本地 Git 工作区提交创建审批请求；可传 paths 先按文件暂存，审批通过后调用 git_workspace_commit_approved。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "message": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" } },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["workspaceKey", "message"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_commit_approved",
+            "description": "执行已批准的本地 Git 工作区提交，approvalId 必须匹配 workspaceKey、message 和 paths。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "workspaceKey": { "type": "string" },
+                    "message": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["approvalId", "workspaceKey", "message"]
+            }
+        }),
+        serde_json::json!({
             "name": "git_workspace_branches_list",
             "description": "列出本地 Git 工作区分支，包含当前分支、远程分支和最后提交摘要。",
             "inputSchema": {
@@ -1025,11 +1105,40 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "git_workspace_push",
-            "description": "推送本地 Git 工作区当前分支；绑定凭证时由后端注入凭据，不返回密钥。",
+            "description": "兼容入口：为本地 Git 工作区推送当前分支创建审批请求；审批通过后调用 git_workspace_push_approved。",
             "inputSchema": {
                 "type": "object",
-                "properties": { "workspaceKey": { "type": "string" } },
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
                 "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_push_controlled",
+            "description": "为本地 Git 工作区推送当前分支创建审批请求；审批通过后调用 git_workspace_push_approved。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["workspaceKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "git_workspace_push_approved",
+            "description": "执行已批准的本地 Git 工作区推送，绑定凭证时由后端注入凭据，不返回密钥。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "workspaceKey": { "type": "string" }
+                },
+                "required": ["approvalId", "workspaceKey"]
             }
         }),
         serde_json::json!({
@@ -3045,6 +3154,84 @@ async fn call_mcp_tool_inner(
                 .await?,
             )?)
         }
+        "git_workspace_status" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                GitWorkspaceService::status(
+                    &state.db,
+                    &required_string(&arguments, "workspaceKey")?,
+                )
+                .await?,
+            )?)
+        }
+        "git_workspace_diff" => {
+            let state = app_state(ctx);
+            let input: GitWorkspaceDiffInput =
+                serde_json::from_value(arguments.clone()).map_err(|error| {
+                    AppError::InvalidInput(format!("Git diff 参数格式不正确: {}", error))
+                })?;
+            Ok(serde_json::to_value(
+                GitWorkspaceService::diff(&state.db, input).await?,
+            )?)
+        }
+        "git_workspace_stage_files_controlled" => create_git_workspace_write_approval(
+            ctx,
+            &arguments,
+            "git_workspace_stage_files",
+            "git_workspace_stage_files_approved",
+            "Git 工作区暂存文件需审批",
+        ),
+        "git_workspace_stage_files_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let workspace_key = required_string(&arguments, "workspaceKey")?;
+            let execution_payload = git_workspace_execution_payload(&arguments, "stage_files")?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "git_workspace_stage_files",
+                "",
+                Some(&request_hash),
+                Some(&workspace_key),
+            )?;
+            let input: StageGitWorkspaceFilesInput = serde_json::from_value(arguments.clone())
+                .map_err(|error| {
+                    AppError::InvalidInput(format!("Git stage 参数格式不正确: {}", error))
+                })?;
+            Ok(serde_json::to_value(
+                GitWorkspaceService::stage_files(&state.db, input).await?,
+            )?)
+        }
+        "git_workspace_commit_controlled" => create_git_workspace_write_approval(
+            ctx,
+            &arguments,
+            "git_workspace_commit",
+            "git_workspace_commit_approved",
+            "Git 工作区提交需审批",
+        ),
+        "git_workspace_commit_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let workspace_key = required_string(&arguments, "workspaceKey")?;
+            let execution_payload = git_workspace_execution_payload(&arguments, "commit")?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "git_workspace_commit",
+                "",
+                Some(&request_hash),
+                Some(&workspace_key),
+            )?;
+            let input: CommitGitWorkspaceInput = serde_json::from_value(arguments.clone())
+                .map_err(|error| {
+                    AppError::InvalidInput(format!("Git commit 参数格式不正确: {}", error))
+                })?;
+            Ok(serde_json::to_value(
+                GitWorkspaceService::commit(&state.db, input).await?,
+            )?)
+        }
         "git_workspace_branches_list" => {
             let state = app_state(ctx);
             let branches = GitWorkspaceService::branches(
@@ -3064,11 +3251,36 @@ async fn call_mcp_tool_inner(
                     .await?,
             )?)
         }
-        "git_workspace_push" => {
+        "git_workspace_push" => create_git_workspace_write_approval(
+            ctx,
+            &arguments,
+            "git_workspace_push",
+            "git_workspace_push_approved",
+            "Git 工作区推送需审批",
+        ),
+        "git_workspace_push_controlled" => create_git_workspace_write_approval(
+            ctx,
+            &arguments,
+            "git_workspace_push",
+            "git_workspace_push_approved",
+            "Git 工作区推送需审批",
+        ),
+        "git_workspace_push_approved" => {
             let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let workspace_key = required_string(&arguments, "workspaceKey")?;
+            let execution_payload = git_workspace_execution_payload(&arguments, "push")?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "git_workspace_push",
+                "",
+                Some(&request_hash),
+                Some(&workspace_key),
+            )?;
             Ok(serde_json::to_value(
-                GitWorkspaceService::push(&state.db, &required_string(&arguments, "workspaceKey")?)
-                    .await?,
+                GitWorkspaceService::push(&state.db, &workspace_key).await?,
             )?)
         }
         "git_workspace_switch_branch" => {
@@ -4690,6 +4902,21 @@ fn secure_git_execution_payload(
     }))
 }
 
+fn git_workspace_execution_payload(
+    arguments: &serde_json::Value,
+    operation: &str,
+) -> Result<serde_json::Value, AppError> {
+    Ok(serde_json::json!({
+        "operation": operation,
+        "workspaceKey": required_string(arguments, "workspaceKey")?,
+        "message": arguments.get("message").cloned().unwrap_or(serde_json::Value::Null),
+        "paths": arguments
+            .get("paths")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    }))
+}
+
 fn code_review_merge_execution_payload(
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, AppError> {
@@ -4935,6 +5162,60 @@ fn create_secure_git_write_approval(
         "resource": approval.resource,
         "requestHash": approval.command,
         "message": approval_flow_message(&approval, "secure_git_write_approved")
+    }))
+}
+
+fn create_git_workspace_write_approval(
+    ctx: &DevApiState,
+    arguments: &serde_json::Value,
+    action: &str,
+    approved_tool: &str,
+    default_reason: &str,
+) -> Result<serde_json::Value, AppError> {
+    let state = app_state(ctx);
+    let workspace_key = required_string(arguments, "workspaceKey")?;
+    let operation = match action {
+        "git_workspace_stage_files" => "stage_files",
+        "git_workspace_commit" => "commit",
+        "git_workspace_push" => "push",
+        _ => action.trim_start_matches("git_workspace_"),
+    };
+    let execution_payload = git_workspace_execution_payload(arguments, operation)?;
+    let request_hash = secure_request_hash(&execution_payload);
+    let approval = ApprovalService::create(
+        &state.db,
+        CreateApprovalRequestInput {
+            source: "git_workspace".into(),
+            requester: optional_string(arguments, "requester")
+                .unwrap_or_else(|| "mcp-client".into()),
+            server_alias: String::new(),
+            action: action.into(),
+            risk: "L2".into(),
+            command: request_hash.clone(),
+            resource: workspace_key.clone(),
+            reason: optional_string(arguments, "reason").unwrap_or_else(|| default_reason.into()),
+            summary: format!("{} {}", action, workspace_key),
+            payload_json: Some(
+                serde_json::json!({
+                    "tool": action,
+                    "approvedTool": approved_tool,
+                    "requestHash": request_hash,
+                    "workspaceKey": workspace_key,
+                    "message": arguments.get("message").cloned(),
+                    "paths": arguments.get("paths").cloned()
+                })
+                .to_string(),
+            ),
+            expires_at: None,
+        },
+    )?;
+    Ok(serde_json::json!({
+        "status": approval_flow_status(&approval),
+        "approvalId": approval.id,
+        "action": approval.action,
+        "resource": approval.resource,
+        "requestHash": approval.command,
+        "message": approval_flow_message(&approval, approved_tool)
     }))
 }
 
