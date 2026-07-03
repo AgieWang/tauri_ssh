@@ -583,6 +583,12 @@ pub async fn run_code_review_ai(task_key: String, provider_key: Option<String>) 
 pub async fn merge_code_review_task(task_key: String) -> Result<CodeReviewTask, CommandError>
 
 #[tauri::command]
+pub async fn abort_code_review_merge(task_key: String) -> Result<CodeReviewTask, CommandError>
+
+#[tauri::command]
+pub fn cancel_code_review_task(task_key: String) -> Result<CodeReviewTask, CommandError>
+
+#[tauri::command]
 pub async fn parse_code_review_batch(input: ParseCodeReviewBatchInput) -> Result<CodeReviewBatchParseResult, CommandError>
 
 #[tauri::command]
@@ -802,6 +808,8 @@ AI 解析约束：
 - `code_review_merge_failed`
 - `code_review_merge_conflict`
 - `code_review_merge_stale`
+- `code_review_merge_abort`
+- `code_review_task_cancel`
 - `code_review_push_success`
 - `code_review_push_failed`
 - `code_review_batch_parse`
@@ -830,6 +838,7 @@ AI 解析约束：
 - `code_review_diff_prepare`
 - `code_review_ai_run`
 - `code_review_task_get`
+- `code_review_tasks_list`
 - `code_review_batch_parse`
 - `code_review_batch_tasks_create`
 - `code_review_merge_controlled`
@@ -850,15 +859,15 @@ AI 解析约束：
 
 ### 第一阶段：基础数据与后端能力
 
-- [ ] 新增数据库表 `code_review_tasks`。
-- [ ] 新增数据库表 `code_review_batches`。
-- [ ] 新增 Rust 模型。
-- [ ] 新增 `CodeReviewService`。
-- [ ] 新增 `commands::code_review`。
-- [ ] 新增固定 Git diff/branch/commit 读取能力。
-- [ ] 在 `CodeReviewService` 内实现受控合并流程，不直接绕过审查任务状态机调用普通 merge。
-- [ ] 新增 Command 注册。
-- [ ] 新增前端 API 封装。
+- [x] 新增数据库表 `code_review_tasks`。
+- [x] 新增数据库表 `code_review_batches`。
+- [x] 新增 Rust 模型。
+- [x] 新增 `CodeReviewService`。
+- [x] 新增 `commands::code_review`。
+- [x] 新增固定 Git diff/branch/commit 读取能力。
+- [x] 在 `CodeReviewService` 内实现受控合并流程，不直接绕过审查任务状态机调用普通 merge。
+- [x] 新增 Command 注册。
+- [x] 新增前端 API 封装。
 
 验收标准：
 
@@ -868,16 +877,16 @@ AI 解析约束：
 
 ### 第二阶段：单项目审核页面
 
-- [ ] 将侧边栏一级菜单 `安全凭证` 调整为 `安全`。
-- [ ] 新增 `安全 -> 代码审核` 菜单。
-- [ ] 新增 `/secure-credentials/code-review` 路由。
-- [ ] 新增独立页面 `src/pages/secure-credentials/code-review.tsx`。
-- [ ] 新增 `src/types/codeReview.ts`。
-- [ ] 新增 `src/lib/api/codeReview.ts`。
-- [ ] 实现 Git 工作区选择。
-- [ ] 实现源/目标分支选择。
-- [ ] 展示最后提交和工作区状态。
-- [ ] 展示文件变更列表和 diff 预览。
+- [x] 将侧边栏一级菜单 `安全凭证` 调整为 `安全`。
+- [x] 新增 `安全 -> 代码审核` 菜单。
+- [x] 新增 `/secure-credentials/code-review` 路由。
+- [x] 新增独立页面 `src/pages/secure-credentials/code-review.tsx`。
+- [x] 新增 `src/types/codeReview.ts`。
+- [x] 新增 `src/lib/api/codeReview.ts`。
+- [x] 实现 Git 工作区选择。
+- [x] 实现源/目标分支选择。
+- [x] 展示最后提交和工作区状态。
+- [x] 展示文件变更列表和 diff 预览。
 
 验收标准：
 
@@ -886,12 +895,12 @@ AI 解析约束：
 
 ### 第三阶段：AI 审查
 
-- [ ] 构建 AI 审查 prompt。
-- [ ] 接入 `AiProviderService`。
-- [ ] 保存 Markdown 审查结果。
-- [ ] 保存结构化风险结果。
-- [ ] 页面展示审查报告。
-- [ ] 审计 AI 审查调用。
+- [x] 构建 AI 审查 prompt。
+- [x] 接入 `AiProviderService`。
+- [x] 保存 Markdown 审查结果。
+- [x] 保存结构化风险结果。
+- [x] 页面展示审查报告。
+- [x] 审计 AI 审查调用。
 
 验收标准：
 
@@ -900,15 +909,15 @@ AI 解析约束：
 
 ### 第四阶段：确认合并
 
-- [ ] 实现合并前二次确认。
-- [ ] 合并前重新校验工作区干净。
-- [ ] 合并前重新校验源分支 HEAD、目标分支 HEAD 和 merge-base，防止审查后分支漂移。
-- [ ] checkout 目标分支。
-- [ ] merge 源分支。
-- [ ] 处理冲突状态。
-- [ ] 合并成功后刷新工作区状态。
-- [ ] 合并成功后提供单独的推送远程入口。
-- [ ] 写审计日志。
+- [x] 实现合并前二次确认。
+- [x] 合并前重新校验工作区干净。
+- [x] 合并前重新校验源分支 HEAD、目标分支 HEAD 和 merge-base，防止审查后分支漂移。
+- [x] checkout 目标分支。
+- [x] merge 源分支。
+- [x] 处理冲突状态。
+- [x] 合并成功后刷新工作区状态。
+- [x] 合并成功后提供单独的推送远程入口。
+- [x] 写审计日志。
 
 验收标准：
 
@@ -917,13 +926,13 @@ AI 解析约束：
 
 ### 第五阶段：批量文本解析
 
-- [ ] 实现规则解析器。
-- [ ] 实现 AI 解析兜底。
-- [ ] 实现项目名到 Git 工作区匹配。
-- [ ] 展示可编辑任务表。
-- [ ] 支持批量创建审查任务。
-- [ ] 支持批量生成审查。
-- [ ] 支持选中项确认合并。
+- [x] 实现规则解析器。
+- [x] 实现 AI 解析兜底。
+- [x] 实现项目名到 Git 工作区匹配。
+- [x] 展示可编辑任务表。
+- [x] 支持批量创建审查任务。
+- [x] 支持批量生成审查。
+- [x] 支持选中项确认合并。
 
 验收标准：
 
@@ -932,16 +941,18 @@ AI 解析约束：
 
 ### 第六阶段：MCP 与策略增强
 
-- [ ] 新增 MCP 只读工具。
-- [ ] 新增合并受控工具。
-- [ ] 接入审批队列。
-- [ ] 接入策略配置。
-- [ ] 接入审查记录导出。
+- [x] 新增 MCP 只读工具：`code_review_workspaces_list`、`code_review_task_get`、`code_review_tasks_list`。
+- [x] 新增 MCP 审查工具：`code_review_task_create`、`code_review_diff_prepare`、`code_review_ai_run`、`code_review_batch_parse`、`code_review_batch_tasks_create`。
+- [x] 新增合并受控工具：`code_review_merge_controlled` 只创建审批，不直接执行合并。
+- [x] 接入审批队列：`code_review_merge_approved` 校验 approved、`taskKey` 和 payload hash 后才执行本地合并。
+- [x] 接入策略配置：MCP 工具权限列表标注只读、审查、受控合并和审计策略。
+- [x] 接入审查记录导出：首版以审查记录页复制 Markdown 报告形式提供，不做文件导出。
 
 验收标准：
 
 - MCP 可创建审查任务和读取审查报告。
 - MCP 不能直接绕过用户确认执行合并。
+- 运行中 MCP 进程需要重启后才能在 `tools/list` 中暴露新增 `code_review_*` 工具。
 
 ---
 

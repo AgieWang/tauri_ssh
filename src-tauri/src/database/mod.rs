@@ -7,21 +7,23 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::error::AppError;
 use crate::models::{
     AiExperience, AiProvider, AiProviderRoute, AiRunbook, AiRunbookStep, AiSkill, AiSkillStats,
-    AppConfig, ApprovalRequest, AuditLog, CreateApprovalRequestInput, CreateAuditLogInput,
+    AppConfig, ApprovalRequest, AuditLog, CodeReviewBatch, CodeReviewTask,
+    CreateApprovalRequestInput, CreateAuditLogInput, CreateCodeReviewTaskInput,
     CreateSecureCredentialAuditLogInput, CredentialVaultItem, DatabaseConnection,
     DecideApprovalRequestInput, DeploymentGroup, DeploymentGroupTarget, DeploymentRun,
     DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, GitWorkspace, JumpServerSession,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListDeploymentRunsInput,
-    ListGitWorkspacesInput, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
-    ListSecureCredentialAuditLogsInput, ResourceAlertEvent, ResourceAlertRule,
-    ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput, SecureCredential,
-    SecureCredentialAuditLog, SecureCredentialOverview, SecureCredentialPolicySettings,
-    SecureCredentialSession, SetSecureCredentialEnabledInput, SshServer,
-    UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput, UpsertAiProviderInput,
-    UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput,
-    UpsertDatabaseConnectionInput, UpsertDeploymentGroupInput, UpsertDeploymentTargetInput,
-    UpsertGitWorkspaceInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
-    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput, UpsertSshServerInput,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListCodeReviewTasksInput,
+    ListDeploymentRunsInput, ListGitWorkspacesInput, ListResourceAlertEventsInput,
+    ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput, ResourceAlertEvent,
+    ResourceAlertRule, ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput,
+    SecureCredential, SecureCredentialAuditLog, SecureCredentialOverview,
+    SecureCredentialPolicySettings, SecureCredentialSession, SetSecureCredentialEnabledInput,
+    SshServer, UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput,
+    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
+    UpsertCredentialInput, UpsertDatabaseConnectionInput, UpsertDeploymentGroupInput,
+    UpsertDeploymentTargetInput, UpsertGitWorkspaceInput, UpsertJumpServerSessionInput,
+    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
+    UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -1171,6 +1173,338 @@ impl Database {
             [workspace_key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── 代码审核 DAO ───────────────────────────────
+
+    pub fn create_code_review_task(
+        &self,
+        task_key: &str,
+        workspace: &GitWorkspace,
+        input: &CreateCodeReviewTaskInput,
+    ) -> Result<CodeReviewTask, AppError> {
+        let batch_key = input.batch_key.as_deref().unwrap_or("").trim();
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "INSERT INTO code_review_tasks
+                    (task_key, workspace_key, workspace_name, repo_path, source_branch, target_branch,
+                     batch_key, created_by, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'local-user', datetime('now', 'localtime'))",
+                params![
+                    task_key,
+                    workspace.workspace_key,
+                    workspace.name,
+                    workspace.repo_path,
+                    input.source_branch.trim(),
+                    input.target_branch.trim(),
+                    batch_key
+                ],
+            )?;
+        }
+        self.get_code_review_task(task_key)?
+            .ok_or_else(|| AppError::NotFound("代码审核任务创建后未找到".into()))
+    }
+
+    pub fn list_code_review_tasks(
+        &self,
+        input: &ListCodeReviewTasksInput,
+    ) -> Result<Vec<CodeReviewTask>, AppError> {
+        self.sync_superseded_code_review_tasks_stale()?;
+        let workspace_key = input.workspace_key.as_deref().unwrap_or("").trim();
+        let status = input.status.as_deref().unwrap_or("").trim();
+        let keyword = input.keyword.as_deref().unwrap_or("").trim().to_lowercase();
+        let keyword_like = if keyword.is_empty() {
+            String::new()
+        } else {
+            format!("%{}%", keyword)
+        };
+        let limit = input.limit.unwrap_or(100).clamp(1, 500);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, task_key, workspace_key, workspace_name, repo_path, source_branch,
+                    target_branch, status, risk_level, merge_base, source_head, target_head,
+                    push_status, diff_stat_json, changed_files_json, commit_list_json,
+                    diff_excerpt_json, ai_provider, ai_model, ai_review_markdown, ai_review_json,
+                    batch_key, error_message, created_at, updated_at, merged_at
+             FROM code_review_tasks
+             WHERE (?1 = '' OR workspace_key = ?1)
+               AND (?2 = '' OR status = ?2)
+               AND (
+                    ?3 = ''
+                    OR lower(task_key || ' ' || workspace_key || ' ' || workspace_name || ' ' ||
+                             source_branch || ' ' || target_branch || ' ' || status || ' ' ||
+                             risk_level) LIKE ?3
+               )
+             ORDER BY updated_at DESC, id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![workspace_key, status, keyword_like, limit],
+                Self::map_code_review_task_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_code_review_task(&self, task_key: &str) -> Result<Option<CodeReviewTask>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, task_key, workspace_key, workspace_name, repo_path, source_branch,
+                    target_branch, status, risk_level, merge_base, source_head, target_head,
+                    push_status, diff_stat_json, changed_files_json, commit_list_json,
+                    diff_excerpt_json, ai_provider, ai_model, ai_review_markdown, ai_review_json,
+                    batch_key, error_message, created_at, updated_at, merged_at
+             FROM code_review_tasks
+             WHERE task_key = ?1",
+            [task_key],
+            Self::map_code_review_task_row,
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_code_review_task_diff(
+        &self,
+        task_key: &str,
+        status: &str,
+        risk_level: &str,
+        merge_base: &str,
+        source_head: &str,
+        target_head: &str,
+        diff_stat_json: &str,
+        changed_files_json: &str,
+        commit_list_json: &str,
+        diff_excerpt_json: &str,
+        error_message: &str,
+    ) -> Result<CodeReviewTask, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "UPDATE code_review_tasks
+                 SET status = ?2, risk_level = ?3, merge_base = ?4, source_head = ?5,
+                     target_head = ?6, diff_stat_json = ?7, changed_files_json = ?8,
+                     commit_list_json = ?9, diff_excerpt_json = ?10, error_message = ?11,
+                     updated_at = datetime('now', 'localtime')
+                 WHERE task_key = ?1",
+                params![
+                    task_key,
+                    status,
+                    risk_level,
+                    merge_base,
+                    source_head,
+                    target_head,
+                    diff_stat_json,
+                    changed_files_json,
+                    commit_list_json,
+                    diff_excerpt_json,
+                    error_message
+                ],
+            )?;
+        }
+        self.get_code_review_task(task_key)?
+            .ok_or_else(|| AppError::NotFound(format!("代码审核任务 '{}' 不存在", task_key)))
+    }
+
+    pub fn update_code_review_ai_result(
+        &self,
+        task_key: &str,
+        status: &str,
+        risk_level: &str,
+        ai_provider: &str,
+        ai_model: &str,
+        ai_review_markdown: &str,
+        ai_review_json: &str,
+        error_message: &str,
+    ) -> Result<CodeReviewTask, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "UPDATE code_review_tasks
+                 SET status = ?2, risk_level = ?3, ai_provider = ?4, ai_model = ?5,
+                     ai_review_markdown = ?6, ai_review_json = ?7, error_message = ?8,
+                     updated_at = datetime('now', 'localtime')
+                 WHERE task_key = ?1",
+                params![
+                    task_key,
+                    status,
+                    risk_level,
+                    ai_provider,
+                    ai_model,
+                    ai_review_markdown,
+                    ai_review_json,
+                    error_message
+                ],
+            )?;
+        }
+        self.get_code_review_task(task_key)?
+            .ok_or_else(|| AppError::NotFound(format!("代码审核任务 '{}' 不存在", task_key)))
+    }
+
+    pub fn update_code_review_task_status(
+        &self,
+        task_key: &str,
+        status: &str,
+        error_message: &str,
+        merged: bool,
+    ) -> Result<CodeReviewTask, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            let merged_at_expr = if merged {
+                "datetime('now', 'localtime')"
+            } else {
+                "merged_at"
+            };
+            conn.execute(
+                &format!(
+                    "UPDATE code_review_tasks
+                     SET status = ?2, error_message = ?3, merged_at = {},
+                         updated_at = datetime('now', 'localtime')
+                     WHERE task_key = ?1",
+                    merged_at_expr
+                ),
+                params![task_key, status, error_message],
+            )?;
+        }
+        self.get_code_review_task(task_key)?
+            .ok_or_else(|| AppError::NotFound(format!("代码审核任务 '{}' 不存在", task_key)))
+    }
+
+    pub fn update_code_review_push_status(
+        &self,
+        task_key: &str,
+        push_status: &str,
+        error_message: &str,
+    ) -> Result<CodeReviewTask, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "UPDATE code_review_tasks
+                 SET push_status = ?2, error_message = ?3, updated_at = datetime('now', 'localtime')
+                 WHERE task_key = ?1",
+                params![task_key, push_status, error_message],
+            )?;
+        }
+        self.get_code_review_task(task_key)?
+            .ok_or_else(|| AppError::NotFound(format!("代码审核任务 '{}' 不存在", task_key)))
+    }
+
+    pub fn mark_older_duplicate_code_review_tasks_stale(
+        &self,
+        task: &CodeReviewTask,
+        error_message: &str,
+    ) -> Result<usize, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let changed = conn.execute(
+            "UPDATE code_review_tasks
+             SET status = 'stale', error_message = ?1
+             WHERE id < ?2
+               AND workspace_key = ?3
+               AND source_branch = ?4
+               AND target_branch = ?5
+               AND status IN ('draft', 'diff_ready', 'review_ready', 'merge_failed', 'conflict')",
+            params![
+                error_message,
+                task.id,
+                task.workspace_key,
+                task.source_branch,
+                task.target_branch
+            ],
+        )?;
+        Ok(changed)
+    }
+
+    pub fn sync_superseded_code_review_tasks_stale(&self) -> Result<usize, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let changed = conn.execute(
+            "UPDATE code_review_tasks
+             SET status = 'stale',
+                 error_message = '已有更新的同分支审查任务完成合并或推送，本任务已过期'
+             WHERE status IN ('draft', 'diff_ready', 'review_ready', 'merge_failed', 'conflict')
+               AND EXISTS (
+                 SELECT 1
+                 FROM code_review_tasks newer
+                 WHERE newer.id > code_review_tasks.id
+                   AND newer.workspace_key = code_review_tasks.workspace_key
+                   AND newer.source_branch = code_review_tasks.source_branch
+                   AND newer.target_branch = code_review_tasks.target_branch
+                   AND (newer.status = 'merged' OR newer.push_status = 'pushed')
+               )",
+            [],
+        )?;
+        Ok(changed)
+    }
+
+    pub fn create_code_review_batch(
+        &self,
+        batch_key: &str,
+        raw_text: &str,
+        parsed_json: &str,
+        total_count: i64,
+    ) -> Result<CodeReviewBatch, AppError> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            conn.execute(
+                "INSERT INTO code_review_batches
+                    (batch_key, raw_text, parsed_json, total_count, created_by, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 'local-user', datetime('now', 'localtime'))",
+                params![batch_key, raw_text, parsed_json, total_count],
+            )?;
+        }
+        self.get_code_review_batch(batch_key)?
+            .ok_or_else(|| AppError::NotFound("代码审核批次创建后未找到".into()))
+    }
+
+    pub fn get_code_review_batch(
+        &self,
+        batch_key: &str,
+    ) -> Result<Option<CodeReviewBatch>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, batch_key, raw_text, parsed_json, status, total_count,
+                    success_count, failed_count, created_at, updated_at
+             FROM code_review_batches
+             WHERE batch_key = ?1",
+            [batch_key],
+            Self::map_code_review_batch_row,
+        )
+        .optional()
+        .map_err(|e| e.into())
     }
 
     // ─── 安全凭证 DAO ───────────────────────────────
@@ -4130,6 +4464,66 @@ impl Database {
             last_scanned_at: row.get(12)?,
             created_at: row.get(13)?,
             updated_at: row.get(14)?,
+        })
+    }
+
+    fn map_code_review_task_row(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<CodeReviewTask, rusqlite::Error> {
+        let diff_stat_json: String = row.get(13)?;
+        let changed_files_json: String = row.get(14)?;
+        let commit_list_json: String = row.get(15)?;
+        let diff_excerpt_json: String = row.get(16)?;
+        let ai_review_json: String = row.get(20)?;
+        Ok(CodeReviewTask {
+            id: row.get(0)?,
+            task_key: row.get(1)?,
+            workspace_key: row.get(2)?,
+            workspace_name: row.get(3)?,
+            repo_path: row.get(4)?,
+            source_branch: row.get(5)?,
+            target_branch: row.get(6)?,
+            status: row.get(7)?,
+            risk_level: row.get(8)?,
+            merge_base: row.get(9)?,
+            source_head: row.get(10)?,
+            target_head: row.get(11)?,
+            push_status: row.get(12)?,
+            diff_stat: serde_json::from_str(&diff_stat_json)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            changed_files: serde_json::from_str(&changed_files_json).unwrap_or_else(|_| Vec::new()),
+            commits: serde_json::from_str(&commit_list_json).unwrap_or_else(|_| Vec::new()),
+            diff_excerpt: serde_json::from_str(&diff_excerpt_json)
+                .unwrap_or_else(|_| serde_json::json!([])),
+            ai_provider: row.get(17)?,
+            ai_model: row.get(18)?,
+            ai_review_markdown: row.get(19)?,
+            ai_review_json: serde_json::from_str(&ai_review_json)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            batch_key: row.get(21)?,
+            error_message: row.get(22)?,
+            created_at: row.get(23)?,
+            updated_at: row.get(24)?,
+            merged_at: row.get(25)?,
+        })
+    }
+
+    fn map_code_review_batch_row(
+        row: &rusqlite::Row<'_>,
+    ) -> Result<CodeReviewBatch, rusqlite::Error> {
+        let parsed_json: String = row.get(3)?;
+        Ok(CodeReviewBatch {
+            id: row.get(0)?,
+            batch_key: row.get(1)?,
+            raw_text: row.get(2)?,
+            parsed_json: serde_json::from_str(&parsed_json)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            status: row.get(4)?,
+            total_count: row.get(5)?,
+            success_count: row.get(6)?,
+            failed_count: row.get(7)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
         })
     }
 

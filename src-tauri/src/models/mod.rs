@@ -981,6 +981,138 @@ pub struct MergeGitWorkspaceBranchInput {
     pub target_branch: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewChangedFile {
+    pub path: String,
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewCommit {
+    pub hash: String,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewTask {
+    pub id: i64,
+    pub task_key: String,
+    pub workspace_key: String,
+    pub workspace_name: String,
+    pub repo_path: String,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub status: String,
+    pub risk_level: String,
+    pub merge_base: String,
+    pub source_head: String,
+    pub target_head: String,
+    pub push_status: String,
+    pub diff_stat: serde_json::Value,
+    pub changed_files: Vec<CodeReviewChangedFile>,
+    pub commits: Vec<CodeReviewCommit>,
+    pub diff_excerpt: serde_json::Value,
+    pub ai_provider: String,
+    pub ai_model: String,
+    pub ai_review_markdown: String,
+    pub ai_review_json: serde_json::Value,
+    pub batch_key: String,
+    pub error_message: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub merged_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCodeReviewTaskInput {
+    pub workspace_key: String,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub batch_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCodeReviewBatchTaskItem {
+    pub workspace_key: String,
+    pub project_name: String,
+    pub source_branch: String,
+    pub target_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCodeReviewBatchTasksInput {
+    pub batch_key: String,
+    pub items: Vec<CreateCodeReviewBatchTaskItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCodeReviewTasksInput {
+    pub workspace_key: Option<String>,
+    pub status: Option<String>,
+    pub keyword: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCodeReviewAiInput {
+    pub task_key: String,
+    pub provider_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewBatch {
+    pub id: i64,
+    pub batch_key: String,
+    pub raw_text: String,
+    pub parsed_json: serde_json::Value,
+    pub status: String,
+    pub total_count: i64,
+    pub success_count: i64,
+    pub failed_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseCodeReviewBatchInput {
+    pub raw_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewBatchItem {
+    pub project_name: String,
+    pub source_branch: String,
+    pub target_branch: String,
+    pub group: String,
+    pub confidence: f64,
+    pub matched_workspace_key: Option<String>,
+    pub status: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewBatchParseResult {
+    pub batch_key: String,
+    pub items: Vec<CodeReviewBatchItem>,
+    pub warnings: Vec<String>,
+}
+
 /// 数据库连接配置。敏感密码只返回掩码状态，不返回明文。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

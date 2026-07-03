@@ -2,6 +2,7 @@ pub mod ai_provider;
 pub mod ai_skill;
 pub mod approval;
 pub mod audit;
+pub mod code_review;
 pub mod config;
 pub mod credential_vault;
 pub mod database_ops;

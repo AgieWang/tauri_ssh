@@ -22,6 +22,7 @@ export { sshServerApi } from "./sshServer";
 export { credentialVaultApi } from "./credentialVault";
 export { secureCredentialApi } from "./secureCredential";
 export { gitWorkspaceApi } from "./gitWorkspace";
+export { codeReviewApi } from "./codeReview";
 export { databaseOpsApi } from "./databaseOps";
 export { terminalApi } from "./terminal";
 export { sftpApi } from "./sftp";

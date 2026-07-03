@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 18;
+pub const SCHEMA_VERSION: i32 = 19;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -48,6 +48,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             15 => migrate_v15_to_v16(conn)?,
             16 => migrate_v16_to_v17(conn)?,
             17 => migrate_v17_to_v18(conn)?,
+            18 => migrate_v18_to_v19(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -56,6 +57,69 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v18 -> v19: 代码审核与分支合并任务
+fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v18 -> v19（代码审核与分支合并）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS code_review_batches (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_key           TEXT NOT NULL UNIQUE,
+            raw_text            TEXT NOT NULL,
+            parsed_json         TEXT NOT NULL DEFAULT '{}',
+            status              TEXT NOT NULL DEFAULT 'parsed',
+            total_count         INTEGER NOT NULL DEFAULT 0,
+            success_count       INTEGER NOT NULL DEFAULT 0,
+            failed_count        INTEGER NOT NULL DEFAULT 0,
+            created_by          TEXT NOT NULL DEFAULT '',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS code_review_tasks (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_key            TEXT NOT NULL UNIQUE,
+            workspace_key       TEXT NOT NULL,
+            workspace_name      TEXT NOT NULL,
+            repo_path           TEXT NOT NULL,
+            source_branch       TEXT NOT NULL,
+            target_branch       TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'draft',
+            risk_level          TEXT NOT NULL DEFAULT 'unknown',
+            merge_base          TEXT NOT NULL DEFAULT '',
+            source_head         TEXT NOT NULL DEFAULT '',
+            target_head         TEXT NOT NULL DEFAULT '',
+            push_status         TEXT NOT NULL DEFAULT 'not_requested',
+            diff_stat_json      TEXT NOT NULL DEFAULT '{}',
+            changed_files_json  TEXT NOT NULL DEFAULT '[]',
+            commit_list_json    TEXT NOT NULL DEFAULT '[]',
+            diff_excerpt_json   TEXT NOT NULL DEFAULT '[]',
+            ai_provider         TEXT NOT NULL DEFAULT '',
+            ai_model            TEXT NOT NULL DEFAULT '',
+            ai_review_markdown  TEXT NOT NULL DEFAULT '',
+            ai_review_json      TEXT NOT NULL DEFAULT '{}',
+            batch_key           TEXT NOT NULL DEFAULT '',
+            created_by          TEXT NOT NULL DEFAULT '',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            merged_at           TEXT DEFAULT NULL,
+            error_message       TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_code_review_tasks_workspace
+            ON code_review_tasks(workspace_key, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_code_review_tasks_status
+            ON code_review_tasks(status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_code_review_tasks_batch
+            ON code_review_tasks(batch_key);
+        ",
+    )?;
+
+    set_version(conn, 19)?;
     Ok(())
 }
 

@@ -14,15 +14,17 @@ use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
     AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
-    CreateApprovalRequestInput, CreateAuditLogInput, CreateDeploymentDryRunInput,
-    CreateDeploymentRollbackDryRunInput, CreateSecureCredentialSessionInput,
-    DecideApprovalRequestInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
-    EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput, ExecuteDeploymentRunInput,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListDeploymentRunsInput, ListGitWorkspacesInput,
+    CreateApprovalRequestInput, CreateAuditLogInput, CreateCodeReviewBatchTasksInput,
+    CreateCodeReviewTaskInput, CreateDeploymentDryRunInput, CreateDeploymentRollbackDryRunInput,
+    CreateSecureCredentialSessionInput, DecideApprovalRequestInput, DeploymentAiAdviceInput,
+    DetectDeploymentProjectInput, EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput,
+    ExecuteDeploymentRunInput, ListAiSkillsInput, ListApprovalRequestsInput,
+    ListCodeReviewTasksInput, ListDeploymentRunsInput, ListGitWorkspacesInput,
     ListResourceAlertEventsInput, ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
     ListSecureCredentialSessionsInput, ListSecureCredentialsInput, MergeGitWorkspaceBranchInput,
-    ResourceSnapshotListInput, RotateSecureCredentialInput, RunAiRunbookInput,
-    SecureCredentialGitReadInput, SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
+    ParseCodeReviewBatchInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
+    RunAiRunbookInput, RunCodeReviewAiInput, SecureCredentialGitReadInput,
+    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
     SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
     SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
     SwitchGitWorkspaceBranchInput, UpdateSecureCredentialPolicySettingsInput,
@@ -35,6 +37,7 @@ use crate::services::ai_provider::AiProviderService;
 use crate::services::ai_skill::AiSkillService;
 use crate::services::approval::ApprovalService;
 use crate::services::audit::AuditService;
+use crate::services::code_review::CodeReviewService;
 use crate::services::credential_vault::CredentialVaultService;
 use crate::services::database_ops::DatabaseOpsService;
 use crate::services::deployment::DeploymentService;
@@ -1025,6 +1028,132 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                     "targetBranch": { "type": "string" }
                 },
                 "required": ["workspaceKey", "sourceBranch", "targetBranch"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_workspaces_list",
+            "description": "列出可用于代码审核的本地 Git 工作区，返回脱敏状态和绑定凭证信息。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string" },
+                    "credentialKey": { "type": "string" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_task_create",
+            "description": "基于本地 Git 工作区创建代码审核任务，不执行合并。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "sourceBranch": { "type": "string" },
+                    "targetBranch": { "type": "string" },
+                    "batchKey": { "type": "string" }
+                },
+                "required": ["workspaceKey", "sourceBranch", "targetBranch"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_diff_prepare",
+            "description": "为代码审核任务生成 merge-base..source 的提交、文件和 diff 摘要。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "taskKey": { "type": "string" } },
+                "required": ["taskKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_ai_run",
+            "description": "对已生成 diff 的代码审核任务运行 AI 审查并保存 Markdown 报告。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "taskKey": { "type": "string" },
+                    "providerKey": { "type": "string" }
+                },
+                "required": ["taskKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_task_get",
+            "description": "读取单个代码审核任务详情、diff 摘要和 AI 审查报告。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "taskKey": { "type": "string" } },
+                "required": ["taskKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_tasks_list",
+            "description": "按工作区、状态或关键词查询代码审核任务列表。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspaceKey": { "type": "string" },
+                    "status": { "type": "string" },
+                    "keyword": { "type": "string" },
+                    "limit": { "type": "number" }
+                }
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_batch_parse",
+            "description": "解析自然语言批量合并需求，生成可编辑的代码审核任务草稿。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "rawText": { "type": "string" } },
+                "required": ["rawText"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_batch_tasks_create",
+            "description": "把批量解析结果创建为独立代码审核任务，不自动合并。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "batchKey": { "type": "string" },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "workspaceKey": { "type": "string" },
+                                "projectName": { "type": "string" },
+                                "sourceBranch": { "type": "string" },
+                                "targetBranch": { "type": "string" }
+                            },
+                            "required": ["workspaceKey", "projectName", "sourceBranch", "targetBranch"]
+                        }
+                    }
+                },
+                "required": ["batchKey", "items"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_merge_controlled",
+            "description": "为代码审核任务创建本地合并审批请求；不会直接执行 merge。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "taskKey": { "type": "string" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
+                },
+                "required": ["taskKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "code_review_merge_approved",
+            "description": "执行已批准的代码审核本地合并，approvalId 与 taskKey 必须匹配。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "taskKey": { "type": "string" }
+                },
+                "required": ["approvalId", "taskKey"]
             }
         }),
         serde_json::json!({
@@ -2938,6 +3067,121 @@ async fn call_mcp_tool_inner(
                 .await?,
             )?)
         }
+        "code_review_workspaces_list" => {
+            let state = app_state(ctx);
+            let workspaces = GitWorkspaceService::list(
+                &state.db,
+                Some(ListGitWorkspacesInput {
+                    keyword: optional_string(&arguments, "keyword"),
+                    credential_key: optional_string(&arguments, "credentialKey"),
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "items": workspaces,
+                "count": workspaces.len()
+            }))
+        }
+        "code_review_tasks_list" => {
+            let state = app_state(ctx);
+            let tasks = CodeReviewService::list(
+                &state.db,
+                Some(ListCodeReviewTasksInput {
+                    workspace_key: optional_string(&arguments, "workspaceKey"),
+                    status: optional_string(&arguments, "status"),
+                    keyword: optional_string(&arguments, "keyword"),
+                    limit: optional_i64(&arguments, "limit"),
+                }),
+            )?;
+            Ok(serde_json::json!({
+                "items": tasks,
+                "count": tasks.len()
+            }))
+        }
+        "code_review_task_get" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(CodeReviewService::get(
+                &state.db,
+                &required_string(&arguments, "taskKey")?,
+            )?)?)
+        }
+        "code_review_task_create" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(CodeReviewService::create(
+                &state.db,
+                CreateCodeReviewTaskInput {
+                    workspace_key: required_string(&arguments, "workspaceKey")?,
+                    source_branch: required_string(&arguments, "sourceBranch")?,
+                    target_branch: required_string(&arguments, "targetBranch")?,
+                    batch_key: optional_string(&arguments, "batchKey"),
+                },
+            )?)?)
+        }
+        "code_review_diff_prepare" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                CodeReviewService::prepare_diff(
+                    &state.db,
+                    &required_string(&arguments, "taskKey")?,
+                )
+                .await?,
+            )?)
+        }
+        "code_review_ai_run" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                CodeReviewService::run_ai(
+                    &state.db,
+                    RunCodeReviewAiInput {
+                        task_key: required_string(&arguments, "taskKey")?,
+                        provider_key: optional_string(&arguments, "providerKey"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "code_review_batch_parse" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                CodeReviewService::parse_batch(
+                    &state.db,
+                    ParseCodeReviewBatchInput {
+                        raw_text: required_string(&arguments, "rawText")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "code_review_batch_tasks_create" => {
+            let state = app_state(ctx);
+            let input: CreateCodeReviewBatchTasksInput = serde_json::from_value(arguments.clone())
+                .map_err(|error| {
+                    AppError::InvalidInput(format!("批量任务参数格式不正确: {}", error))
+                })?;
+            let tasks = CodeReviewService::create_batch_tasks(&state.db, input)?;
+            Ok(serde_json::json!({
+                "items": tasks,
+                "count": tasks.len()
+            }))
+        }
+        "code_review_merge_controlled" => create_code_review_merge_approval(ctx, &arguments),
+        "code_review_merge_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let task_key = required_string(&arguments, "taskKey")?;
+            let execution_payload = code_review_merge_execution_payload(&arguments)?;
+            let request_hash = secure_request_hash(&execution_payload);
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "code_review_merge",
+                "",
+                Some(&request_hash),
+                Some(&task_key),
+            )?;
+            Ok(serde_json::to_value(
+                CodeReviewService::merge(&state.db, &task_key).await?,
+            )?)
+        }
         "database_connections_list" => {
             let state = app_state(ctx);
             let connections = DatabaseOpsService::list_connections(&state.db)?
@@ -4412,6 +4656,66 @@ fn secure_git_execution_payload(
             .get("payload")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({})),
+    }))
+}
+
+fn code_review_merge_execution_payload(
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    Ok(serde_json::json!({
+        "taskKey": required_string(arguments, "taskKey")?,
+    }))
+}
+
+fn create_code_review_merge_approval(
+    ctx: &DevApiState,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let state = app_state(ctx);
+    let task_key = required_string(arguments, "taskKey")?;
+    let task = CodeReviewService::get(&state.db, &task_key)?;
+    let execution_payload = code_review_merge_execution_payload(arguments)?;
+    let request_hash = secure_request_hash(&execution_payload);
+    let approval = ApprovalService::create(
+        &state.db,
+        CreateApprovalRequestInput {
+            source: "code_review".into(),
+            requester: optional_string(arguments, "requester")
+                .unwrap_or_else(|| "mcp-client".into()),
+            server_alias: String::new(),
+            action: "code_review_merge".into(),
+            risk: "high".into(),
+            command: request_hash.clone(),
+            resource: task_key.clone(),
+            reason: optional_string(arguments, "reason")
+                .unwrap_or_else(|| "代码审核合并需用户确认".into()),
+            summary: format!(
+                "代码审核合并 {}: {} -> {}",
+                task.workspace_name, task.source_branch, task.target_branch
+            ),
+            payload_json: Some(
+                serde_json::json!({
+                    "tool": "code_review_merge_controlled",
+                    "requestHash": request_hash,
+                    "taskKey": task_key,
+                    "workspaceKey": task.workspace_key,
+                    "sourceBranch": task.source_branch,
+                    "targetBranch": task.target_branch,
+                    "status": task.status,
+                    "riskLevel": task.risk_level
+                })
+                .to_string(),
+            ),
+            expires_at: None,
+        },
+    )?;
+    Ok(serde_json::json!({
+        "status": "approval_required",
+        "approvalId": approval.id,
+        "action": approval.action,
+        "resource": approval.resource,
+        "requestHash": approval.command,
+        "message": "已创建代码审核合并审批请求，请在审批队列确认后调用 code_review_merge_approved"
     }))
 }
 

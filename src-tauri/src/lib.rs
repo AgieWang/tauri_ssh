@@ -172,6 +172,18 @@ pub fn run() {
             commands::git_workspace::list_git_workspace_branches,
             commands::git_workspace::switch_git_workspace_branch,
             commands::git_workspace::merge_git_workspace_branch,
+            // 代码审核模块
+            commands::code_review::list_code_review_tasks,
+            commands::code_review::get_code_review_task,
+            commands::code_review::create_code_review_task,
+            commands::code_review::create_code_review_batch_tasks,
+            commands::code_review::prepare_code_review_diff,
+            commands::code_review::run_code_review_ai,
+            commands::code_review::merge_code_review_task,
+            commands::code_review::push_code_review_task,
+            commands::code_review::abort_code_review_merge,
+            commands::code_review::cancel_code_review_task,
+            commands::code_review::parse_code_review_batch,
             // 数据库管理模块
             commands::database_ops::list_database_connections,
             commands::database_ops::upsert_database_connection,

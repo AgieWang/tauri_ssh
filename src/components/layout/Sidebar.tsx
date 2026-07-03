@@ -8,6 +8,7 @@ import {
   Clock3,
   FolderTree,
   GitBranch,
+  GitPullRequestArrow,
   KeyRound,
   Landmark,
   LayoutDashboard,
@@ -42,11 +43,12 @@ const menuItems = [
   {
     key: "secure-credentials",
     icon: <LockKeyhole size={18} />,
-    label: "安全凭证",
+    label: "安全",
     children: [
       { key: "/secure-credentials/overview", icon: <LayoutDashboard size={16} />, label: "概览" },
       { key: "/secure-credentials/vault", icon: <KeyRound size={16} />, label: "凭证库" },
       { key: "/secure-credentials/git-workspaces", icon: <GitBranch size={16} />, label: "Git 工作区" },
+      { key: "/secure-credentials/code-review", icon: <GitPullRequestArrow size={16} />, label: "代码审核" },
       { key: "/secure-credentials/sessions", icon: <Clock3 size={16} />, label: "会话" },
       { key: "/secure-credentials/mcp", icon: <PlugZap size={16} />, label: "MCP 接入" },
       { key: "/secure-credentials/audit", icon: <ScrollText size={16} />, label: "审计" },

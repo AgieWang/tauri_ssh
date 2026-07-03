@@ -603,6 +603,56 @@ impl McpService {
                 policy: "合并分支；工作区有未提交改动时拒绝".into(),
                 audit: "记录 workspaceKey、源/目标分支和执行结果".into(),
             },
+            McpToolPermission {
+                tool: "code_review_workspaces_list".into(),
+                policy: "只读，返回可用于代码审核的 Git 工作区脱敏状态".into(),
+                audit: "记录筛选条件和工作区数量".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_task_create".into(),
+                policy: "创建代码审核任务，不执行合并".into(),
+                audit: "记录 workspaceKey、源分支和目标分支".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_diff_prepare".into(),
+                policy: "只读生成 diff/提交/文件摘要；要求工作区干净".into(),
+                audit: "记录 taskKey、文件数和提交数".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_ai_run".into(),
+                policy: "基于已生成 diff 调用 AI 审查，不执行合并".into(),
+                audit: "记录 taskKey、Provider、模型和风险等级".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_task_get".into(),
+                policy: "只读，读取代码审核任务详情和报告".into(),
+                audit: "记录 taskKey".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_tasks_list".into(),
+                policy: "只读，按工作区、状态或关键词查询审核任务".into(),
+                audit: "记录筛选条件和返回数量".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_batch_parse".into(),
+                policy: "解析批量合并文本，仅生成任务草稿".into(),
+                audit: "记录 batchKey 和解析数量".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_batch_tasks_create".into(),
+                policy: "批量创建独立审核任务，不自动合并".into(),
+                audit: "记录 batchKey 和任务数量".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_merge_controlled".into(),
+                policy: "仅创建代码审核合并审批请求，不直接执行 merge".into(),
+                audit: "记录 taskKey、审批 ID 和 payload hash".into(),
+            },
+            McpToolPermission {
+                tool: "code_review_merge_approved".into(),
+                policy: "仅允许 approved 且 taskKey/payload hash 匹配后执行本地合并".into(),
+                audit: "记录审批 ID、taskKey 和合并结果".into(),
+            },
         ];
         tools.extend(secure_credential_semantic_tool_permissions());
         tools

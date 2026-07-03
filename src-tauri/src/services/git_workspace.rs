@@ -941,16 +941,32 @@ async fn git_command_output_with_workspace_credential(
     args: &[&str],
     duration: Duration,
 ) -> Result<String, AppError> {
-    let credential_key = workspace.credential_key.trim();
+    let credentials = db.list_secure_credentials().unwrap_or_else(|error| {
+        log::warn!("读取安全凭证用于 Git 工作区命令自动匹配失败: {}", error);
+        Vec::new()
+    });
+    let matched_credential_key = workspace
+        .credential_key
+        .trim()
+        .to_string()
+        .is_empty()
+        .then(|| match_git_credential(&workspace.remote_url, &credentials))
+        .flatten();
+    let credential_key = if workspace.credential_key.trim().is_empty() {
+        matched_credential_key.as_deref().unwrap_or("")
+    } else {
+        workspace.credential_key.trim()
+    };
     if credential_key.is_empty() {
-        return git_command_output(repo, args, duration).await;
+        return git_command_output(repo, args, duration)
+            .await
+            .map_err(|error| normalize_git_auth_error(error, workspace, None));
     }
 
-    let credential = db
-        .get_secure_credential(credential_key)?
-        .ok_or_else(|| AppError::NotFound(format!("安全凭证 '{}' 不存在", credential_key)))?;
+    let credential =
+        SecureCredentialService::resolve_git_credential(db, credential_key, &workspace.remote_url)?;
     validate_git_workspace_credential(&credential)?;
-    let secret = SecureCredentialService::get_secret(db, credential_key)?;
+    let secret = SecureCredentialService::get_secret(db, &credential.credential_key)?;
     let username = git_username_for_credential(&credential);
     let askpass = write_git_workspace_askpass_script()?;
     let envs = vec![
@@ -958,7 +974,9 @@ async fn git_command_output_with_workspace_credential(
         ("GIT_WORKSPACE_USERNAME", username),
         ("GIT_WORKSPACE_TOKEN", secret.clone()),
     ];
-    let result = run_git_output_with_env(repo, args, duration, &envs, &[secret]).await;
+    let result = run_git_output_with_env(repo, args, duration, &envs, &[secret])
+        .await
+        .map_err(|error| normalize_git_auth_error(error, workspace, Some(credential_key)));
     let _ = fs::remove_file(&askpass);
     result
 }
@@ -1084,6 +1102,7 @@ fn match_git_credential(remote_url: &str, credentials: &[SecureCredential]) -> O
         .iter()
         .filter(|credential| {
             credential.enabled
+                && credential.status == "active"
                 && credential.has_secret
                 && credential.provider == provider
                 && ["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str())
@@ -1170,6 +1189,45 @@ fn validate_git_workspace_credential(credential: &SecureCredential) -> Result<()
         )));
     }
     Ok(())
+}
+
+fn normalize_git_auth_error(
+    error: AppError,
+    workspace: &GitWorkspace,
+    credential_key: Option<&str>,
+) -> AppError {
+    let message = error.to_string();
+    if !message.contains("terminal prompts disabled")
+        && !message.contains("could not read Username")
+        && !message.contains("Authentication failed")
+    {
+        return error;
+    }
+
+    let provider = provider_from_remote(&workspace.remote_url)
+        .map(git_provider_display_name)
+        .unwrap_or("Git");
+    let bind_hint = if credential_key.is_none() {
+        "当前工作区未绑定安全凭证，也未自动匹配到可用凭证。"
+    } else if workspace.credential_key.trim().is_empty() {
+        "当前工作区未绑定安全凭证，自动匹配到的安全凭证未通过远程仓库认证。"
+    } else {
+        "当前工作区绑定的安全凭证未通过远程仓库认证。"
+    };
+    AppError::InvalidInput(format!(
+        "{} 仓库拉取需要认证。{}请在「安全 -> Git 工作区」为该仓库绑定可读取仓库的 {} 凭证后重试。",
+        provider, bind_hint, provider
+    ))
+}
+
+fn git_provider_display_name(provider: &str) -> &'static str {
+    match provider {
+        "github" => "GitHub",
+        "gitlab" => "GitLab",
+        "gitcode" => "GitCode",
+        "gitee" => "Gitee",
+        _ => "Git",
+    }
 }
 
 fn git_username_for_credential(credential: &SecureCredential) -> String {

@@ -889,6 +889,72 @@ impl SecureCredentialService {
         }
     }
 
+    /// 解析 Git 工作区保存的凭证引用。
+    ///
+    /// 历史数据里 credential_key 可能存的是真实凭证 Key，也可能是 "GitLab" 这类
+    /// Provider/显示名。Git 操作前统一解析成真实安全凭证，避免把显示名当主键查询。
+    pub fn resolve_git_credential(
+        db: &Database,
+        credential_ref: &str,
+        remote_url: &str,
+    ) -> Result<SecureCredential, AppError> {
+        let reference = credential_ref.trim();
+        if reference.is_empty() {
+            return Err(AppError::InvalidInput("Git 凭证引用不能为空".into()));
+        }
+
+        if let Some(credential) = db.get_secure_credential(reference)? {
+            return Ok(credential);
+        }
+
+        let normalized_ref = normalize_credential_reference(reference);
+        let remote_host = normalize_remote_host(remote_url).unwrap_or_default();
+        let remote_provider = provider_from_remote(remote_url);
+        let candidates = db
+            .list_secure_credentials()?
+            .into_iter()
+            .filter(|credential| {
+                ["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str())
+            })
+            .filter(|credential| {
+                credential.enabled && credential.status == "active" && credential.has_secret
+            })
+            .filter(|credential| {
+                let same_provider =
+                    normalize_credential_reference(&credential.provider) == normalized_ref;
+                let same_display =
+                    normalize_credential_reference(&credential.display_name) == normalized_ref;
+                let same_key =
+                    normalize_credential_reference(&credential.credential_key) == normalized_ref;
+                same_provider || same_display || same_key
+            })
+            .filter(|credential| {
+                if let Some(provider) = remote_provider {
+                    credential.provider == provider
+                } else {
+                    true
+                }
+            })
+            .filter(|credential| {
+                let base_host = normalize_remote_host(&credential.base_url).unwrap_or_default();
+                base_host.is_empty() || remote_host.is_empty() || base_host == remote_host
+            })
+            .collect::<Vec<_>>();
+
+        match candidates.as_slice() {
+            [credential] => Ok(credential.clone()),
+            [] => Err(AppError::NotFound(format!(
+                "未找到可用于远程仓库 '{}' 的 Git 凭证引用 '{}'，请在 Git 工作区绑定具体凭证 Key",
+                sanitize_remote_for_message(remote_url),
+                reference
+            ))),
+            _ => Err(AppError::InvalidInput(format!(
+                "Git 凭证引用 '{}' 匹配到多个凭证，请在 Git 工作区绑定具体凭证 Key",
+                reference
+            ))),
+        }
+    }
+
     fn validate_upsert(input: &UpsertSecureCredentialInput) -> Result<(), AppError> {
         let key = input.credential_key.trim();
         if key.is_empty() {
@@ -2186,4 +2252,83 @@ impl SecureCredentialService {
         key.copy_from_slice(&digest[..32]);
         Ok(key)
     }
+}
+
+fn normalize_credential_reference(value: &str) -> String {
+    value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '_' && *ch != '-')
+        .collect()
+}
+
+fn provider_from_remote(remote_url: &str) -> Option<&'static str> {
+    let value = remote_url.to_lowercase();
+    if value.contains("github.com") {
+        Some("github")
+    } else if value.contains("gitlab") {
+        Some("gitlab")
+    } else if value.contains("gitcode") {
+        Some("gitcode")
+    } else if value.contains("gitee") {
+        Some("gitee")
+    } else {
+        None
+    }
+}
+
+fn normalize_remote_host(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.split_once("://").map(|(_, rest)| rest) {
+        let host = rest
+            .split('/')
+            .next()
+            .unwrap_or("")
+            .split('@')
+            .next_back()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim();
+        return (!host.is_empty()).then(|| host.to_lowercase());
+    }
+    if let Some((host, _)) = trimmed.split_once(':') {
+        let host = host
+            .split('@')
+            .next_back()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        return (!host.is_empty()).then_some(host);
+    }
+    let host = trimmed
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next_back()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+fn sanitize_remote_for_message(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "-".into();
+    }
+    if let Some((scheme, rest)) = trimmed.split_once("://") {
+        let sanitized = rest.split_once('@').map(|(_, right)| right).unwrap_or(rest);
+        return format!("{}://{}", scheme, sanitized);
+    }
+    trimmed
+        .split_once('@')
+        .map(|(_, right)| right.to_string())
+        .unwrap_or_else(|| trimmed.to_string())
 }
