@@ -6,7 +6,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { ArrowDownToLine, Bot, ChevronLeft, ChevronRight, ChevronsUp, Copy, Edit3, FilePlus2, Folder, FolderOpen, FolderPlus, Home, KeyRound, Link2, Maximize2, Minimize2, Pencil, PlugZap, Plus, RefreshCw, Scissors, Search, ShieldAlert, Trash2, Upload, UploadCloud } from "lucide-react";
+import { ArrowDownToLine, Bot, ChevronLeft, ChevronRight, ChevronsUp, Copy, Edit3, Eye, FilePlus2, Folder, FolderOpen, FolderPlus, Home, KeyRound, Link2, Maximize2, Minimize2, Pencil, PlugZap, Plus, RefreshCw, Scissors, Search, ShieldAlert, Trash2, Upload, UploadCloud } from "lucide-react";
 import {
   coverageRows,
   servers,
@@ -3445,6 +3445,7 @@ export function ApprovalPage() {
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus | "all">("pending");
   const [approvalDrawerOpen, setApprovalDrawerOpen] = useState(false);
+  const [approvalDetail, setApprovalDetail] = useState<ApprovalRequest | null>(null);
   const [approvalSaving, setApprovalSaving] = useState(false);
   const [approvalForm] = Form.useForm<CreateApprovalRequestInput>();
 
@@ -3541,7 +3542,22 @@ export function ApprovalPage() {
     }
   }, [approvalForm, loadApprovals]);
 
-  const approvalRealColumns = [
+  const renderApprovalText = (value: string, options?: { code?: boolean; secondary?: boolean }) => {
+    const text = value || "-";
+    return (
+      <Tooltip title={value || undefined}>
+        <Text
+          code={options?.code}
+          type={options?.secondary ? "secondary" : undefined}
+          style={{ whiteSpace: "normal", wordBreak: "break-word" }}
+        >
+          {text}
+        </Text>
+      </Tooltip>
+    );
+  };
+
+  const approvalRealColumns: TableProps<ApprovalRequest>["columns"] = [
     {
       title: "状态",
       dataIndex: "status",
@@ -3551,14 +3567,34 @@ export function ApprovalPage() {
         return <Tag color={meta.color}>{meta.label}</Tag>;
       },
     },
-    { title: "来源", dataIndex: "source", width: 100 },
-    { title: "请求方", dataIndex: "requester", width: 130, ellipsis: true },
-    { title: "服务器", dataIndex: "serverAlias", width: 150, ellipsis: true },
-    { title: "动作", dataIndex: "action", width: 150, ellipsis: true },
+    {
+      title: "来源",
+      dataIndex: "source",
+      width: 110,
+      render: (value: string) => renderApprovalText(value),
+    },
+    {
+      title: "请求方",
+      dataIndex: "requester",
+      width: 190,
+      render: (value: string) => renderApprovalText(value),
+    },
+    {
+      title: "服务器",
+      dataIndex: "serverAlias",
+      width: 150,
+      render: (value: string) => renderApprovalText(value),
+    },
+    {
+      title: "动作",
+      dataIndex: "action",
+      width: 190,
+      render: (value: string) => renderApprovalText(value),
+    },
     {
       title: "风险",
       dataIndex: "risk",
-      width: 96,
+      width: 100,
       render: (value: string) => {
         const meta = riskMeta[value] ?? { color: "default", label: value };
         return <Tag color={meta.color}>{meta.label}</Tag>;
@@ -3567,28 +3603,49 @@ export function ApprovalPage() {
     {
       title: "命令 / 资源",
       key: "target",
-      ellipsis: true,
+      width: 310,
       render: (_: unknown, record: ApprovalRequest) => (
-        <Space direction="vertical" size={0}>
-          {record.command ? <Text code>{record.command}</Text> : null}
-          {record.resource ? <Text type="secondary">{record.resource}</Text> : null}
+        <Space direction="vertical" size={2} style={{ maxWidth: 290 }}>
+          {record.command ? renderApprovalText(record.command, { code: true }) : <Text type="secondary">-</Text>}
+          {record.resource ? renderApprovalText(record.resource, { secondary: true }) : null}
         </Space>
       ),
     },
-    { title: "原因", dataIndex: "reason", ellipsis: true },
+    {
+      title: "原因",
+      dataIndex: "reason",
+      width: 280,
+      render: (value: string) => renderApprovalText(value),
+    },
     { title: "创建时间", dataIndex: "createdAt", width: 170 },
+    {
+      title: "决策人",
+      dataIndex: "decidedBy",
+      width: 150,
+      render: (value: string) => renderApprovalText(value, { secondary: !value }),
+    },
     {
       title: "操作",
       key: "actions",
       width: 170,
       fixed: "right" as const,
-      render: (_: unknown, record: ApprovalRequest) => record.status === "pending" ? (
-        <Space size={8}>
-          <Button size="small" type="primary" onClick={() => decideApproval(record, "approved")}>批准</Button>
-          <Button size="small" danger onClick={() => decideApproval(record, "rejected")}>拒绝</Button>
+      render: (_: unknown, record: ApprovalRequest) => (
+        <Space size={8} wrap>
+          <Button
+            size="small"
+            aria-label={`查看审批请求 ${record.id} 详情`}
+            icon={<Eye size={13} />}
+            onClick={() => setApprovalDetail(record)}
+          >
+            详情
+          </Button>
+          {record.status === "pending" ? (
+            <>
+              <Button size="small" type="primary" onClick={() => decideApproval(record, "approved")}>批准</Button>
+              <Button size="small" danger onClick={() => decideApproval(record, "rejected")}>拒绝</Button>
+            </>
+          ) : null}
         </Space>
-      ) : (
-        <Text type="secondary">{record.decidedBy || "-"}</Text>
       ),
     },
   ];
@@ -3624,9 +3681,67 @@ export function ApprovalPage() {
           dataSource={approvalRows}
           loading={approvalLoading}
           pagination={{ pageSize: 10, showSizeChanger: false }}
-          scroll={{ x: 1300 }}
+          scroll={{ x: 1910 }}
         />
       </Card>
+      <Drawer
+        title={approvalDetail ? `审批请求 #${approvalDetail.id}` : "审批请求详情"}
+        open={Boolean(approvalDetail)}
+        width={760}
+        onClose={() => setApprovalDetail(null)}
+        extra={<Button onClick={() => setApprovalDetail(null)}>关闭</Button>}
+      >
+        {approvalDetail ? (
+          <Space direction="vertical" size={16} style={{ width: "100%" }}>
+            <Descriptions bordered size="small" column={2}>
+              <Descriptions.Item label="状态">
+                {statusMeta[approvalDetail.status]?.label ?? approvalDetail.status}
+              </Descriptions.Item>
+              <Descriptions.Item label="风险">
+                {riskMeta[approvalDetail.risk]?.label ?? approvalDetail.risk}
+              </Descriptions.Item>
+              <Descriptions.Item label="来源">{approvalDetail.source || "-"}</Descriptions.Item>
+              <Descriptions.Item label="请求方">{approvalDetail.requester || "-"}</Descriptions.Item>
+              <Descriptions.Item label="服务器">{approvalDetail.serverAlias || "-"}</Descriptions.Item>
+              <Descriptions.Item label="动作">{approvalDetail.action || "-"}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{approvalDetail.createdAt || "-"}</Descriptions.Item>
+              <Descriptions.Item label="更新时间">{approvalDetail.updatedAt || "-"}</Descriptions.Item>
+              <Descriptions.Item label="决策人">{approvalDetail.decidedBy || "-"}</Descriptions.Item>
+              <Descriptions.Item label="决策时间">{approvalDetail.decidedAt || "-"}</Descriptions.Item>
+            </Descriptions>
+            <div>
+              <Text strong>摘要</Text>
+              <Paragraph style={{ marginTop: 8 }}>{approvalDetail.summary || "-"}</Paragraph>
+            </div>
+            <div>
+              <Text strong>命令</Text>
+              <pre className="prototype-code" style={{ maxHeight: 160, overflow: "auto", marginTop: 8 }}>
+                {approvalDetail.command || "-"}
+              </pre>
+            </div>
+            <div>
+              <Text strong>资源</Text>
+              <Paragraph code copyable={Boolean(approvalDetail.resource)} style={{ marginTop: 8 }}>
+                {approvalDetail.resource || "-"}
+              </Paragraph>
+            </div>
+            <div>
+              <Text strong>申请原因</Text>
+              <Paragraph style={{ marginTop: 8 }}>{approvalDetail.reason || "-"}</Paragraph>
+            </div>
+            <div>
+              <Text strong>审批备注</Text>
+              <Paragraph style={{ marginTop: 8 }}>{approvalDetail.decisionNote || "-"}</Paragraph>
+            </div>
+            <div>
+              <Text strong>Payload JSON</Text>
+              <pre className="prototype-code" style={{ maxHeight: 260, overflow: "auto", marginTop: 8 }}>
+                {approvalDetail.payloadJson || "{}"}
+              </pre>
+            </div>
+          </Space>
+        ) : null}
+      </Drawer>
       <Drawer
         title="新建审批请求"
         open={approvalDrawerOpen}

@@ -87,7 +87,7 @@ function AiUnrestrictedButton() {
       okButtonProps: { danger: true },
       content: (
         <div>
-          <p>开启后 30 分钟内，AI 可自动执行读写命令，并跳过 AI 审计记录。</p>
+          <p>开启后 30 分钟内，服务器、数据库、Git 等写入审批会自动确认，并保留审批记录。</p>
           <p>系统设置中的危险命令黑名单仍会在本地强制阻止，不能绕过。</p>
         </div>
       ),
@@ -120,7 +120,7 @@ function AiUnrestrictedButton() {
   };
 
   return (
-    <Tooltip title={state.active ? "点击关闭 AI 临时放行" : "30 分钟内允许 AI 自动执行读写命令，危险命令仍阻止"}>
+    <Tooltip title={state.active ? "点击关闭 AI 临时放行" : "30 分钟内自动确认写入审批，危险命令仍阻止"}>
       <Button
         danger={state.active}
         type={state.active ? "primary" : "default"}

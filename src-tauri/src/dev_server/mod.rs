@@ -13,7 +13,7 @@ use tower_http::cors::CorsLayer;
 use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
-    AiSkillPromptPreviewInput, AiSkillTriggerInput, CollectResourceBatchInput,
+    AiSkillPromptPreviewInput, AiSkillTriggerInput, ApprovalRequest, CollectResourceBatchInput,
     CreateApprovalRequestInput, CreateAuditLogInput, CreateCodeReviewBatchTasksInput,
     CreateCodeReviewTaskInput, CreateDeploymentDryRunInput, CreateDeploymentRollbackDryRunInput,
     CreateSecureCredentialSessionInput, DecideApprovalRequestInput, DeploymentAiAdviceInput,
@@ -62,6 +62,33 @@ struct DevApiState {
 }
 
 type DevApiResult<T> = Result<Json<T>, DevApiError>;
+
+fn approval_flow_status(approval: &ApprovalRequest) -> &'static str {
+    if approval.status == "approved" {
+        "auto_approved"
+    } else {
+        "approval_required"
+    }
+}
+
+fn approval_flow_action(approval: &ApprovalRequest) -> &'static str {
+    if approval.status == "approved" {
+        "auto_approved"
+    } else {
+        "approval_required"
+    }
+}
+
+fn approval_flow_message(approval: &ApprovalRequest, approved_tool: &str) -> String {
+    if approval.status == "approved" {
+        format!(
+            "AI 临时放行已开启，审批请求已自动确认；可继续调用 {} 执行。",
+            approved_tool
+        )
+    } else {
+        format!("已创建审批请求，请在审批队列确认后调用 {}。", approved_tool)
+    }
+}
 
 struct DevApiError(CommandError);
 
@@ -2811,12 +2838,12 @@ async fn call_mcp_tool_inner(
                 },
             )?;
             Ok(serde_json::json!({
-                "status": "approval_required",
+                "status": approval_flow_status(&approval),
                 "approvalId": approval.id,
                 "action": approval.action,
                 "resource": approval.resource,
                 "requestHash": approval.command,
-                "message": "已创建审批请求，请在审批队列确认后调用 secure_git_write_approved"
+                "message": approval_flow_message(&approval, "secure_git_write_approved")
             }))
         }
         name if secure_git_write_alias(name).is_some() => {
@@ -2899,12 +2926,12 @@ async fn call_mcp_tool_inner(
                 },
             )?;
             Ok(serde_json::json!({
-                "status": "approval_required",
+                "status": approval_flow_status(&approval),
                 "approvalId": approval.id,
                 "action": approval.action,
                 "resource": approval.resource,
                 "requestHash": approval.command,
-                "message": "已创建审批请求，请在审批队列确认后调用 secure_http_write_approved"
+                "message": approval_flow_message(&approval, "secure_http_write_approved")
             }))
         }
         "http_api_request_controlled" => create_secure_http_write_approval(ctx, &arguments),
@@ -2942,12 +2969,16 @@ async fn call_mcp_tool_inner(
                 },
             )?;
             Ok(serde_json::json!({
-                "status": "approval_required",
+                "status": approval_flow_status(&approval),
                 "approvalId": approval.id,
                 "action": approval.action,
                 "resource": approval.resource,
                 "requestHash": approval.command,
-                "message": "已创建凭证轮换审批请求，审批通过后请在应用内输入新密钥完成轮换"
+                "message": if approval.status == "approved" {
+                    "AI 临时放行已开启，凭证轮换审批已自动确认；请在应用内输入新密钥完成轮换。"
+                } else {
+                    "已创建凭证轮换审批请求，审批通过后请在应用内输入新密钥完成轮换。"
+                }
             }))
         }
         "secure_http_write_approved" => {
@@ -3300,7 +3331,7 @@ async fn call_mcp_tool_inner(
                 },
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": risk,
                 "approval": approval
             }))
@@ -3450,7 +3481,7 @@ async fn call_mcp_tool_inner(
                         },
                     )?;
                     Ok(serde_json::json!({
-                        "action": "approval_required",
+                        "action": approval_flow_action(&approval),
                         "risk": "L3",
                         "approval": approval
                     }))
@@ -3690,7 +3721,7 @@ async fn call_mcp_tool_inner(
                 },
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L2",
                 "approval": approval
             }))
@@ -3896,7 +3927,7 @@ async fn call_mcp_tool_inner(
                         },
                     )?;
                     Ok(serde_json::json!({
-                        "action": "approval_required",
+                        "action": approval_flow_action(&approval),
                         "evaluation": evaluation.to_json(),
                         "approval": approval
                     }))
@@ -3957,7 +3988,7 @@ async fn call_mcp_tool_inner(
                 }),
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L3",
                 "approval": approval,
                 "contentSha256": content_hash
@@ -4008,7 +4039,7 @@ async fn call_mcp_tool_inner(
                 }),
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L2",
                 "approval": approval
             }))
@@ -4056,7 +4087,7 @@ async fn call_mcp_tool_inner(
                 }),
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L3",
                 "approval": approval,
                 "contentSha256": content_hash
@@ -4109,7 +4140,7 @@ async fn call_mcp_tool_inner(
                 }),
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L3",
                 "approval": approval
             }))
@@ -4165,7 +4196,7 @@ async fn call_mcp_tool_inner(
                 }),
             )?;
             Ok(serde_json::json!({
-                "action": "approval_required",
+                "action": approval_flow_action(&approval),
                 "risk": "L3",
                 "approval": approval
             }))
@@ -4710,12 +4741,12 @@ fn create_code_review_merge_approval(
         },
     )?;
     Ok(serde_json::json!({
-        "status": "approval_required",
+        "status": approval_flow_status(&approval),
         "approvalId": approval.id,
         "action": approval.action,
         "resource": approval.resource,
         "requestHash": approval.command,
-        "message": "已创建代码审核合并审批请求，请在审批队列确认后调用 code_review_merge_approved"
+        "message": approval_flow_message(&approval, "code_review_merge_approved")
     }))
 }
 
@@ -4898,12 +4929,12 @@ fn create_secure_git_write_approval(
         },
     )?;
     Ok(serde_json::json!({
-        "status": "approval_required",
+        "status": approval_flow_status(&approval),
         "approvalId": approval.id,
         "action": approval.action,
         "resource": approval.resource,
         "requestHash": approval.command,
-        "message": "已创建审批请求，请在审批队列确认后调用 secure_git_write_approved"
+        "message": approval_flow_message(&approval, "secure_git_write_approved")
     }))
 }
 
@@ -4946,12 +4977,12 @@ fn create_secure_http_write_approval(
         },
     )?;
     Ok(serde_json::json!({
-        "status": "approval_required",
+        "status": approval_flow_status(&approval),
         "approvalId": approval.id,
         "action": approval.action,
         "resource": approval.resource,
         "requestHash": approval.command,
-        "message": "已创建审批请求，请在审批队列确认后调用 secure_http_write_approved"
+        "message": approval_flow_message(&approval, "secure_http_write_approved")
     }))
 }
 
