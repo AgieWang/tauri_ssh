@@ -31,6 +31,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -62,6 +63,20 @@ pub fn run() {
 
             // 注册全局状态
             app.manage(AppState::new(db));
+
+            let startup_recovery_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = startup_recovery_app.state::<AppState>();
+                if let Err(err) =
+                    services::jenkins::JenkinsService::recover_unfinished_runs_on_startup(
+                        &startup_recovery_app,
+                        &state.db,
+                    )
+                    .await
+                {
+                    log::warn!("Jenkins 未完成构建启动恢复失败: {}", err);
+                }
+            });
 
             dev_server::start(app.handle().clone());
 
@@ -223,6 +238,44 @@ pub fn run() {
             commands::deployment::create_deployment_rollback_dry_run,
             commands::deployment::execute_deployment_rollback,
             commands::deployment::ask_deployment_ai_advice,
+            // Jenkins 构建运维模块
+            commands::jenkins::list_jenkins_connections,
+            commands::jenkins::upsert_jenkins_connection,
+            commands::jenkins::delete_jenkins_connection,
+            commands::jenkins::restore_jenkins_connection,
+            commands::jenkins::duplicate_jenkins_connection,
+            commands::jenkins::test_jenkins_connection,
+            commands::jenkins::list_jenkins_jobs,
+            commands::jenkins::get_jenkins_job_detail,
+            commands::jenkins::set_jenkins_job_favorite,
+            commands::jenkins::list_jenkins_builds,
+            commands::jenkins::sync_unfinished_jenkins_runs,
+            commands::jenkins::list_jenkins_parameters,
+            commands::jenkins::list_jenkins_recent_parameter_values,
+            commands::jenkins::forget_jenkins_recent_parameter_value,
+            commands::jenkins::list_jenkins_parameter_templates,
+            commands::jenkins::upsert_jenkins_parameter_template,
+            commands::jenkins::delete_jenkins_parameter_template,
+            commands::jenkins::verify_jenkins_parameter_definition_hash,
+            commands::jenkins::inspect_jenkins_file_parameter,
+            commands::jenkins::create_jenkins_build_trigger_approval,
+            commands::jenkins::execute_jenkins_build_trigger_approved,
+            commands::jenkins::trigger_jenkins_build_without_approval,
+            commands::jenkins::create_jenkins_build_stop_approval,
+            commands::jenkins::execute_jenkins_build_stop_approved,
+            commands::jenkins::stop_jenkins_build_without_approval,
+            commands::jenkins::get_jenkins_build_detail,
+            commands::jenkins::read_jenkins_build_log,
+            commands::jenkins::record_jenkins_log_copy_audit,
+            commands::jenkins::generate_jenkins_failure_analysis,
+            commands::jenkins::get_latest_jenkins_build_analysis,
+            commands::jenkins::list_jenkins_artifacts,
+            commands::jenkins::download_jenkins_artifact,
+            commands::jenkins::cleanup_jenkins_artifact_local_file,
+            commands::jenkins::create_jenkins_artifact_deployment_candidate,
+            commands::jenkins::create_jenkins_build_deployment_dry_run,
+            commands::jenkins::list_jenkins_queue,
+            commands::jenkins::poll_jenkins_queue_item,
             // 资源监控模块
             commands::resource_monitor::list_resource_monitor_targets,
             commands::resource_monitor::upsert_resource_monitor_target,

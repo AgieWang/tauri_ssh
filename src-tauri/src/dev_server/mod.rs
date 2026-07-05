@@ -13,26 +13,38 @@ use tower_http::cors::CorsLayer;
 use crate::error::{AppError, CommandError};
 use crate::models::{
     AiExperienceRecallInput, AiProviderAskInput, AiProviderModelListInput,
-    AiSkillPromptPreviewInput, AiSkillTriggerInput, ApprovalRequest, CollectResourceBatchInput,
-    CommitGitWorkspaceInput, CreateApprovalRequestInput, CreateAuditLogInput,
-    CreateCodeReviewBatchTasksInput, CreateCodeReviewTaskInput, CreateDeploymentDryRunInput,
-    CreateDeploymentRollbackDryRunInput, CreateSecureCredentialSessionInput,
-    DecideApprovalRequestInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
-    EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput, ExecuteDeploymentRunInput,
-    GitWorkspaceDiffInput, ListAiSkillsInput, ListApprovalRequestsInput, ListCodeReviewTasksInput,
-    ListDeploymentRunsInput, ListGitWorkspacesInput, ListResourceAlertEventsInput,
+    AiSkillPromptPreviewInput, AiSkillTriggerInput, ApprovalRequest, CleanupJenkinsArtifactInput,
+    CollectResourceBatchInput, CommitGitWorkspaceInput, CreateApprovalRequestInput,
+    CreateAuditLogInput, CreateCodeReviewBatchTasksInput, CreateCodeReviewTaskInput,
+    CreateDeploymentDryRunInput, CreateDeploymentRollbackDryRunInput,
+    CreateJenkinsArtifactDeploymentCandidateInput, CreateJenkinsBuildDeploymentDryRunInput,
+    CreateSecureCredentialSessionInput, DecideApprovalRequestInput,
+    DeleteJenkinsParameterTemplateInput, DeploymentAiAdviceInput, DetectDeploymentProjectInput,
+    DownloadJenkinsArtifactInput, EnableAiUnrestrictedInput, ExecuteDeploymentRollbackInput,
+    ExecuteDeploymentRunInput, ExecuteJenkinsBuildApprovedInput,
+    ExecuteJenkinsBuildStopApprovedInput, ForgetJenkinsRecentParameterValueInput,
+    GenerateJenkinsFailureAnalysisInput, GetJenkinsBuildInput, GetJenkinsJobDetailInput,
+    GitWorkspaceDiffInput, InspectJenkinsFileParameterInput, JenkinsBuildLogInput,
+    ListAiSkillsInput, ListApprovalRequestsInput, ListCodeReviewTasksInput,
+    ListDeploymentRunsInput, ListGitWorkspacesInput, ListJenkinsArtifactsInput,
+    ListJenkinsBuildsInput, ListJenkinsConnectionsInput, ListJenkinsJobsInput,
+    ListJenkinsParameterTemplatesInput, ListJenkinsParametersInput,
+    ListJenkinsRecentParameterValuesInput, ListResourceAlertEventsInput,
     ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
     ListSecureCredentialSessionsInput, ListSecureCredentialsInput, MergeGitWorkspaceBranchInput,
-    ParseCodeReviewBatchInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
-    RunAiRunbookInput, RunCodeReviewAiInput, SecureCredentialGitReadInput,
-    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
-    SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
-    SecureCredentialRepositoryListInput, SetSecureCredentialEnabledInput,
-    StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput,
+    ParseCodeReviewBatchInput, PollJenkinsQueueItemInput, RecordJenkinsLogCopyAuditInput,
+    ResourceSnapshotListInput, RotateSecureCredentialInput, RunAiRunbookInput,
+    RunCodeReviewAiInput, SecureCredentialGitReadInput, SecureCredentialGitWriteInput,
+    SecureCredentialHttpRequestInput, SecureCredentialHttpWriteInput,
+    SecureCredentialProviderTestInput, SecureCredentialRepositoryListInput,
+    SetJenkinsJobFavoriteInput, SetSecureCredentialEnabledInput, StageGitWorkspaceFilesInput,
+    StopJenkinsBuildInput, SwitchGitWorkspaceBranchInput, TriggerJenkinsBuildInput,
     UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
     UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
-    UpsertDatabaseConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
-    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
+    UpsertDatabaseConnectionInput, UpsertJenkinsConnectionInput,
+    UpsertJenkinsParameterTemplateInput, UpsertJumpServerSessionInput,
+    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
+    VerifyJenkinsParameterDefinitionHashInput,
 };
 use crate::services::ai_provider::AiProviderService;
 use crate::services::ai_skill::AiSkillService;
@@ -43,6 +55,7 @@ use crate::services::credential_vault::CredentialVaultService;
 use crate::services::database_ops::DatabaseOpsService;
 use crate::services::deployment::DeploymentService;
 use crate::services::git_workspace::GitWorkspaceService;
+use crate::services::jenkins::JenkinsService;
 use crate::services::jumpserver::JumpServerService;
 use crate::services::mcp::McpService;
 use crate::services::resource_monitor::ResourceMonitorService;
@@ -409,6 +422,139 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             "/dev-api/resource-monitor/alert-events/:id/resolve",
             post(resolve_resource_alert_event),
         )
+        .route(
+            "/dev-api/jenkins/connections/list",
+            post(list_jenkins_connections),
+        )
+        .route(
+            "/dev-api/jenkins/connections",
+            post(upsert_jenkins_connection),
+        )
+        .route(
+            "/dev-api/jenkins/connections/:connection_key",
+            delete(delete_jenkins_connection),
+        )
+        .route(
+            "/dev-api/jenkins/connections/:connection_key/restore",
+            post(restore_jenkins_connection),
+        )
+        .route(
+            "/dev-api/jenkins/connections/:connection_key/duplicate",
+            post(duplicate_jenkins_connection),
+        )
+        .route(
+            "/dev-api/jenkins/connections/:connection_key/test",
+            post(test_jenkins_connection),
+        )
+        .route("/dev-api/jenkins/jobs/list", post(list_jenkins_jobs))
+        .route("/dev-api/jenkins/jobs/detail", post(get_jenkins_job_detail))
+        .route(
+            "/dev-api/jenkins/jobs/favorite",
+            post(set_jenkins_job_favorite),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/list",
+            post(list_jenkins_parameters),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/recent/list",
+            post(list_jenkins_recent_parameter_values),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/recent/forget",
+            post(forget_jenkins_recent_parameter_value),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/templates/list",
+            post(list_jenkins_parameter_templates),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/templates/upsert",
+            post(upsert_jenkins_parameter_template),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/templates/delete",
+            post(delete_jenkins_parameter_template),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/verify-hash",
+            post(verify_jenkins_parameter_definition_hash),
+        )
+        .route(
+            "/dev-api/jenkins/parameters/file/inspect",
+            post(inspect_jenkins_file_parameter),
+        )
+        .route(
+            "/dev-api/jenkins/builds/trigger-approval",
+            post(create_jenkins_build_trigger_approval),
+        )
+        .route(
+            "/dev-api/jenkins/builds/trigger-approved",
+            post(execute_jenkins_build_trigger_approved),
+        )
+        .route(
+            "/dev-api/jenkins/builds/trigger-without-approval",
+            post(trigger_jenkins_build_without_approval),
+        )
+        .route(
+            "/dev-api/jenkins/builds/stop-approval",
+            post(create_jenkins_build_stop_approval),
+        )
+        .route(
+            "/dev-api/jenkins/builds/stop-approved",
+            post(execute_jenkins_build_stop_approved),
+        )
+        .route(
+            "/dev-api/jenkins/builds/stop-without-approval",
+            post(stop_jenkins_build_without_approval),
+        )
+        .route("/dev-api/jenkins/builds/list", post(list_jenkins_builds))
+        .route(
+            "/dev-api/jenkins/builds/sync-unfinished",
+            post(sync_unfinished_jenkins_runs),
+        )
+        .route(
+            "/dev-api/jenkins/builds/detail",
+            post(get_jenkins_build_detail),
+        )
+        .route("/dev-api/jenkins/builds/log", post(read_jenkins_build_log))
+        .route(
+            "/dev-api/jenkins/builds/log/copy-audit",
+            post(record_jenkins_log_copy_audit),
+        )
+        .route(
+            "/dev-api/jenkins/builds/failure-analysis",
+            post(generate_jenkins_failure_analysis),
+        )
+        .route(
+            "/dev-api/jenkins/builds/failure-analysis/latest",
+            post(get_latest_jenkins_build_analysis),
+        )
+        .route(
+            "/dev-api/jenkins/artifacts/list",
+            post(list_jenkins_artifacts),
+        )
+        .route(
+            "/dev-api/jenkins/artifacts/download",
+            post(download_jenkins_artifact),
+        )
+        .route(
+            "/dev-api/jenkins/artifacts/cleanup",
+            post(cleanup_jenkins_artifact_local_file),
+        )
+        .route(
+            "/dev-api/jenkins/artifacts/deployment-candidate",
+            post(create_jenkins_artifact_deployment_candidate),
+        )
+        .route(
+            "/dev-api/jenkins/builds/deployment-dry-run",
+            post(create_jenkins_build_deployment_dry_run),
+        )
+        .route(
+            "/dev-api/jenkins/connections/:connection_key/queue",
+            get(list_jenkins_queue),
+        )
+        .route("/dev-api/jenkins/queue/item", post(poll_jenkins_queue_item))
         .route("/dev-api/terminal/execute", post(execute_terminal_command))
         .route("/dev-api/terminal/ws", get(terminal_websocket))
         .route("/dev-api/sftp/list", post(sftp_list))
@@ -1296,6 +1442,208 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
             "name": "database_connections_list",
             "description": "列出数据库连接脱敏元数据，不返回密码或凭据明文。",
             "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "jenkins_connections_list",
+            "description": "列出允许 MCP 只读访问的 Jenkins 连接脱敏元数据，不返回 Token。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "keyword": { "type": "string" } }
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_jobs_list",
+            "description": "读取指定 Jenkins 连接的 Job 树、Folder 或 View；默认使用短期本地缓存，可用 refresh/forceRefresh 刷新 Jenkins。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "viewName": { "type": "string" },
+                    "folder": { "type": "string" },
+                    "refresh": { "type": "boolean" },
+                    "forceRefresh": { "type": "boolean" },
+                    "depth": { "type": "number", "description": "Job folder 读取深度，1-5" }
+                },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_job_detail",
+            "description": "读取指定 Jenkins Job 详情和参数定义，不返回参数敏感值。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "refresh": { "type": "boolean" }
+                },
+                "required": ["connectionKey", "jobFullName"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_builds_list",
+            "description": "读取指定 Jenkins 连接/Job 的本地构建运行记录摘要。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "limit": { "type": "number" },
+                    "offset": { "type": "number" },
+                    "cursor": { "type": "string" }
+                },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_detail",
+            "description": "读取指定 Jenkins Job 构建详情摘要，不返回日志正文或敏感参数。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_log_read",
+            "description": "读取 Jenkins 构建日志脱敏片段；支持 start/requestId 合并 progressive 审计会话。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" },
+                    "start": { "type": "number" },
+                    "tailBytes": { "type": "number" },
+                    "requestId": { "type": "string" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_log_progressive",
+            "description": "按 Jenkins progressiveText 读取脱敏日志片段，返回 nextStart/hasMore，并按 requestId 合并审计。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" },
+                    "start": { "type": "number" },
+                    "tailBytes": { "type": "number" },
+                    "requestId": { "type": "string" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_artifacts_list",
+            "description": "读取指定 Jenkins 构建的 artifact 列表，不下载文件内容。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_artifact_download",
+            "description": "下载单个 Jenkins artifact 到应用托管目录，返回 artifact record；不接受任意本地路径。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" },
+                    "relativePath": { "type": "string" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber", "relativePath"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_queue_list",
+            "description": "读取指定 Jenkins 连接的实时队列摘要，不返回凭证或日志正文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "connectionKey": { "type": "string" } },
+                "required": ["connectionKey"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_queue_item_poll",
+            "description": "轮询指定 Jenkins queue item，直到 executable.number 可用于后续构建跟踪。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "queueId": { "type": "string" }
+                },
+                "required": ["connectionKey", "queueId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_trigger_controlled",
+            "description": "为 Jenkins 构建触发创建受控审批请求；只在连接开启 allow_mcp_write 后允许 MCP 发起，不直接触碰 Jenkins。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "parameterDefinitionHash": { "type": "string" },
+                    "parametersJson": { "type": "object" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "riskLevel": { "type": "string" }
+                },
+                "required": ["connectionKey", "jobFullName", "parameterDefinitionHash", "reason"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_trigger_approved",
+            "description": "执行已批准的 Jenkins 构建触发；approvalId/requestHash 必须匹配，执行前会复验连接状态、凭证状态、allow_mcp_write、参数定义和风险。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "requestHash": { "type": "string" }
+                },
+                "required": ["approvalId"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_stop_controlled",
+            "description": "为 Jenkins 停止构建创建受控审批请求；只在连接开启 allow_mcp_write 后允许 MCP 发起，不直接停止 Jenkins。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "connectionKey": { "type": "string" },
+                    "jobFullName": { "type": "string" },
+                    "buildNumber": { "type": "number" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "riskLevel": { "type": "string" }
+                },
+                "required": ["connectionKey", "jobFullName", "buildNumber", "reason"]
+            }
+        }),
+        serde_json::json!({
+            "name": "jenkins_build_stop_approved",
+            "description": "执行已批准的 Jenkins 停止构建；approvalId/requestHash 必须匹配，执行前会复验连接状态、凭证状态、allow_mcp_write 和风险。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" },
+                    "requestHash": { "type": "string" }
+                },
+                "required": ["approvalId"]
+            }
         }),
         serde_json::json!({
             "name": "database_connection_test",
@@ -3425,6 +3773,313 @@ async fn call_mcp_tool_inner(
                 CodeReviewService::merge(&state.db, &task_key).await?,
             )?)
         }
+        "jenkins_connections_list" => {
+            let state = app_state(ctx);
+            let input = ListJenkinsConnectionsInput {
+                include_deleted: Some(false),
+                keyword: optional_string(&arguments, "keyword"),
+            };
+            let connections = JenkinsService::list_connections(&state.db, input)?
+                .into_iter()
+                .filter(|connection| jenkins_mcp_read_allowed(connection))
+                .map(|connection| {
+                    serde_json::json!({
+                        "connectionKey": connection.connection_key,
+                        "name": connection.name,
+                        "baseUrl": connection.base_url,
+                        "environment": connection.environment,
+                        "environmentLabel": connection.environment_label,
+                        "status": connection.status,
+                        "enabled": connection.enabled,
+                        "allowMcpRead": connection.allow_mcp_read,
+                        "allowMcpWrite": connection.allow_mcp_write,
+                        "credentialKey": connection.credential_key,
+                        "credentialDisplayName": connection.credential_display_name,
+                        "usernameMasked": connection.username_masked,
+                        "configVersion": connection.config_version,
+                        "lastTestedAt": connection.last_tested_at
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({
+                "items": connections,
+                "count": connections.len()
+            }))
+        }
+        "jenkins_jobs_list" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            let jobs = JenkinsService::list_jobs(
+                &state.db,
+                ListJenkinsJobsInput {
+                    connection_key,
+                    view_name: optional_string(&arguments, "viewName"),
+                    folder: optional_string(&arguments, "folder"),
+                    refresh: optional_bool(&arguments, "refresh"),
+                    force_refresh: optional_bool(&arguments, "forceRefresh"),
+                    depth: optional_i64(&arguments, "depth"),
+                },
+            )
+            .await?;
+            let has_more = jobs.iter().any(|job| job.has_more);
+            Ok(serde_json::json!({
+                "items": jobs,
+                "count": jobs.len(),
+                "hasMore": has_more,
+                "source": "local-cache"
+            }))
+        }
+        "jenkins_job_detail" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            Ok(serde_json::to_value(
+                JenkinsService::get_job_detail(
+                    &state.db,
+                    GetJenkinsJobDetailInput {
+                        connection_key,
+                        job_full_name: required_string(&arguments, "jobFullName")?,
+                        refresh: optional_bool(&arguments, "refresh"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_builds_list" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            let builds = JenkinsService::list_builds(
+                &state.db,
+                ListJenkinsBuildsInput {
+                    connection_key,
+                    job_full_name: optional_string(&arguments, "jobFullName"),
+                    limit: optional_i64(&arguments, "limit"),
+                    offset: optional_i64(&arguments, "offset"),
+                    cursor: optional_string(&arguments, "cursor"),
+                },
+            )
+            .await?;
+            Ok(serde_json::json!({
+                "items": builds,
+                "count": builds.len(),
+                "source": "local-runs"
+            }))
+        }
+        "jenkins_build_detail" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            Ok(serde_json::to_value(
+                JenkinsService::get_build_detail(
+                    &state.db,
+                    GetJenkinsBuildInput {
+                        connection_key,
+                        job_full_name: required_string(&arguments, "jobFullName")?,
+                        build_number: required_i64(&arguments, "buildNumber")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_build_log_read" | "jenkins_build_log_progressive" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            let start = optional_i64(&arguments, "start");
+            let tail_bytes = optional_i64(&arguments, "tailBytes").or_else(|| {
+                if tool_name == "jenkins_build_log_read" && start.is_none() {
+                    Some(204_800)
+                } else {
+                    None
+                }
+            });
+            Ok(serde_json::to_value(
+                JenkinsService::read_build_log(
+                    &state.db,
+                    JenkinsBuildLogInput {
+                        connection_key,
+                        job_full_name: required_string(&arguments, "jobFullName")?,
+                        build_number: required_i64(&arguments, "buildNumber")?,
+                        start,
+                        tail_bytes,
+                        request_id: optional_string(&arguments, "requestId"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_artifacts_list" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            let artifacts = JenkinsService::list_artifacts(
+                &state.db,
+                ListJenkinsArtifactsInput {
+                    connection_key,
+                    job_full_name: required_string(&arguments, "jobFullName")?,
+                    build_number: required_i64(&arguments, "buildNumber")?,
+                },
+            )
+            .await?;
+            Ok(serde_json::json!({
+                "items": artifacts,
+                "count": artifacts.len()
+            }))
+        }
+        "jenkins_artifact_download" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            Ok(serde_json::to_value(
+                JenkinsService::download_artifact(
+                    &ctx.app_handle,
+                    &state.db,
+                    DownloadJenkinsArtifactInput {
+                        connection_key,
+                        job_full_name: required_string(&arguments, "jobFullName")?,
+                        build_number: required_i64(&arguments, "buildNumber")?,
+                        relative_path: required_string(&arguments, "relativePath")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_queue_list" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            let items = JenkinsService::list_queue(&state.db, connection_key).await?;
+            Ok(serde_json::json!({
+                "items": items,
+                "count": items.len(),
+                "source": "jenkins-queue"
+            }))
+        }
+        "jenkins_queue_item_poll" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            require_jenkins_mcp_read_connection(&state.db, &connection_key)?;
+            Ok(serde_json::to_value(
+                JenkinsService::poll_queue_item(
+                    &state.db,
+                    PollJenkinsQueueItemInput {
+                        connection_key,
+                        queue_id: required_string(&arguments, "queueId")?,
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_build_trigger_controlled" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let connection = require_jenkins_mcp_write_connection(&state.db, &connection_key)?;
+            let input = TriggerJenkinsBuildInput {
+                connection_key,
+                job_full_name: required_string(&arguments, "jobFullName")?,
+                parameter_definition_hash: required_string(&arguments, "parameterDefinitionHash")?,
+                parameters_json: arguments
+                    .get("parametersJson")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({"parameters": []})),
+                requester: optional_string(&arguments, "requester")
+                    .or_else(|| Some("mcp-client".into())),
+                reason: optional_string(&arguments, "reason")
+                    .unwrap_or_else(|| "MCP 请求触发 Jenkins 构建".into()),
+                risk_level: optional_string(&arguments, "riskLevel"),
+            };
+            if connection.approval_policy == "none" {
+                let result = JenkinsService::trigger_build_without_approval_with_event(
+                    &ctx.app_handle,
+                    &state.db,
+                    input,
+                )
+                .await?;
+                return Ok(serde_json::json!({
+                    "status": "executed",
+                    "approvalPolicy": "none",
+                    "result": result,
+                    "message": "连接审批策略为无需审批，已直接触发 Jenkins 构建"
+                }));
+            }
+            let approval = JenkinsService::create_build_trigger_approval(&state.db, input)?;
+            Ok(serde_json::json!({
+                "status": approval_flow_status(&approval),
+                "approvalId": approval.id,
+                "action": approval.action,
+                "resource": approval.resource,
+                "requestHash": approval.command,
+                "message": approval_flow_message(&approval, "jenkins_build_trigger_approved")
+            }))
+        }
+        "jenkins_build_trigger_approved" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                JenkinsService::execute_build_trigger_approved_with_event(
+                    &ctx.app_handle,
+                    &state.db,
+                    ExecuteJenkinsBuildApprovedInput {
+                        approval_id: required_i64(&arguments, "approvalId")?,
+                        request_hash: optional_string(&arguments, "requestHash"),
+                    },
+                )
+                .await?,
+            )?)
+        }
+        "jenkins_build_stop_controlled" => {
+            let state = app_state(ctx);
+            let connection_key = required_string(&arguments, "connectionKey")?;
+            let connection = require_jenkins_mcp_write_connection(&state.db, &connection_key)?;
+            let input = StopJenkinsBuildInput {
+                connection_key,
+                job_full_name: required_string(&arguments, "jobFullName")?,
+                build_number: required_i64(&arguments, "buildNumber")?,
+                requester: optional_string(&arguments, "requester")
+                    .or_else(|| Some("mcp-client".into())),
+                reason: optional_string(&arguments, "reason")
+                    .unwrap_or_else(|| "MCP 请求停止 Jenkins 构建".into()),
+                risk_level: optional_string(&arguments, "riskLevel"),
+            };
+            if connection.approval_policy == "none" {
+                let result = JenkinsService::stop_build_without_approval_with_event(
+                    &ctx.app_handle,
+                    &state.db,
+                    input,
+                )
+                .await?;
+                return Ok(serde_json::json!({
+                    "status": "executed",
+                    "approvalPolicy": "none",
+                    "result": result,
+                    "message": "连接审批策略为无需审批，已直接发送 Jenkins 停止构建请求"
+                }));
+            }
+            let approval = JenkinsService::create_build_stop_approval(&state.db, input)?;
+            Ok(serde_json::json!({
+                "status": approval_flow_status(&approval),
+                "approvalId": approval.id,
+                "action": approval.action,
+                "resource": approval.resource,
+                "requestHash": approval.command,
+                "message": approval_flow_message(&approval, "jenkins_build_stop_approved")
+            }))
+        }
+        "jenkins_build_stop_approved" => {
+            let state = app_state(ctx);
+            Ok(serde_json::to_value(
+                JenkinsService::execute_build_stop_approved_with_event(
+                    &ctx.app_handle,
+                    &state.db,
+                    ExecuteJenkinsBuildStopApprovedInput {
+                        approval_id: required_i64(&arguments, "approvalId")?,
+                        request_hash: optional_string(&arguments, "requestHash"),
+                    },
+                )
+                .await?,
+            )?)
+        }
         "database_connections_list" => {
             let state = app_state(ctx);
             let connections = DatabaseOpsService::list_connections(&state.db)?
@@ -4682,6 +5337,8 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         || tool_name == "sftp_create_file_approved"
         || tool_name == "deployment_run"
         || tool_name == "deployment_rollback_run"
+        || tool_name == "jenkins_build_trigger_approved"
+        || tool_name == "jenkins_build_stop_approved"
     {
         "L3"
     } else if tool_name.contains("controlled")
@@ -6144,6 +6801,49 @@ fn app_state(ctx: &DevApiState) -> tauri::State<'_, AppState> {
     ctx.app_handle.state::<AppState>()
 }
 
+fn jenkins_mcp_read_allowed(connection: &crate::models::JenkinsConnection) -> bool {
+    connection.deleted_at.is_none()
+        && connection.enabled
+        && connection.allow_mcp_read
+        && !connection.credential_key.trim().is_empty()
+        && !matches!(
+            connection.status.as_str(),
+            "credential_missing" | "credential_failed" | "failed"
+        )
+}
+
+fn jenkins_mcp_write_allowed(connection: &crate::models::JenkinsConnection) -> bool {
+    jenkins_mcp_read_allowed(connection) && connection.allow_mcp_write
+}
+
+fn require_jenkins_mcp_read_connection(
+    db: &crate::database::Database,
+    connection_key: &str,
+) -> Result<crate::models::JenkinsConnection, AppError> {
+    let connection = db
+        .get_jenkins_connection(connection_key)?
+        .ok_or_else(|| AppError::NotFound(format!("Jenkins 连接 '{}' 不存在", connection_key)))?;
+    if !jenkins_mcp_read_allowed(&connection) {
+        return Err(AppError::InvalidInput(
+            "该 Jenkins 连接未启用 MCP 只读访问，或凭证/连接状态不可用".into(),
+        ));
+    }
+    Ok(connection)
+}
+
+fn require_jenkins_mcp_write_connection(
+    db: &crate::database::Database,
+    connection_key: &str,
+) -> Result<crate::models::JenkinsConnection, AppError> {
+    let connection = require_jenkins_mcp_read_connection(db, connection_key)?;
+    if !jenkins_mcp_write_allowed(&connection) {
+        return Err(AppError::InvalidInput(
+            "该 Jenkins 连接未启用 MCP 写入访问，不能创建构建触发审批".into(),
+        ));
+    }
+    Ok(connection)
+}
+
 async fn list_ai_providers(
     State(ctx): State<DevApiState>,
 ) -> DevApiResult<Vec<crate::models::AiProvider>> {
@@ -6773,6 +7473,388 @@ async fn get_redis_value_preview(
     let state = app_state(&ctx);
     Ok(Json(
         DatabaseOpsService::get_redis_value_preview(&state.db, input).await?,
+    ))
+}
+
+async fn list_jenkins_connections(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsConnectionsInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsConnection>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::list_connections(&state.db, input)?))
+}
+
+async fn upsert_jenkins_connection(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertJenkinsConnectionInput>,
+) -> DevApiResult<crate::models::JenkinsConnection> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::upsert_connection(&state.db, input)?))
+}
+
+async fn delete_jenkins_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> Result<StatusCode, DevApiError> {
+    let state = app_state(&ctx);
+    JenkinsService::delete_connection(&state.db, &connection_key)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn restore_jenkins_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<crate::models::JenkinsConnection> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::restore_connection(
+        &state.db,
+        &connection_key,
+    )?))
+}
+
+async fn duplicate_jenkins_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<crate::models::JenkinsConnection> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::duplicate_connection(
+        &state.db,
+        &connection_key,
+    )?))
+}
+
+async fn test_jenkins_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<crate::models::JenkinsConnectionTestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::test_connection(&state.db, &connection_key).await?,
+    ))
+}
+
+async fn list_jenkins_jobs(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsJobsInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsJob>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::list_jobs(&state.db, input).await?))
+}
+
+async fn get_jenkins_job_detail(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<GetJenkinsJobDetailInput>,
+) -> DevApiResult<crate::models::JenkinsJobDetail> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::get_job_detail(&state.db, input).await?,
+    ))
+}
+
+async fn set_jenkins_job_favorite(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<SetJenkinsJobFavoriteInput>,
+) -> DevApiResult<bool> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::set_job_favorite(&state.db, input)?))
+}
+
+async fn list_jenkins_builds(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsBuildsInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsBuild>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::list_builds(&state.db, input).await?))
+}
+
+async fn sync_unfinished_jenkins_runs(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<serde_json::Value>,
+) -> DevApiResult<Vec<crate::models::JenkinsBuild>> {
+    let state = app_state(&ctx);
+    let connection_key = required_string(&input, "connectionKey")?;
+    Ok(Json(
+        JenkinsService::sync_unfinished_runs_for_connection(
+            &ctx.app_handle,
+            &state.db,
+            &connection_key,
+        )
+        .await?,
+    ))
+}
+
+async fn list_jenkins_parameters(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsParametersInput>,
+) -> DevApiResult<crate::models::JenkinsParameterDefinitionsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::list_parameters(&state.db, input).await?,
+    ))
+}
+
+async fn list_jenkins_recent_parameter_values(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsRecentParameterValuesInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsRecentParameterValue>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::list_recent_parameter_values(
+        &state.db, input,
+    )?))
+}
+
+async fn forget_jenkins_recent_parameter_value(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ForgetJenkinsRecentParameterValueInput>,
+) -> DevApiResult<bool> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::forget_recent_parameter_value(
+        &state.db, input,
+    )?))
+}
+
+async fn list_jenkins_parameter_templates(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsParameterTemplatesInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsParameterTemplate>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::list_parameter_templates(
+        &state.db, input,
+    )?))
+}
+
+async fn upsert_jenkins_parameter_template(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<UpsertJenkinsParameterTemplateInput>,
+) -> DevApiResult<crate::models::JenkinsParameterTemplate> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::upsert_parameter_template(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_jenkins_parameter_template(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<DeleteJenkinsParameterTemplateInput>,
+) -> DevApiResult<bool> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::delete_parameter_template(
+        &state.db, input,
+    )?))
+}
+
+async fn verify_jenkins_parameter_definition_hash(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<VerifyJenkinsParameterDefinitionHashInput>,
+) -> DevApiResult<crate::models::JenkinsParameterDefinitionsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::verify_parameter_definition_hash(
+            &state.db,
+            &input.connection_key,
+            &input.job_full_name,
+            &input.parameter_definition_hash,
+        )
+        .await?,
+    ))
+}
+
+async fn inspect_jenkins_file_parameter(
+    Json(input): Json<InspectJenkinsFileParameterInput>,
+) -> DevApiResult<crate::models::JenkinsFileParameterMetadata> {
+    Ok(Json(JenkinsService::inspect_file_parameter(input)?))
+}
+
+async fn create_jenkins_build_trigger_approval(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<TriggerJenkinsBuildInput>,
+) -> DevApiResult<crate::models::ApprovalRequest> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::create_build_trigger_approval(
+        &state.db, input,
+    )?))
+}
+
+async fn execute_jenkins_build_trigger_approved(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ExecuteJenkinsBuildApprovedInput>,
+) -> DevApiResult<crate::models::JenkinsBuildTriggerResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::execute_build_trigger_approved_with_event(
+            &ctx.app_handle,
+            &state.db,
+            input,
+        )
+        .await?,
+    ))
+}
+
+async fn trigger_jenkins_build_without_approval(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<TriggerJenkinsBuildInput>,
+) -> DevApiResult<crate::models::JenkinsBuildTriggerResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::trigger_build_without_approval_with_event(
+            &ctx.app_handle,
+            &state.db,
+            input,
+        )
+        .await?,
+    ))
+}
+
+async fn create_jenkins_build_stop_approval(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<StopJenkinsBuildInput>,
+) -> DevApiResult<crate::models::ApprovalRequest> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::create_build_stop_approval(
+        &state.db, input,
+    )?))
+}
+
+async fn execute_jenkins_build_stop_approved(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ExecuteJenkinsBuildStopApprovedInput>,
+) -> DevApiResult<crate::models::JenkinsBuildStopResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::execute_build_stop_approved_with_event(&ctx.app_handle, &state.db, input)
+            .await?,
+    ))
+}
+
+async fn stop_jenkins_build_without_approval(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<StopJenkinsBuildInput>,
+) -> DevApiResult<crate::models::JenkinsBuildStopResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::stop_build_without_approval_with_event(&ctx.app_handle, &state.db, input)
+            .await?,
+    ))
+}
+
+async fn generate_jenkins_failure_analysis(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<GenerateJenkinsFailureAnalysisInput>,
+) -> DevApiResult<crate::models::JenkinsBuildAnalysis> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::generate_failure_analysis(&state.db, input).await?,
+    ))
+}
+
+async fn get_latest_jenkins_build_analysis(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<GetJenkinsBuildInput>,
+) -> DevApiResult<Option<crate::models::JenkinsBuildAnalysis>> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::get_latest_build_analysis(
+        &state.db, input,
+    )?))
+}
+
+async fn get_jenkins_build_detail(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<GetJenkinsBuildInput>,
+) -> DevApiResult<crate::models::JenkinsBuild> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::get_build_detail_with_event(&ctx.app_handle, &state.db, input).await?,
+    ))
+}
+
+async fn read_jenkins_build_log(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<JenkinsBuildLogInput>,
+) -> DevApiResult<crate::models::JenkinsBuildLogResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::read_build_log(&state.db, input).await?,
+    ))
+}
+
+async fn record_jenkins_log_copy_audit(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<RecordJenkinsLogCopyAuditInput>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    JenkinsService::record_log_copy_audit(&state.db, input)?;
+    Ok(Json(()))
+}
+
+async fn list_jenkins_artifacts(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<ListJenkinsArtifactsInput>,
+) -> DevApiResult<Vec<crate::models::JenkinsArtifact>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::list_artifacts(&state.db, input).await?,
+    ))
+}
+
+async fn download_jenkins_artifact(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<DownloadJenkinsArtifactInput>,
+) -> DevApiResult<crate::models::JenkinsArtifact> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::download_artifact(&ctx.app_handle, &state.db, input).await?,
+    ))
+}
+
+async fn cleanup_jenkins_artifact_local_file(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<CleanupJenkinsArtifactInput>,
+) -> DevApiResult<crate::models::JenkinsArtifact> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::cleanup_artifact_local_file(
+        &ctx.app_handle,
+        &state.db,
+        input,
+    )?))
+}
+
+async fn create_jenkins_artifact_deployment_candidate(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<CreateJenkinsArtifactDeploymentCandidateInput>,
+) -> DevApiResult<crate::models::DeploymentCandidate> {
+    let state = app_state(&ctx);
+    Ok(Json(JenkinsService::create_artifact_deployment_candidate(
+        &state.db, input,
+    )?))
+}
+
+async fn create_jenkins_build_deployment_dry_run(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<CreateJenkinsBuildDeploymentDryRunInput>,
+) -> DevApiResult<crate::models::DeploymentPlan> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::create_build_deployment_dry_run(&state.db, input).await?,
+    ))
+}
+
+async fn list_jenkins_queue(
+    State(ctx): State<DevApiState>,
+    Path(connection_key): Path<String>,
+) -> DevApiResult<Vec<crate::models::JenkinsQueueItem>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::list_queue(&state.db, connection_key).await?,
+    ))
+}
+
+async fn poll_jenkins_queue_item(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<PollJenkinsQueueItemInput>,
+) -> DevApiResult<crate::models::JenkinsQueueItem> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        JenkinsService::poll_queue_item(&state.db, input).await?,
     ))
 }
 

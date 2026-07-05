@@ -9,6 +9,7 @@ import {
   FolderTree,
   GitBranch,
   GitPullRequestArrow,
+  Hammer,
   KeyRound,
   Landmark,
   LayoutDashboard,
@@ -66,6 +67,7 @@ const menuItems = [
       { key: "/database", icon: <Database size={16} />, label: "数据库管理" },
       { key: "/resource-monitor", icon: <Activity size={16} />, label: "资源监控" },
       { key: "/deployments", icon: <Rocket size={16} />, label: "自动部署" },
+      { key: "/jenkins", icon: <Hammer size={16} />, label: "Jenkins" },
     ],
   },
   {

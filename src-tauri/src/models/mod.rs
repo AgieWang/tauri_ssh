@@ -254,6 +254,560 @@ pub struct UpsertAiSkillInput {
     pub allow_mcp: Option<bool>,
 }
 
+/// Jenkins 连接配置。凭证只保存安全凭证引用，不保存 Token 明文。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsConnection {
+    pub id: i64,
+    pub connection_key: String,
+    pub config_version: i64,
+    pub name: String,
+    pub base_url: String,
+    pub credential_key: String,
+    pub credential_display_name: String,
+    pub username_masked: String,
+    pub ssh_server_alias: String,
+    pub environment: String,
+    pub environment_label: String,
+    pub tls_verify: bool,
+    pub default_view: String,
+    pub default_folder: String,
+    pub allow_mcp_read: bool,
+    pub allow_mcp_write: bool,
+    pub approval_policy: String,
+    pub parameter_prefill_enabled: bool,
+    pub risk_rules_json: String,
+    pub notify_on_success: bool,
+    pub notify_on_failure: bool,
+    pub notify_on_unstable: bool,
+    pub notify_on_aborted: bool,
+    pub status: String,
+    pub version: String,
+    pub capabilities_json: String,
+    pub last_error_code: String,
+    pub last_error_message: String,
+    pub description: String,
+    pub enabled: bool,
+    pub last_tested_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertJenkinsConnectionInput {
+    pub connection_key: Option<String>,
+    pub name: String,
+    pub base_url: String,
+    pub credential_key: Option<String>,
+    pub credential_display_name: Option<String>,
+    pub username_masked: Option<String>,
+    pub ssh_server_alias: Option<String>,
+    pub environment: Option<String>,
+    pub environment_label: Option<String>,
+    pub tls_verify: Option<bool>,
+    pub default_view: Option<String>,
+    pub default_folder: Option<String>,
+    pub allow_mcp_read: Option<bool>,
+    pub allow_mcp_write: Option<bool>,
+    pub approval_policy: Option<String>,
+    pub parameter_prefill_enabled: Option<bool>,
+    pub risk_rules_json: Option<String>,
+    pub notify_on_success: Option<bool>,
+    pub notify_on_failure: Option<bool>,
+    pub notify_on_unstable: Option<bool>,
+    pub notify_on_aborted: Option<bool>,
+    pub description: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsConnectionsInput {
+    pub include_deleted: Option<bool>,
+    pub keyword: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsConnectionTestResult {
+    pub ok: bool,
+    pub connection_key: String,
+    pub status: String,
+    pub version: String,
+    pub message: String,
+    pub latency_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsJob {
+    pub job_full_name: String,
+    pub display_name: String,
+    pub url: String,
+    pub job_type: String,
+    pub normalized_status: String,
+    pub raw_color: String,
+    pub buildable: bool,
+    pub last_build_number: Option<i64>,
+    pub last_build_status: String,
+    pub favorite: bool,
+    pub has_more: bool,
+    pub children: Vec<JenkinsJob>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsJobsInput {
+    pub connection_key: String,
+    pub view_name: Option<String>,
+    pub folder: Option<String>,
+    pub refresh: Option<bool>,
+    pub force_refresh: Option<bool>,
+    pub depth: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetJenkinsJobDetailInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub refresh: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsJobDetail {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub job: Option<JenkinsJob>,
+    pub parameters: JenkinsParameterDefinitionsResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetJenkinsJobFavoriteInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub favorite: bool,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsParametersInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub refresh: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsParameterDefinition {
+    pub name: String,
+    pub parameter_type: String,
+    pub description: String,
+    pub default_value: serde_json::Value,
+    pub choices: Vec<String>,
+    pub required: bool,
+    pub sensitive: bool,
+    pub file_parameter: bool,
+    pub dynamic_parameter: bool,
+    pub unsupported: bool,
+    pub raw_class: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsParameterDefinitionsResult {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub parameter_definition_hash: String,
+    pub parameters: Vec<JenkinsParameterDefinition>,
+    pub from_cache: bool,
+    pub ttl_seconds: i64,
+    pub cached_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsRecentParameterValue {
+    pub id: i64,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub parameter_name: String,
+    pub requester: String,
+    pub value_kind: String,
+    pub value_json: serde_json::Value,
+    pub sensitive: bool,
+    pub updated_from_run_key: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsParameterTemplate {
+    pub id: i64,
+    pub template_key: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub name: String,
+    pub parameters_json: serde_json::Value,
+    pub parameter_definition_hash: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsRecentParameterValuesInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsParameterTemplatesInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertJenkinsParameterTemplateInput {
+    pub template_key: Option<String>,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub name: String,
+    pub parameters_json: serde_json::Value,
+    pub parameter_definition_hash: Option<String>,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteJenkinsParameterTemplateInput {
+    pub template_key: String,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetJenkinsRecentParameterValueInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub parameter_name: String,
+    pub requester: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyJenkinsParameterDefinitionHashInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub parameter_definition_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectJenkinsFileParameterInput {
+    pub parameter_name: String,
+    pub local_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsFileParameterMetadata {
+    pub parameter_name: String,
+    pub local_path: String,
+    pub file_name: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub modified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerJenkinsBuildInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub parameter_definition_hash: String,
+    pub parameters_json: serde_json::Value,
+    pub requester: Option<String>,
+    pub reason: String,
+    pub risk_level: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteJenkinsBuildApprovedInput {
+    pub approval_id: i64,
+    pub request_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildTriggerResult {
+    pub approval_id: i64,
+    pub request_hash: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub queue_id: Option<String>,
+    pub location: Option<String>,
+    pub run_key: String,
+    pub build_number: Option<i64>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopJenkinsBuildInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub requester: Option<String>,
+    pub reason: String,
+    pub risk_level: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteJenkinsBuildStopApprovedInput {
+    pub approval_id: i64,
+    pub request_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildStopResult {
+    pub approval_id: i64,
+    pub request_hash: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuild {
+    pub run_key: String,
+    pub request_id: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub queue_id: String,
+    pub build_number: Option<i64>,
+    pub status: String,
+    pub status_source: String,
+    pub result: String,
+    pub cause: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub last_error_code: String,
+    pub last_error_message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildStatusEvent {
+    pub run_key: String,
+    pub request_id: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub queue_id: String,
+    pub build_number: Option<i64>,
+    pub status: String,
+    pub status_source: String,
+    pub result: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsBuildsInput {
+    pub connection_key: String,
+    pub job_full_name: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetJenkinsBuildInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildLogInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub start: Option<i64>,
+    pub tail_bytes: Option<i64>,
+    pub request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildLogResult {
+    pub request_id: String,
+    pub text: String,
+    pub start: i64,
+    pub next_start: i64,
+    pub has_more: bool,
+    pub redacted: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordJenkinsLogCopyAuditInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub request_id: Option<String>,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub bytes: i64,
+    pub redacted: bool,
+    pub raw_log_access: bool,
+    pub confirmation_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateJenkinsFailureAnalysisInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub run_key: Option<String>,
+    pub request_id: Option<String>,
+    pub log_snippet: String,
+    pub snippet_start_line: i64,
+    pub snippet_end_line: i64,
+    pub matched_lines: i64,
+    pub requester: Option<String>,
+    pub provider_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsBuildAnalysis {
+    pub id: i64,
+    pub analysis_key: String,
+    pub run_key: String,
+    pub request_id: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub provider_key: String,
+    pub provider_name: String,
+    pub model: String,
+    pub summary_markdown: String,
+    pub snippet_sha256: String,
+    pub snippet_start_line: i64,
+    pub snippet_end_line: i64,
+    pub matched_lines: i64,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListJenkinsArtifactsInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadJenkinsArtifactInput {
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupJenkinsArtifactInput {
+    pub artifact_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateJenkinsArtifactDeploymentCandidateInput {
+    pub artifact_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateJenkinsBuildDeploymentDryRunInput {
+    pub artifact_key: String,
+    pub server_alias: String,
+    pub deploy_root: Option<String>,
+    pub domain: Option<String>,
+    pub https_enabled: Option<bool>,
+    pub port: Option<i64>,
+    pub health_check_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsArtifact {
+    pub id: i64,
+    pub artifact_key: String,
+    pub request_id: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: i64,
+    pub file_name: String,
+    pub relative_path: String,
+    pub local_path: String,
+    pub size_bytes: Option<i64>,
+    pub sha256: String,
+    pub source_url: String,
+    pub status: String,
+    pub risk_flags: Vec<String>,
+    pub downloaded_at: Option<String>,
+    pub cleaned_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JenkinsQueueItem {
+    pub queue_id: String,
+    pub connection_key: String,
+    pub job_full_name: String,
+    pub build_number: Option<i64>,
+    pub executable_url: String,
+    pub status: String,
+    pub message: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollJenkinsQueueItemInput {
+    pub connection_key: String,
+    pub queue_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListAiSkillsInput {
@@ -958,6 +1512,7 @@ pub struct AiCommitGitWorkspaceResult {
 #[serde(rename_all = "camelCase")]
 pub struct GitWorkspaceStatusResult {
     pub workspace: GitWorkspace,
+    pub head_commit: String,
     pub porcelain: String,
     pub staged_files: Vec<String>,
     pub unstaged_files: Vec<String>,

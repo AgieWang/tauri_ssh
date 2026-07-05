@@ -17,6 +17,15 @@ impl AuditService {
         db.create_audit_log(&input)
     }
 
+    pub fn upsert_by_request_action(
+        db: &Database,
+        mut input: CreateAuditLogInput,
+    ) -> Result<AuditLog, AppError> {
+        Self::normalize_create(&mut input);
+        Self::validate_create(&input)?;
+        db.upsert_audit_log_by_request_action(&input)
+    }
+
     pub fn export(
         db: &Database,
         input: ListAuditLogsInput,

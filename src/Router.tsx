@@ -4,6 +4,7 @@ import HomePage from "@/pages/home";
 import AboutPage from "@/pages/about";
 import DatabasePage from "@/pages/database";
 import DeploymentsPage from "@/pages/deployments";
+import JenkinsPage from "@/pages/jenkins";
 import SkillsPage from "@/pages/skills";
 import ResourceMonitorPage from "@/pages/resource-monitor";
 import SecureCredentialCodeReviewPage from "@/pages/secure-credentials/code-review";
@@ -66,6 +67,7 @@ const router = createBrowserRouter([
       { path: "database", element: <DatabasePage /> },
       { path: "resource-monitor", element: <ResourceMonitorPage /> },
       { path: "deployments", element: <DeploymentsPage /> },
+      { path: "jenkins", element: <JenkinsPage /> },
       { path: "editor", element: <EditorPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "mcp", element: <McpPage /> },

@@ -82,6 +82,7 @@ export interface AiCommitGitWorkspaceResult {
 
 export interface GitWorkspaceStatusResult {
   workspace: GitWorkspace;
+  headCommit: string;
   porcelain: string;
   stagedFiles: string[];
   unstagedFiles: string[];

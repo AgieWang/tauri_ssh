@@ -2,7 +2,7 @@ pub mod schema;
 
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::AppError;
 use crate::models::{
@@ -11,19 +11,21 @@ use crate::models::{
     CreateApprovalRequestInput, CreateAuditLogInput, CreateCodeReviewTaskInput,
     CreateSecureCredentialAuditLogInput, CredentialVaultItem, DatabaseConnection,
     DecideApprovalRequestInput, DeploymentGroup, DeploymentGroupTarget, DeploymentRun,
-    DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, GitWorkspace, JumpServerSession,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListAuditLogsInput, ListCodeReviewTasksInput,
-    ListDeploymentRunsInput, ListGitWorkspacesInput, ListResourceAlertEventsInput,
+    DeploymentRunDetail, DeploymentRunStep, DeploymentTarget, GitWorkspace, JenkinsArtifact,
+    JenkinsBuild, JenkinsBuildAnalysis, JenkinsConnection, JenkinsJob, JenkinsParameterTemplate,
+    JenkinsRecentParameterValue, JumpServerSession, ListAiSkillsInput, ListApprovalRequestsInput,
+    ListAuditLogsInput, ListCodeReviewTasksInput, ListDeploymentRunsInput, ListGitWorkspacesInput,
+    ListJenkinsBuildsInput, ListJenkinsConnectionsInput, ListResourceAlertEventsInput,
     ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput, ResourceAlertEvent,
     ResourceAlertRule, ResourceMetricSnapshot, ResourceMonitorTarget, ResourceSnapshotListInput,
     SecureCredential, SecureCredentialAuditLog, SecureCredentialOverview,
-    SecureCredentialPolicySettings, SecureCredentialSession, SetSecureCredentialEnabledInput,
-    SshServer, UpdateSecureCredentialPolicySettingsInput, UpsertAiExperienceInput,
-    UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
-    UpsertCredentialInput, UpsertDatabaseConnectionInput, UpsertDeploymentGroupInput,
-    UpsertDeploymentTargetInput, UpsertGitWorkspaceInput, UpsertJumpServerSessionInput,
-    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput,
-    UpsertSshServerInput,
+    SecureCredentialPolicySettings, SecureCredentialSession, SetJenkinsJobFavoriteInput,
+    SetSecureCredentialEnabledInput, SshServer, UpdateSecureCredentialPolicySettingsInput,
+    UpsertAiExperienceInput, UpsertAiProviderInput, UpsertAiProviderRouteInput,
+    UpsertAiRunbookInput, UpsertAiSkillInput, UpsertCredentialInput, UpsertDatabaseConnectionInput,
+    UpsertDeploymentGroupInput, UpsertDeploymentTargetInput, UpsertGitWorkspaceInput,
+    UpsertJenkinsConnectionInput, UpsertJumpServerSessionInput, UpsertResourceAlertRuleInput,
+    UpsertResourceMonitorTargetInput, UpsertSecureCredentialInput, UpsertSshServerInput,
 };
 
 pub struct AiProviderSecretRow {
@@ -48,6 +50,45 @@ pub struct DatabaseConnectionSecretRow {
     pub connection: DatabaseConnection,
     pub password_nonce: Option<String>,
     pub password_ciphertext: Option<String>,
+}
+
+fn map_jenkins_connection_row(row: &Row<'_>) -> rusqlite::Result<JenkinsConnection> {
+    Ok(JenkinsConnection {
+        id: row.get(0)?,
+        connection_key: row.get(1)?,
+        config_version: row.get(2)?,
+        name: row.get(3)?,
+        base_url: row.get(4)?,
+        credential_key: row.get(5)?,
+        credential_display_name: row.get(6)?,
+        username_masked: row.get(7)?,
+        ssh_server_alias: row.get(8)?,
+        environment: row.get(9)?,
+        environment_label: row.get(10)?,
+        tls_verify: row.get::<_, i64>(11)? != 0,
+        default_view: row.get(12)?,
+        default_folder: row.get(13)?,
+        allow_mcp_read: row.get::<_, i64>(14)? != 0,
+        allow_mcp_write: row.get::<_, i64>(15)? != 0,
+        approval_policy: row.get(16)?,
+        parameter_prefill_enabled: row.get::<_, i64>(17)? != 0,
+        risk_rules_json: row.get(18)?,
+        notify_on_success: row.get::<_, i64>(19)? != 0,
+        notify_on_failure: row.get::<_, i64>(20)? != 0,
+        notify_on_unstable: row.get::<_, i64>(21)? != 0,
+        notify_on_aborted: row.get::<_, i64>(22)? != 0,
+        status: row.get(23)?,
+        version: row.get(24)?,
+        capabilities_json: row.get(25)?,
+        last_error_code: row.get(26)?,
+        last_error_message: row.get(27)?,
+        description: row.get(28)?,
+        enabled: row.get::<_, i64>(29)? != 0,
+        last_tested_at: row.get(30)?,
+        created_at: row.get(31)?,
+        updated_at: row.get(32)?,
+        deleted_at: row.get(33)?,
+    })
 }
 
 /// 数据库封装，线程安全
@@ -160,6 +201,1173 @@ impl Database {
             [key],
         )?;
         Ok(affected > 0)
+    }
+
+    // ─── Jenkins 构建运维 DAO ───────────────────────
+
+    pub fn list_jenkins_connections(
+        &self,
+        input: &ListJenkinsConnectionsInput,
+    ) -> Result<Vec<JenkinsConnection>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let include_deleted = input.include_deleted.unwrap_or(false);
+        let keyword = input.keyword.as_deref().unwrap_or("").trim();
+        let pattern = format!("%{}%", keyword);
+        let sql = if include_deleted {
+            "SELECT id, connection_key, config_version, name, base_url, credential_key,
+                    credential_display_name, username_masked, ssh_server_alias, environment,
+                    environment_label, tls_verify, default_view, default_folder, allow_mcp_read,
+                    allow_mcp_write, approval_policy, parameter_prefill_enabled, risk_rules_json,
+                    notify_on_success, notify_on_failure, notify_on_unstable, notify_on_aborted, status, version,
+                    capabilities_json, last_error_code, last_error_message, description, enabled,
+                    last_tested_at, created_at, updated_at, deleted_at
+             FROM jenkins_connections
+             WHERE (?1 = '' OR name LIKE ?2 OR base_url LIKE ?2 OR connection_key LIKE ?2)
+             ORDER BY updated_at DESC, id DESC"
+        } else {
+            "SELECT id, connection_key, config_version, name, base_url, credential_key,
+                    credential_display_name, username_masked, ssh_server_alias, environment,
+                    environment_label, tls_verify, default_view, default_folder, allow_mcp_read,
+                    allow_mcp_write, approval_policy, parameter_prefill_enabled, risk_rules_json,
+                    notify_on_success, notify_on_failure, notify_on_unstable, notify_on_aborted, status, version,
+                    capabilities_json, last_error_code, last_error_message, description, enabled,
+                    last_tested_at, created_at, updated_at, deleted_at
+             FROM jenkins_connections
+             WHERE deleted_at IS NULL
+               AND (?1 = '' OR name LIKE ?2 OR base_url LIKE ?2 OR connection_key LIKE ?2)
+             ORDER BY updated_at DESC, id DESC"
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params![keyword, pattern], map_jenkins_connection_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_jenkins_connection(
+        &self,
+        connection_key: &str,
+    ) -> Result<Option<JenkinsConnection>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, connection_key, config_version, name, base_url, credential_key,
+                    credential_display_name, username_masked, ssh_server_alias, environment,
+                    environment_label, tls_verify, default_view, default_folder, allow_mcp_read,
+                    allow_mcp_write, approval_policy, parameter_prefill_enabled, risk_rules_json,
+                    notify_on_success, notify_on_failure, notify_on_unstable, notify_on_aborted, status, version,
+                    capabilities_json, last_error_code, last_error_message, description, enabled,
+                    last_tested_at, created_at, updated_at, deleted_at
+             FROM jenkins_connections
+             WHERE connection_key = ?1",
+            [connection_key],
+            map_jenkins_connection_row,
+        )
+        .optional()
+        .map_err(AppError::from)
+    }
+
+    pub fn upsert_jenkins_connection(
+        &self,
+        input: &UpsertJenkinsConnectionInput,
+        connection_key: &str,
+        base_url: &str,
+        status: &str,
+    ) -> Result<JenkinsConnection, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let existing: Option<(String, String, String, i64, i64)> = conn
+            .query_row(
+                "SELECT base_url, credential_key, ssh_server_alias, tls_verify, config_version
+                 FROM jenkins_connections
+                 WHERE connection_key = ?1",
+                [connection_key],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+
+        let credential_key = input.credential_key.as_deref().unwrap_or("").trim();
+        let credential_display_name = input
+            .credential_display_name
+            .as_deref()
+            .unwrap_or("")
+            .trim();
+        let username_masked = input.username_masked.as_deref().unwrap_or("").trim();
+        let ssh_server_alias = input.ssh_server_alias.as_deref().unwrap_or("").trim();
+        let environment = input.environment.as_deref().unwrap_or("dev").trim();
+        let environment_label = input.environment_label.as_deref().unwrap_or("").trim();
+        let tls_verify = input.tls_verify.unwrap_or(true);
+        let tls_verify_i64 = if tls_verify { 1 } else { 0 };
+        let critical_changed = existing
+            .as_ref()
+            .map(
+                |(old_base_url, old_credential_key, old_ssh_alias, old_tls_verify, _)| {
+                    old_base_url != base_url
+                        || old_credential_key != credential_key
+                        || old_ssh_alias != ssh_server_alias
+                        || *old_tls_verify != tls_verify_i64
+                },
+            )
+            .unwrap_or(true);
+        let config_version = match existing {
+            Some((_, _, _, _, old_version)) if critical_changed => old_version + 1,
+            Some((_, _, _, _, old_version)) => old_version,
+            None => 1,
+        };
+
+        conn.execute(
+            "INSERT INTO jenkins_connections
+             (connection_key, config_version, name, base_url, credential_key,
+              credential_display_name, username_masked, ssh_server_alias, environment,
+              environment_label, tls_verify, default_view, default_folder, allow_mcp_read,
+              allow_mcp_write, approval_policy, parameter_prefill_enabled, risk_rules_json,
+              notify_on_success, notify_on_failure, notify_on_unstable, notify_on_aborted, status, description,
+              enabled, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, datetime('now', 'localtime'), NULL)
+             ON CONFLICT(connection_key) DO UPDATE SET
+               config_version = excluded.config_version,
+               name = excluded.name,
+               base_url = excluded.base_url,
+               credential_key = excluded.credential_key,
+               credential_display_name = excluded.credential_display_name,
+               username_masked = excluded.username_masked,
+               ssh_server_alias = excluded.ssh_server_alias,
+               environment = excluded.environment,
+               environment_label = excluded.environment_label,
+               tls_verify = excluded.tls_verify,
+               default_view = excluded.default_view,
+               default_folder = excluded.default_folder,
+               allow_mcp_read = excluded.allow_mcp_read,
+               allow_mcp_write = excluded.allow_mcp_write,
+               approval_policy = excluded.approval_policy,
+               parameter_prefill_enabled = excluded.parameter_prefill_enabled,
+               risk_rules_json = excluded.risk_rules_json,
+               notify_on_success = excluded.notify_on_success,
+               notify_on_failure = excluded.notify_on_failure,
+               notify_on_unstable = excluded.notify_on_unstable,
+               notify_on_aborted = excluded.notify_on_aborted,
+               status = CASE WHEN ?26 = 1 THEN excluded.status ELSE status END,
+               version = CASE WHEN ?26 = 1 THEN '' ELSE version END,
+               capabilities_json = CASE WHEN ?26 = 1 THEN '{}' ELSE capabilities_json END,
+               last_error_code = CASE WHEN ?26 = 1 THEN '' ELSE last_error_code END,
+               last_error_message = CASE WHEN ?26 = 1 THEN '' ELSE last_error_message END,
+               last_tested_at = CASE WHEN ?26 = 1 THEN NULL ELSE last_tested_at END,
+               description = excluded.description,
+               enabled = excluded.enabled,
+               updated_at = datetime('now', 'localtime'),
+               deleted_at = NULL",
+            params![
+                connection_key,
+                config_version,
+                input.name.trim(),
+                base_url,
+                credential_key,
+                credential_display_name,
+                username_masked,
+                ssh_server_alias,
+                environment,
+                environment_label,
+                tls_verify_i64,
+                input.default_view.as_deref().unwrap_or("").trim(),
+                input.default_folder.as_deref().unwrap_or("").trim(),
+                if input.allow_mcp_read.unwrap_or(true) { 1 } else { 0 },
+                if input.allow_mcp_write.unwrap_or(false) { 1 } else { 0 },
+                input.approval_policy.as_deref().unwrap_or("manual").trim(),
+                if input.parameter_prefill_enabled.unwrap_or(true) { 1 } else { 0 },
+                input.risk_rules_json.as_deref().unwrap_or("{}").trim(),
+                if input.notify_on_success.unwrap_or(false) { 1 } else { 0 },
+                if input.notify_on_failure.unwrap_or(true) { 1 } else { 0 },
+                if input.notify_on_unstable.unwrap_or(true) { 1 } else { 0 },
+                if input.notify_on_aborted.unwrap_or(true) { 1 } else { 0 },
+                status,
+                input.description.as_deref().unwrap_or("").trim(),
+                if input.enabled.unwrap_or(false) { 1 } else { 0 },
+                if critical_changed { 1 } else { 0 },
+            ],
+        )?;
+        drop(conn);
+
+        self.get_jenkins_connection(connection_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins 连接保存后未找到".into()))
+    }
+
+    pub fn update_jenkins_connection_test_result(
+        &self,
+        connection_key: &str,
+        status: &str,
+        version: &str,
+        capabilities_json: &str,
+        credential_display_name: &str,
+        username_masked: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE jenkins_connections
+             SET status = ?2, version = ?3, capabilities_json = ?4,
+                 credential_display_name = ?5, username_masked = ?6,
+                 last_error_code = ?7, last_error_message = ?8,
+                 last_tested_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE connection_key = ?1",
+            params![
+                connection_key,
+                status,
+                version,
+                capabilities_json,
+                credential_display_name,
+                username_masked,
+                error_code,
+                error_message
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_jenkins_connection(&self, connection_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_connections
+             SET deleted_at = datetime('now', 'localtime'), updated_at = datetime('now', 'localtime')
+             WHERE connection_key = ?1 AND deleted_at IS NULL",
+            [connection_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn restore_jenkins_connection(&self, connection_key: &str) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_connections
+             SET deleted_at = NULL,
+                 enabled = 0,
+                 status = 'restored_needs_test',
+                 last_error_code = '',
+                 last_error_message = '恢复后需要重新测试连接才能启用写入',
+                 updated_at = datetime('now', 'localtime')
+             WHERE connection_key = ?1 AND deleted_at IS NOT NULL",
+            [connection_key],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_jenkins_recent_jobs(
+        &self,
+        connection_key: &str,
+    ) -> Result<Vec<JenkinsJob>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT job_full_name, display_name, url, job_type, normalized_status, raw_color,
+                    buildable, last_build_number, last_build_status, favorite
+             FROM jenkins_recent_jobs
+             WHERE connection_key = ?1
+             ORDER BY favorite DESC, updated_at DESC, job_full_name",
+        )?;
+        let rows = stmt
+            .query_map([connection_key], |row| {
+                Ok(JenkinsJob {
+                    job_full_name: row.get(0)?,
+                    display_name: row.get(1)?,
+                    url: row.get(2)?,
+                    job_type: row.get(3)?,
+                    normalized_status: row.get(4)?,
+                    raw_color: row.get(5)?,
+                    buildable: row.get::<_, i64>(6)? != 0,
+                    last_build_number: row.get(7)?,
+                    last_build_status: row.get(8)?,
+                    favorite: row.get::<_, i64>(9)? != 0,
+                    has_more: false,
+                    children: Vec::new(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn replace_jenkins_recent_jobs(
+        &self,
+        connection_key: &str,
+        jobs: &[JenkinsJob],
+    ) -> Result<(), AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut stack = jobs.iter().collect::<Vec<_>>();
+        while let Some(job) = stack.pop() {
+            tx.execute(
+                "INSERT INTO jenkins_recent_jobs
+                 (connection_key, job_full_name, display_name, url, job_type, normalized_status,
+                  raw_color, buildable, last_build_number, last_build_status, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now', 'localtime'))
+                 ON CONFLICT(connection_key, job_full_name) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   url = excluded.url,
+                   job_type = excluded.job_type,
+                   normalized_status = excluded.normalized_status,
+                   raw_color = excluded.raw_color,
+                   buildable = excluded.buildable,
+                   last_build_number = excluded.last_build_number,
+                   last_build_status = excluded.last_build_status,
+                   updated_at = datetime('now', 'localtime')",
+                params![
+                    connection_key,
+                    job.job_full_name,
+                    job.display_name,
+                    job.url,
+                    job.job_type,
+                    job.normalized_status,
+                    job.raw_color,
+                    if job.buildable { 1 } else { 0 },
+                    job.last_build_number,
+                    job.last_build_status
+                ],
+            )?;
+            stack.extend(job.children.iter());
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn set_jenkins_job_favorite(
+        &self,
+        input: &SetJenkinsJobFavoriteInput,
+    ) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_recent_jobs
+             SET favorite = ?3, updated_at = datetime('now', 'localtime')
+             WHERE connection_key = ?1 AND job_full_name = ?2",
+            params![
+                input.connection_key.trim(),
+                input.job_full_name.trim(),
+                if input.favorite { 1 } else { 0 }
+            ],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_jenkins_build_runs(
+        &self,
+        input: &ListJenkinsBuildsInput,
+    ) -> Result<Vec<JenkinsBuild>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let job_full_name = input.job_full_name.as_deref().unwrap_or("").trim();
+        let limit = input.limit.unwrap_or(30).clamp(1, 100);
+        let offset = input
+            .cursor
+            .as_deref()
+            .and_then(|value| value.trim().parse::<i64>().ok())
+            .or(input.offset)
+            .unwrap_or(0)
+            .max(0);
+        let mut stmt = conn.prepare(
+            "SELECT run_key, request_id, connection_key, job_full_name, queue_id, build_number,
+                    status, status_source, result, cause, created_by, created_at, updated_at,
+                    started_at, finished_at, last_error_code, last_error_message
+             FROM jenkins_build_runs
+             WHERE connection_key = ?1
+               AND (?2 = '' OR job_full_name = ?2)
+             ORDER BY COALESCE(started_at, created_at) DESC, build_number DESC, id DESC
+             LIMIT ?3 OFFSET ?4",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![input.connection_key, job_full_name, limit, offset],
+                |row| {
+                    Ok(JenkinsBuild {
+                        run_key: row.get(0)?,
+                        request_id: row.get(1)?,
+                        connection_key: row.get(2)?,
+                        job_full_name: row.get(3)?,
+                        queue_id: row.get(4)?,
+                        build_number: row.get(5)?,
+                        status: row.get(6)?,
+                        status_source: row.get(7)?,
+                        result: row.get(8)?,
+                        cause: row.get(9)?,
+                        created_by: row.get(10)?,
+                        created_at: row.get(11)?,
+                        updated_at: row.get(12)?,
+                        started_at: row.get(13)?,
+                        finished_at: row.get(14)?,
+                        last_error_code: row.get(15)?,
+                        last_error_message: row.get(16)?,
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn get_jenkins_build_run(&self, run_key: &str) -> Result<Option<JenkinsBuild>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT run_key, request_id, connection_key, job_full_name, queue_id, build_number,
+                    status, status_source, result, cause, created_by, created_at, updated_at,
+                    started_at, finished_at, last_error_code, last_error_message
+             FROM jenkins_build_runs
+             WHERE run_key = ?1",
+            [run_key],
+            |row| {
+                Ok(JenkinsBuild {
+                    run_key: row.get(0)?,
+                    request_id: row.get(1)?,
+                    connection_key: row.get(2)?,
+                    job_full_name: row.get(3)?,
+                    queue_id: row.get(4)?,
+                    build_number: row.get(5)?,
+                    status: row.get(6)?,
+                    status_source: row.get(7)?,
+                    result: row.get(8)?,
+                    cause: row.get(9)?,
+                    created_by: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    started_at: row.get(13)?,
+                    finished_at: row.get(14)?,
+                    last_error_code: row.get(15)?,
+                    last_error_message: row.get(16)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_jenkins_build_run_by_number(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        build_number: i64,
+    ) -> Result<Option<JenkinsBuild>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT run_key, request_id, connection_key, job_full_name, queue_id, build_number,
+                    status, status_source, result, cause, created_by, created_at, updated_at,
+                    started_at, finished_at, last_error_code, last_error_message
+             FROM jenkins_build_runs
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND build_number = ?3
+             ORDER BY id DESC
+             LIMIT 1",
+            params![connection_key, job_full_name, build_number],
+            |row| {
+                Ok(JenkinsBuild {
+                    run_key: row.get(0)?,
+                    request_id: row.get(1)?,
+                    connection_key: row.get(2)?,
+                    job_full_name: row.get(3)?,
+                    queue_id: row.get(4)?,
+                    build_number: row.get(5)?,
+                    status: row.get(6)?,
+                    status_source: row.get(7)?,
+                    result: row.get(8)?,
+                    cause: row.get(9)?,
+                    created_by: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    started_at: row.get(13)?,
+                    finished_at: row.get(14)?,
+                    last_error_code: row.get(15)?,
+                    last_error_message: row.get(16)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn list_unfinished_jenkins_build_runs(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<JenkinsBuild>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let limit = limit.clamp(1, 200);
+        let mut stmt = conn.prepare(
+            "SELECT run_key, request_id, connection_key, job_full_name, queue_id, build_number,
+                    status, status_source, result, cause, created_by, created_at, updated_at,
+                    started_at, finished_at, last_error_code, last_error_message
+             FROM jenkins_build_runs
+             WHERE status IN ('queued', 'waiting', 'blocked', 'stuck', 'triggered', 'building', 'tracking_timeout')
+                OR (finished_at IS NULL AND build_number IS NOT NULL AND status NOT IN ('success', 'failure', 'unstable', 'aborted', 'not_built', 'sync_failed'))
+             ORDER BY updated_at ASC, id ASC
+             LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit], |row| {
+                Ok(JenkinsBuild {
+                    run_key: row.get(0)?,
+                    request_id: row.get(1)?,
+                    connection_key: row.get(2)?,
+                    job_full_name: row.get(3)?,
+                    queue_id: row.get(4)?,
+                    build_number: row.get(5)?,
+                    status: row.get(6)?,
+                    status_source: row.get(7)?,
+                    result: row.get(8)?,
+                    cause: row.get(9)?,
+                    created_by: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    started_at: row.get(13)?,
+                    finished_at: row.get(14)?,
+                    last_error_code: row.get(15)?,
+                    last_error_message: row.get(16)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_jenkins_build_run(
+        &self,
+        build: &JenkinsBuild,
+        approval_id: Option<i64>,
+        connection_config_version: i64,
+        request_hash: &str,
+        parameters_redacted_json: &str,
+    ) -> Result<JenkinsBuild, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO jenkins_build_runs
+             (run_key, request_id, approval_id, connection_key, connection_config_version,
+              job_full_name, queue_id, build_number, status, status_source, result, request_hash,
+              parameters_redacted_json, cause, created_by, started_at, finished_at,
+              last_error_code, last_error_message, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     ?16, ?17, ?18, ?19, datetime('now', 'localtime'))
+             ON CONFLICT(run_key) DO UPDATE SET
+               request_id = excluded.request_id,
+               approval_id = COALESCE(excluded.approval_id, jenkins_build_runs.approval_id),
+               connection_config_version = excluded.connection_config_version,
+               queue_id = excluded.queue_id,
+               build_number = excluded.build_number,
+               status = excluded.status,
+               status_source = excluded.status_source,
+               result = excluded.result,
+               request_hash = CASE
+                 WHEN excluded.request_hash = '' THEN jenkins_build_runs.request_hash
+                 ELSE excluded.request_hash
+               END,
+               parameters_redacted_json = CASE
+                 WHEN excluded.parameters_redacted_json = '{}' THEN jenkins_build_runs.parameters_redacted_json
+                 ELSE excluded.parameters_redacted_json
+               END,
+               cause = excluded.cause,
+               created_by = excluded.created_by,
+               started_at = COALESCE(excluded.started_at, jenkins_build_runs.started_at),
+               finished_at = COALESCE(excluded.finished_at, jenkins_build_runs.finished_at),
+               last_error_code = excluded.last_error_code,
+               last_error_message = excluded.last_error_message,
+               updated_at = datetime('now', 'localtime')",
+            params![
+                build.run_key,
+                build.request_id,
+                approval_id,
+                build.connection_key,
+                connection_config_version,
+                build.job_full_name,
+                build.queue_id,
+                build.build_number,
+                build.status,
+                build.status_source,
+                build.result,
+                request_hash,
+                parameters_redacted_json,
+                build.cause,
+                build.created_by,
+                build.started_at,
+                build.finished_at,
+                build.last_error_code,
+                build.last_error_message,
+            ],
+        )?;
+        let run_key = build.run_key.clone();
+        drop(conn);
+        self.get_jenkins_build_run(&run_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins build run 保存后未找到".into()))
+    }
+
+    pub fn mark_jenkins_build_run_sync_failed(
+        &self,
+        run_key: &str,
+        code: &str,
+        message: &str,
+    ) -> Result<JenkinsBuild, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_build_runs
+             SET status = 'sync_failed',
+                 status_source = 'local',
+                 last_error_code = ?2,
+                 last_error_message = ?3,
+                 updated_at = datetime('now', 'localtime')
+             WHERE run_key = ?1",
+            params![run_key, code, message],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound("Jenkins build run 不存在".into()));
+        }
+        let run_key = run_key.to_string();
+        drop(conn);
+        self.get_jenkins_build_run(&run_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins build run 更新后未找到".into()))
+    }
+
+    pub fn mark_jenkins_build_run_queue_timeout(
+        &self,
+        run_key: &str,
+        message: &str,
+    ) -> Result<JenkinsBuild, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_build_runs
+             SET status = 'queue_timeout',
+                 status_source = 'local',
+                 last_error_code = 'queue_timeout',
+                 last_error_message = ?2,
+                 updated_at = datetime('now', 'localtime')
+             WHERE run_key = ?1",
+            params![run_key, message],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound("Jenkins build run 不存在".into()));
+        }
+        let run_key = run_key.to_string();
+        drop(conn);
+        self.get_jenkins_build_run(&run_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins build run 更新后未找到".into()))
+    }
+
+    pub fn create_jenkins_build_analysis(
+        &self,
+        analysis: &JenkinsBuildAnalysis,
+    ) -> Result<JenkinsBuildAnalysis, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO jenkins_build_analyses
+             (analysis_key, run_key, request_id, connection_key, job_full_name, build_number,
+              provider_key, provider_name, model, summary_markdown, snippet_sha256,
+              snippet_start_line, snippet_end_line, matched_lines, created_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                analysis.analysis_key,
+                analysis.run_key,
+                analysis.request_id,
+                analysis.connection_key,
+                analysis.job_full_name,
+                analysis.build_number,
+                analysis.provider_key,
+                analysis.provider_name,
+                analysis.model,
+                analysis.summary_markdown,
+                analysis.snippet_sha256,
+                analysis.snippet_start_line,
+                analysis.snippet_end_line,
+                analysis.matched_lines,
+                analysis.created_by,
+            ],
+        )?;
+        drop(conn);
+        self.get_jenkins_build_analysis(&analysis.analysis_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins 构建分析保存后未找到".into()))
+    }
+
+    pub fn get_jenkins_build_analysis(
+        &self,
+        analysis_key: &str,
+    ) -> Result<Option<JenkinsBuildAnalysis>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, analysis_key, run_key, request_id, connection_key, job_full_name,
+                    build_number, provider_key, provider_name, model, summary_markdown,
+                    snippet_sha256, snippet_start_line, snippet_end_line, matched_lines,
+                    created_by, created_at
+             FROM jenkins_build_analyses
+             WHERE analysis_key = ?1",
+            [analysis_key],
+            |row| {
+                Ok(JenkinsBuildAnalysis {
+                    id: row.get(0)?,
+                    analysis_key: row.get(1)?,
+                    run_key: row.get(2)?,
+                    request_id: row.get(3)?,
+                    connection_key: row.get(4)?,
+                    job_full_name: row.get(5)?,
+                    build_number: row.get(6)?,
+                    provider_key: row.get(7)?,
+                    provider_name: row.get(8)?,
+                    model: row.get(9)?,
+                    summary_markdown: row.get(10)?,
+                    snippet_sha256: row.get(11)?,
+                    snippet_start_line: row.get(12)?,
+                    snippet_end_line: row.get(13)?,
+                    matched_lines: row.get(14)?,
+                    created_by: row.get(15)?,
+                    created_at: row.get(16)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn get_latest_jenkins_build_analysis(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        build_number: i64,
+    ) -> Result<Option<JenkinsBuildAnalysis>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, analysis_key, run_key, request_id, connection_key, job_full_name,
+                    build_number, provider_key, provider_name, model, summary_markdown,
+                    snippet_sha256, snippet_start_line, snippet_end_line, matched_lines,
+                    created_by, created_at
+             FROM jenkins_build_analyses
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND build_number = ?3
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+            params![connection_key, job_full_name, build_number],
+            |row| {
+                Ok(JenkinsBuildAnalysis {
+                    id: row.get(0)?,
+                    analysis_key: row.get(1)?,
+                    run_key: row.get(2)?,
+                    request_id: row.get(3)?,
+                    connection_key: row.get(4)?,
+                    job_full_name: row.get(5)?,
+                    build_number: row.get(6)?,
+                    provider_key: row.get(7)?,
+                    provider_name: row.get(8)?,
+                    model: row.get(9)?,
+                    summary_markdown: row.get(10)?,
+                    snippet_sha256: row.get(11)?,
+                    snippet_start_line: row.get(12)?,
+                    snippet_end_line: row.get(13)?,
+                    matched_lines: row.get(14)?,
+                    created_by: row.get(15)?,
+                    created_at: row.get(16)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| e.into())
+    }
+
+    pub fn list_jenkins_recent_parameter_values(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        requester: &str,
+    ) -> Result<Vec<JenkinsRecentParameterValue>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, connection_key, job_full_name, parameter_name, requester, value_kind,
+                    value_json, sensitive, updated_from_run_key, updated_at
+             FROM jenkins_recent_parameter_values
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND requester = ?3
+             ORDER BY updated_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![connection_key, job_full_name, requester], |row| {
+                let raw_value: String = row.get(6)?;
+                Ok(JenkinsRecentParameterValue {
+                    id: row.get(0)?,
+                    connection_key: row.get(1)?,
+                    job_full_name: row.get(2)?,
+                    parameter_name: row.get(3)?,
+                    requester: row.get(4)?,
+                    value_kind: row.get(5)?,
+                    value_json: serde_json::from_str(&raw_value).unwrap_or(serde_json::Value::Null),
+                    sensitive: row.get::<_, i64>(7)? != 0,
+                    updated_from_run_key: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_jenkins_recent_parameter_value(
+        &self,
+        value: &JenkinsRecentParameterValue,
+    ) -> Result<JenkinsRecentParameterValue, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let value_json = serde_json::to_string(&value.value_json)?;
+        conn.execute(
+            "INSERT INTO jenkins_recent_parameter_values
+             (connection_key, job_full_name, parameter_name, requester, value_kind, value_json,
+              sensitive, updated_from_run_key, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now', 'localtime'))
+             ON CONFLICT(connection_key, job_full_name, parameter_name, requester) DO UPDATE SET
+               value_kind = excluded.value_kind,
+               value_json = excluded.value_json,
+               sensitive = excluded.sensitive,
+               updated_from_run_key = excluded.updated_from_run_key,
+               updated_at = datetime('now', 'localtime')",
+            params![
+                value.connection_key,
+                value.job_full_name,
+                value.parameter_name,
+                value.requester,
+                value.value_kind,
+                value_json,
+                if value.sensitive { 1 } else { 0 },
+                value.updated_from_run_key,
+            ],
+        )?;
+        drop(conn);
+        let values = self.list_jenkins_recent_parameter_values(
+            &value.connection_key,
+            &value.job_full_name,
+            &value.requester,
+        )?;
+        values
+            .into_iter()
+            .find(|item| item.parameter_name == value.parameter_name)
+            .ok_or_else(|| AppError::NotFound("Jenkins 最近参数值保存后未找到".into()))
+    }
+
+    pub fn delete_jenkins_recent_parameter_value(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        parameter_name: &str,
+        requester: &str,
+    ) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "DELETE FROM jenkins_recent_parameter_values
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND parameter_name = ?3 AND requester = ?4",
+            params![connection_key, job_full_name, parameter_name, requester],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_jenkins_parameter_templates(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        requester: &str,
+    ) -> Result<Vec<JenkinsParameterTemplate>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, template_key, connection_key, job_full_name, name, parameters_json,
+                    parameter_definition_hash, created_by, created_at, updated_at
+             FROM jenkins_parameter_templates
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND created_by = ?3
+             ORDER BY updated_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![connection_key, job_full_name, requester], |row| {
+                let raw_parameters: String = row.get(5)?;
+                Ok(JenkinsParameterTemplate {
+                    id: row.get(0)?,
+                    template_key: row.get(1)?,
+                    connection_key: row.get(2)?,
+                    job_full_name: row.get(3)?,
+                    name: row.get(4)?,
+                    parameters_json: serde_json::from_str(&raw_parameters)
+                        .unwrap_or(serde_json::json!({"parameters": []})),
+                    parameter_definition_hash: row.get(6)?,
+                    created_by: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_jenkins_parameter_template(
+        &self,
+        template: &JenkinsParameterTemplate,
+    ) -> Result<JenkinsParameterTemplate, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let parameters_json = serde_json::to_string(&template.parameters_json)?;
+        conn.execute(
+            "INSERT INTO jenkins_parameter_templates
+             (template_key, connection_key, job_full_name, name, parameters_json,
+              parameter_definition_hash, created_by, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now', 'localtime'))
+             ON CONFLICT(connection_key, job_full_name, name, created_by) DO UPDATE SET
+               template_key = excluded.template_key,
+               parameters_json = excluded.parameters_json,
+               parameter_definition_hash = excluded.parameter_definition_hash,
+               updated_at = datetime('now', 'localtime')",
+            params![
+                template.template_key,
+                template.connection_key,
+                template.job_full_name,
+                template.name,
+                parameters_json,
+                template.parameter_definition_hash,
+                template.created_by,
+            ],
+        )?;
+        drop(conn);
+        self.list_jenkins_parameter_templates(
+            &template.connection_key,
+            &template.job_full_name,
+            &template.created_by,
+        )?
+        .into_iter()
+        .find(|item| item.name == template.name)
+        .ok_or_else(|| AppError::NotFound("Jenkins 参数模板保存后未找到".into()))
+    }
+
+    pub fn delete_jenkins_parameter_template(
+        &self,
+        template_key: &str,
+        requester: &str,
+    ) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "DELETE FROM jenkins_parameter_templates
+             WHERE template_key = ?1 AND created_by = ?2",
+            params![template_key, requester],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_jenkins_artifact_records(
+        &self,
+        connection_key: &str,
+        job_full_name: &str,
+        build_number: i64,
+    ) -> Result<Vec<JenkinsArtifact>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, artifact_key, request_id, connection_key, job_full_name, build_number,
+                    file_name, relative_path, local_path, size_bytes, sha256, status,
+                    downloaded_at, cleaned_at, created_at, updated_at
+             FROM jenkins_artifacts
+             WHERE connection_key = ?1 AND job_full_name = ?2 AND build_number = ?3
+             ORDER BY id DESC",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![connection_key, job_full_name, build_number],
+                |row| {
+                    Ok(JenkinsArtifact {
+                        id: row.get(0)?,
+                        artifact_key: row.get(1)?,
+                        request_id: row.get(2)?,
+                        connection_key: row.get(3)?,
+                        job_full_name: row.get(4)?,
+                        build_number: row.get(5)?,
+                        file_name: row.get(6)?,
+                        relative_path: row.get(7)?,
+                        local_path: row.get(8)?,
+                        size_bytes: row.get(9)?,
+                        sha256: row.get(10)?,
+                        source_url: String::new(),
+                        status: row.get(11)?,
+                        risk_flags: Vec::new(),
+                        downloaded_at: row.get(12)?,
+                        cleaned_at: row.get(13)?,
+                        created_at: row.get(14)?,
+                        updated_at: row.get(15)?,
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_jenkins_artifact_record(
+        &self,
+        artifact: &JenkinsArtifact,
+    ) -> Result<JenkinsArtifact, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO jenkins_artifacts
+             (artifact_key, request_id, connection_key, job_full_name, build_number, file_name,
+              relative_path, local_path, size_bytes, sha256, status, downloaded_at, cleaned_at,
+              updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now', 'localtime'),
+                     NULL, datetime('now', 'localtime'))
+             ON CONFLICT(artifact_key) DO UPDATE SET
+               request_id = excluded.request_id,
+               local_path = excluded.local_path,
+               size_bytes = excluded.size_bytes,
+               sha256 = excluded.sha256,
+               status = excluded.status,
+               downloaded_at = datetime('now', 'localtime'),
+               cleaned_at = NULL,
+               updated_at = datetime('now', 'localtime')",
+            params![
+                artifact.artifact_key,
+                artifact.request_id,
+                artifact.connection_key,
+                artifact.job_full_name,
+                artifact.build_number,
+                artifact.file_name,
+                artifact.relative_path,
+                artifact.local_path,
+                artifact.size_bytes,
+                artifact.sha256,
+                artifact.status
+            ],
+        )?;
+        let artifact_key = artifact.artifact_key.clone();
+        drop(conn);
+        self.get_jenkins_artifact_record(&artifact_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins artifact 记录保存后未找到".into()))
+    }
+
+    pub fn get_jenkins_artifact_record(
+        &self,
+        artifact_key: &str,
+    ) -> Result<Option<JenkinsArtifact>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.query_row(
+            "SELECT id, artifact_key, request_id, connection_key, job_full_name, build_number,
+                    file_name, relative_path, local_path, size_bytes, sha256, status,
+                    downloaded_at, cleaned_at, created_at, updated_at
+             FROM jenkins_artifacts
+             WHERE artifact_key = ?1",
+            [artifact_key],
+            |row| {
+                Ok(JenkinsArtifact {
+                    id: row.get(0)?,
+                    artifact_key: row.get(1)?,
+                    request_id: row.get(2)?,
+                    connection_key: row.get(3)?,
+                    job_full_name: row.get(4)?,
+                    build_number: row.get(5)?,
+                    file_name: row.get(6)?,
+                    relative_path: row.get(7)?,
+                    local_path: row.get(8)?,
+                    size_bytes: row.get(9)?,
+                    sha256: row.get(10)?,
+                    source_url: String::new(),
+                    status: row.get(11)?,
+                    risk_flags: Vec::new(),
+                    downloaded_at: row.get(12)?,
+                    cleaned_at: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(AppError::from)
+    }
+
+    pub fn mark_jenkins_artifact_local_cleanup(
+        &self,
+        artifact_key: &str,
+        status: &str,
+    ) -> Result<JenkinsArtifact, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE jenkins_artifacts
+             SET status = ?2,
+                 cleaned_at = datetime('now', 'localtime'),
+                 updated_at = datetime('now', 'localtime')
+             WHERE artifact_key = ?1",
+            params![artifact_key, status],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound("Jenkins artifact 记录不存在".into()));
+        }
+        drop(conn);
+        self.get_jenkins_artifact_record(artifact_key)?
+            .ok_or_else(|| AppError::NotFound("Jenkins artifact 记录更新后未找到".into()))
     }
 
     // ─── 自动部署 DAO ───────────────────────────────
@@ -3190,6 +4398,64 @@ impl Database {
         drop(conn);
         self.get_audit_log(id)?
             .ok_or_else(|| AppError::NotFound(format!("审计日志 '{}' 不存在", id)))
+    }
+
+    pub fn upsert_audit_log_by_request_action(
+        &self,
+        input: &CreateAuditLogInput,
+    ) -> Result<AuditLog, AppError> {
+        let request_id = input.request_id.as_deref().unwrap_or("").trim();
+        if request_id.is_empty() {
+            return self.create_audit_log(input);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let existing_id = conn
+            .query_row(
+                "SELECT id
+                 FROM audit_logs
+                 WHERE deleted_at IS NULL
+                   AND source = ?1
+                   AND action = ?2
+                   AND request_id = ?3
+                 ORDER BY id DESC
+                 LIMIT 1",
+                params![input.source, input.action, request_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if let Some(id) = existing_id {
+            conn.execute(
+                "UPDATE audit_logs
+                 SET occurred_at = datetime('now', 'localtime'),
+                     actor = ?2,
+                     server_alias = ?3,
+                     risk = ?4,
+                     result = ?5,
+                     summary = ?6,
+                     detail_json = ?7,
+                     approval_id = ?8
+                 WHERE id = ?1",
+                params![
+                    id,
+                    input.actor,
+                    input.server_alias,
+                    input.risk,
+                    input.result,
+                    input.summary,
+                    input.detail_json.as_deref().unwrap_or("{}"),
+                    input.approval_id
+                ],
+            )?;
+            drop(conn);
+            return self
+                .get_audit_log(id)?
+                .ok_or_else(|| AppError::NotFound(format!("审计日志 '{}' 不存在", id)));
+        }
+        drop(conn);
+        self.create_audit_log(input)
     }
 
     pub fn get_audit_log(&self, id: i64) -> Result<Option<AuditLog>, AppError> {

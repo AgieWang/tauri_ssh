@@ -15,7 +15,7 @@ import {
 } from "@/data/prototype";
 import { AiInsightPanel, CodeBlock, PageHeader, RiskBadge, SectionGrid, StatCard, TwoColumn } from "@/components/prototype/common";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { aiProviderApi, aiSkillApi, approvalApi, auditApi, credentialVaultApi, getErrorMessage, hasTauriRuntime, jumpserverApi, mcpApi, sftpApi, sshServerApi, systemSettingsApi, terminalApi } from "@/lib/api";
+import { aiProviderApi, aiSkillApi, approvalApi, auditApi, credentialVaultApi, getErrorMessage, hasTauriRuntime, jenkinsApi, jumpserverApi, mcpApi, sftpApi, sshServerApi, systemSettingsApi, terminalApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import type { AiProvider, AiProviderModelListInput, AiProviderRegion, ApprovalRequest, ApprovalStatus, AuditLog, AuditRisk, CreateApprovalRequestInput, CredentialStatus, CredentialType, CredentialVaultItem, JumpServerAiMode, JumpServerProtocol, JumpServerSession, JumpServerStatus, ListAuditLogsInput, McpClientConfig, McpOverview, SftpFileEntry, SshServer, SshServerAuthType, SshServerPolicy, SshServerSource, SystemSettings, TerminalCommandResult, TerminalSessionEvent, UpsertCredentialInput, UpsertJumpServerSessionInput, UpsertSshServerInput } from "@/types";
 
@@ -3483,6 +3483,31 @@ export function ApprovalPage() {
     blocked: { color: "volcano", label: "禁止" },
   };
 
+  const executeApprovedOperation = useCallback(async (approval: ApprovalRequest) => {
+    if (approval.status !== "approved" || approval.source !== "jenkins") {
+      return;
+    }
+    if (approval.action === "jenkins_build_trigger") {
+      const result = await jenkinsApi.executeTriggerApproved({
+        approvalId: approval.id,
+        requestHash: approval.command,
+      });
+      message.success(
+        result.buildNumber
+          ? `Jenkins 构建已触发：${approval.resource} #${result.buildNumber}`
+          : `Jenkins 构建已进入队列：${approval.resource}`,
+      );
+      return;
+    }
+    if (approval.action === "jenkins_build_stop") {
+      await jenkinsApi.executeStopApproved({
+        approvalId: approval.id,
+        requestHash: approval.command,
+      });
+      message.success(`Jenkins 停止构建请求已执行：${approval.resource}`);
+    }
+  }, []);
+
   const decideApproval = useCallback((record: ApprovalRequest, decision: "approved" | "rejected") => {
     const isApprove = decision === "approved";
     Modal.confirm({
@@ -3503,13 +3528,20 @@ export function ApprovalPage() {
       async onOk() {
         const note = (document.getElementById(`approval-note-${record.id}`) as HTMLTextAreaElement | null)?.value ?? "";
         try {
-          await approvalApi.decide({
+          const decided = await approvalApi.decide({
             id: record.id,
             decision,
             note,
             decidedBy: "local-user",
           });
           message.success(isApprove ? "已批准审批请求" : "已拒绝审批请求");
+          if (isApprove) {
+            try {
+              await executeApprovedOperation(decided);
+            } catch (executeError) {
+              message.error(getErrorMessage(executeError));
+            }
+          }
           await loadApprovals();
         } catch (error) {
           message.error(getErrorMessage(error));
@@ -3517,7 +3549,7 @@ export function ApprovalPage() {
         }
       },
     });
-  }, [loadApprovals]);
+  }, [executeApprovedOperation, loadApprovals]);
 
   const createApproval = useCallback(async () => {
     try {

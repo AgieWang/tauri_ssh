@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 19;
+pub const SCHEMA_VERSION: i32 = 24;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -14,6 +14,27 @@ pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
 /// 设置数据库版本
 pub fn set_version(conn: &Connection, version: i32) -> Result<(), AppError> {
     conn.pragma_update(None, "user_version", version)?;
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), AppError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -49,6 +70,11 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             16 => migrate_v16_to_v17(conn)?,
             17 => migrate_v17_to_v18(conn)?,
             18 => migrate_v18_to_v19(conn)?,
+            19 => migrate_v19_to_v20(conn)?,
+            20 => migrate_v20_to_v21(conn)?,
+            21 => migrate_v21_to_v22(conn)?,
+            22 => migrate_v22_to_v23(conn)?,
+            23 => migrate_v23_to_v24(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -57,6 +83,237 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
     }
 
     log::info!("数据库迁移完成, 当前版本: {}", version);
+    Ok(())
+}
+
+/// v19 -> v20: Jenkins 构建运维工作台基础表
+fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v19 -> v20（Jenkins 构建运维工作台）");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS jenkins_connections (
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key              TEXT NOT NULL UNIQUE,
+            config_version              INTEGER NOT NULL DEFAULT 1,
+            name                        TEXT NOT NULL,
+            base_url                    TEXT NOT NULL,
+            credential_key              TEXT NOT NULL DEFAULT '',
+            credential_display_name     TEXT NOT NULL DEFAULT '',
+            username_masked             TEXT NOT NULL DEFAULT '',
+            ssh_server_alias            TEXT NOT NULL DEFAULT '',
+            environment                 TEXT NOT NULL DEFAULT 'dev',
+            environment_label           TEXT NOT NULL DEFAULT '',
+            tls_verify                  INTEGER NOT NULL DEFAULT 1,
+            default_view                TEXT NOT NULL DEFAULT '',
+            default_folder              TEXT NOT NULL DEFAULT '',
+            allow_mcp_read              INTEGER NOT NULL DEFAULT 1,
+            allow_mcp_write             INTEGER NOT NULL DEFAULT 0,
+            approval_policy             TEXT NOT NULL DEFAULT 'manual',
+            parameter_prefill_enabled   INTEGER NOT NULL DEFAULT 1,
+            risk_rules_json             TEXT NOT NULL DEFAULT '{}',
+            notify_on_success           INTEGER NOT NULL DEFAULT 0,
+            notify_on_failure           INTEGER NOT NULL DEFAULT 1,
+            notify_on_unstable          INTEGER NOT NULL DEFAULT 1,
+            notify_on_aborted           INTEGER NOT NULL DEFAULT 1,
+            status                      TEXT NOT NULL DEFAULT 'draft',
+            version                     TEXT NOT NULL DEFAULT '',
+            capabilities_json           TEXT NOT NULL DEFAULT '{}',
+            last_error_code             TEXT NOT NULL DEFAULT '',
+            last_error_message          TEXT NOT NULL DEFAULT '',
+            description                 TEXT NOT NULL DEFAULT '',
+            enabled                     INTEGER NOT NULL DEFAULT 0,
+            last_tested_at              TEXT DEFAULT NULL,
+            created_at                  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at                  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            deleted_at                  TEXT DEFAULT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_connections_key
+            ON jenkins_connections(connection_key);
+        CREATE INDEX IF NOT EXISTS idx_jenkins_connections_enabled
+            ON jenkins_connections(enabled, deleted_at);
+
+        CREATE TABLE IF NOT EXISTS jenkins_recent_jobs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key      TEXT NOT NULL,
+            job_full_name       TEXT NOT NULL,
+            display_name        TEXT NOT NULL,
+            url                 TEXT NOT NULL DEFAULT '',
+            job_type            TEXT NOT NULL DEFAULT 'job',
+            normalized_status   TEXT NOT NULL DEFAULT 'unknown',
+            raw_color           TEXT NOT NULL DEFAULT '',
+            buildable           INTEGER NOT NULL DEFAULT 1,
+            last_build_number   INTEGER DEFAULT NULL,
+            last_build_status   TEXT NOT NULL DEFAULT '',
+            favorite            INTEGER NOT NULL DEFAULT 0,
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(connection_key, job_full_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_recent_jobs_connection
+            ON jenkins_recent_jobs(connection_key, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS jenkins_build_runs (
+            id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_key                         TEXT NOT NULL UNIQUE,
+            request_id                      TEXT NOT NULL DEFAULT '',
+            approval_id                     INTEGER DEFAULT NULL,
+            connection_key                  TEXT NOT NULL,
+            connection_config_version       INTEGER NOT NULL DEFAULT 1,
+            job_full_name                   TEXT NOT NULL,
+            queue_id                        TEXT NOT NULL DEFAULT '',
+            build_number                    INTEGER DEFAULT NULL,
+            status                          TEXT NOT NULL DEFAULT 'queued',
+            status_source                   TEXT NOT NULL DEFAULT 'local',
+            result                          TEXT NOT NULL DEFAULT '',
+            request_hash                    TEXT NOT NULL DEFAULT '',
+            parameters_redacted_json        TEXT NOT NULL DEFAULT '{}',
+            cause                           TEXT NOT NULL DEFAULT '',
+            created_by                      TEXT NOT NULL DEFAULT 'local-user',
+            created_at                      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at                      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            started_at                      TEXT DEFAULT NULL,
+            finished_at                     TEXT DEFAULT NULL,
+            last_error_code                 TEXT NOT NULL DEFAULT '',
+            last_error_message              TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_build_runs_connection
+            ON jenkins_build_runs(connection_key, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_jenkins_build_runs_job
+            ON jenkins_build_runs(connection_key, job_full_name, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS jenkins_recent_parameter_values (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_key          TEXT NOT NULL,
+            job_full_name           TEXT NOT NULL,
+            parameter_name          TEXT NOT NULL,
+            requester               TEXT NOT NULL DEFAULT '__shared__',
+            value_kind              TEXT NOT NULL DEFAULT 'plain',
+            value_json              TEXT NOT NULL DEFAULT '{}',
+            sensitive               INTEGER NOT NULL DEFAULT 0,
+            updated_from_run_key    TEXT NOT NULL DEFAULT '',
+            updated_at              TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(connection_key, job_full_name, parameter_name, requester)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_recent_parameter_values_job
+            ON jenkins_recent_parameter_values(connection_key, job_full_name, requester);
+
+        CREATE TABLE IF NOT EXISTS jenkins_artifacts (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            artifact_key        TEXT NOT NULL UNIQUE,
+            request_id          TEXT NOT NULL DEFAULT '',
+            connection_key      TEXT NOT NULL,
+            job_full_name       TEXT NOT NULL,
+            build_number        INTEGER NOT NULL,
+            file_name           TEXT NOT NULL,
+            relative_path       TEXT NOT NULL,
+            local_path          TEXT NOT NULL DEFAULT '',
+            size_bytes          INTEGER DEFAULT NULL,
+            sha256              TEXT NOT NULL DEFAULT '',
+            status              TEXT NOT NULL DEFAULT 'recorded',
+            downloaded_at       TEXT DEFAULT NULL,
+            cleaned_at          TEXT DEFAULT NULL,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_artifacts_build
+            ON jenkins_artifacts(connection_key, job_full_name, build_number);
+        ",
+    )?;
+
+    set_version(conn, 20)?;
+    Ok(())
+}
+
+/// v22 -> v23: Jenkins 构建参数模板
+fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v22 -> v23（Jenkins 构建参数模板）");
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS jenkins_parameter_templates (
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_key                TEXT NOT NULL UNIQUE,
+            connection_key              TEXT NOT NULL,
+            job_full_name               TEXT NOT NULL,
+            name                        TEXT NOT NULL,
+            parameters_json             TEXT NOT NULL DEFAULT '{\"parameters\":[]}',
+            parameter_definition_hash   TEXT NOT NULL DEFAULT '',
+            created_by                  TEXT NOT NULL DEFAULT 'local-user',
+            created_at                  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at                  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(connection_key, job_full_name, name, created_by)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_parameter_templates_job
+            ON jenkins_parameter_templates(connection_key, job_full_name, created_by, updated_at DESC);
+        ",
+    )?;
+    set_version(conn, 23)?;
+    Ok(())
+}
+
+/// v23 -> v24: Jenkins Job 收藏标记
+fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v23 -> v24（Jenkins Job 收藏标记）");
+    add_column_if_missing(
+        conn,
+        "jenkins_recent_jobs",
+        "favorite",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    set_version(conn, 24)?;
+    Ok(())
+}
+
+/// v21 -> v22: Jenkins 构建失败 AI 分析记录
+fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v21 -> v22（Jenkins 构建失败 AI 分析记录）");
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS jenkins_build_analyses (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            analysis_key        TEXT NOT NULL UNIQUE,
+            run_key             TEXT NOT NULL DEFAULT '',
+            request_id          TEXT NOT NULL DEFAULT '',
+            connection_key      TEXT NOT NULL,
+            job_full_name       TEXT NOT NULL,
+            build_number        INTEGER NOT NULL,
+            provider_key        TEXT NOT NULL DEFAULT '',
+            provider_name       TEXT NOT NULL DEFAULT '',
+            model               TEXT NOT NULL DEFAULT '',
+            summary_markdown    TEXT NOT NULL,
+            snippet_sha256      TEXT NOT NULL DEFAULT '',
+            snippet_start_line  INTEGER NOT NULL DEFAULT 0,
+            snippet_end_line    INTEGER NOT NULL DEFAULT 0,
+            matched_lines       INTEGER NOT NULL DEFAULT 0,
+            created_by          TEXT NOT NULL DEFAULT 'local-user',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jenkins_build_analyses_build
+            ON jenkins_build_analyses(connection_key, job_full_name, build_number, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_jenkins_build_analyses_run
+            ON jenkins_build_analyses(run_key, created_at DESC);
+        ",
+    )?;
+    set_version(conn, 22)?;
+    Ok(())
+}
+
+/// v20 -> v21: Jenkins 成功构建通知开关
+fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v20 -> v21（Jenkins 成功构建通知开关）");
+    add_column_if_missing(
+        conn,
+        "jenkins_connections",
+        "notify_on_success",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    set_version(conn, 21)?;
     Ok(())
 }
 

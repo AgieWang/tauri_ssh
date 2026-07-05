@@ -697,6 +697,59 @@ a:hover {
   white-space: pre;
 }
 
+.jenkins-ai-markdown {
+  max-height: 340px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.jenkins-ai-markdown h3,
+.jenkins-ai-markdown h4 {
+  margin: 12px 0 8px;
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.jenkins-ai-markdown h3 {
+  font-size: 15px;
+}
+
+.jenkins-ai-markdown h4 {
+  font-size: 14px;
+}
+
+.jenkins-ai-markdown p {
+  margin: 0 0 10px;
+}
+
+.jenkins-ai-markdown ul,
+.jenkins-ai-markdown ol {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+}
+
+.jenkins-ai-markdown li {
+  margin: 4px 0;
+}
+
+.jenkins-ai-markdown code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: normal;
+  word-break: break-word;
+}
+
 .prototype-approval-command {
   display: flex;
   flex-direction: column;

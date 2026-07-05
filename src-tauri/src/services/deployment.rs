@@ -487,6 +487,14 @@ impl DeploymentService {
             return Err(AppError::InvalidInput("请选择部署目标或部署组".into()));
         };
 
+        Self::create_dry_run_for_target(db, &target, input.group_key.unwrap_or_default()).await
+    }
+
+    pub async fn create_dry_run_for_target(
+        db: &Database,
+        target: &DeploymentTarget,
+        group_key: String,
+    ) -> Result<DeploymentPlan, AppError> {
         let environment = Self::probe_environment(db, &target).await?;
         let stages = build_plan_stages(&target, &environment);
         let approval_required = stages.iter().any(|stage| stage.approval_required);
@@ -500,7 +508,7 @@ impl DeploymentService {
         let plan = DeploymentPlan {
             plan_id: format!("dryrun-{}", chrono::Local::now().format("%Y%m%d%H%M%S")),
             target_key: target.target_key.clone(),
-            group_key: input.group_key.unwrap_or_default(),
+            group_key,
             title: format!("{} dry-run", target.name),
             recipe: target.recipe.clone(),
             server_alias: target.server_alias.clone(),
@@ -2402,6 +2410,18 @@ fn build_plan_stages(
             "render image-store docker-compose.yml",
             "从镜像商店应用配置生成 docker-compose.yml，不需要上传本地项目。",
         ));
+    } else if is_jenkins_artifact_target(target) {
+        stages.push(stage(
+            "source",
+            "使用 Jenkins artifact",
+            "review",
+            false,
+            &format!(
+                "use managed Jenkins artifact {} -> {}",
+                target.project_path, target.deploy_root
+            ),
+            "引用应用托管目录中的 Jenkins artifact；真实部署仍会按审批链路上传或分发制品。",
+        ));
     } else if target.source_type == "git" {
         stages.push(stage(
             "source",
@@ -2508,14 +2528,16 @@ fn build_plan_stages(
             ));
         }
         "static-openresty" | "static-nginx" => {
-            stages.push(stage(
-                "build",
-                "构建前端产物",
-                "review",
-                false,
-                "pnpm install && pnpm run build",
-                "构建 dist/build 等静态产物，真实执行会记录产物摘要。",
-            ));
+            if !is_jenkins_artifact_target(target) {
+                stages.push(stage(
+                    "build",
+                    "构建前端产物",
+                    "review",
+                    false,
+                    "pnpm install && pnpm run build",
+                    "构建 dist/build 等静态产物，真实执行会记录产物摘要。",
+                ));
+            }
             stages.push(stage(
                 "configure_web",
                 "写入静态站配置",
@@ -2714,6 +2736,13 @@ fn custom_script_stages(config_json: &str) -> Vec<DeploymentPlanStage> {
             )]
         })
         .unwrap_or_default()
+}
+
+fn is_jenkins_artifact_target(target: &DeploymentTarget) -> bool {
+    serde_json::from_str::<Value>(&target.config_json)
+        .ok()
+        .and_then(|value| json_string(&value, "source"))
+        .is_some_and(|source| source == "jenkins-artifact")
 }
 
 fn custom_script_stage_from_value(index: usize, value: &Value) -> Option<DeploymentPlanStage> {
@@ -3947,6 +3976,32 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("未填写域名")),
             "启用 HTTPS 但未填写域名时应给出明确提示"
+        );
+    }
+
+    #[test]
+    fn jenkins_artifact_static_plan_uses_artifact_without_rebuild_stage() {
+        let mut target = test_target(
+            "static-openresty",
+            r#"{
+              "source": "jenkins-artifact",
+              "artifactKey": "artifact-1",
+              "localPath": "/tmp/release.zip"
+            }"#,
+        );
+        target.project_path = "/tmp/release.zip".into();
+
+        let stages = build_plan_stages(&target, &test_environment());
+
+        assert!(
+            stages
+                .iter()
+                .any(|stage| stage.key == "source" && stage.title == "使用 Jenkins artifact"),
+            "Jenkins artifact 来源应展示为受控 artifact，不应伪装成本地项目上传"
+        );
+        assert!(
+            stages.iter().all(|stage| stage.key != "build"),
+            "已下载 artifact 不应再生成前端构建阶段"
         );
     }
 

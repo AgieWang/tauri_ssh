@@ -277,9 +277,15 @@ impl GitWorkspaceService {
         let repo = Path::new(&workspace.repo_path);
         ensure_git_repo(repo)?;
         let porcelain = git_output(repo, &["status", "--porcelain"]).await?;
+        let head_commit = git_output(repo, &["rev-parse", "--short", "HEAD"])
+            .await
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         let (staged_files, unstaged_files, untracked_files) = parse_porcelain_files(&porcelain);
         Ok(GitWorkspaceStatusResult {
             workspace,
+            head_commit,
             porcelain,
             staged_files,
             unstaged_files,
@@ -1564,6 +1570,7 @@ mod tests {
         let status = GitWorkspaceService::status(&db, &workspace.workspace_key)
             .await
             .expect("status");
+        assert!(!status.head_commit.is_empty());
         assert!(status.unstaged_files.contains(&"README.md".into()));
 
         let diff = GitWorkspaceService::diff(
