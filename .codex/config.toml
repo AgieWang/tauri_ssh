@@ -5,3 +5,9 @@
 [features]
 # 启用 hooks 系统：加载 .codex/hooks.json 中的事件处理器
 hooks = true
+
+[agents]
+# 项目级子 agent 并发上限：日常保持 2-3 个并行，复杂任务最多 6 个。
+max_threads = 6
+# 只允许主会话直接派生一层子 agent，避免递归扇出导致成本和上下文失控。
+max_depth = 1
