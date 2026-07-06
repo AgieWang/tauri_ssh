@@ -17,7 +17,8 @@ use crate::models::{
     RunCodeReviewAiInput, SecureCredential,
 };
 use crate::services::{
-    ai_provider::AiProviderService, audit::AuditService, secure_credential::SecureCredentialService,
+    ai_provider::AiProviderService, audit::AuditService, git_workspace::GitWorkspaceService,
+    secure_credential::SecureCredentialService,
 };
 
 const MAX_DIFF_FILES: usize = 40;
@@ -222,9 +223,12 @@ impl CodeReviewService {
 
     pub async fn merge(db: &Database, task_key: &str) -> Result<CodeReviewTask, AppError> {
         let task = Self::get(db, task_key)?;
-        if task.status != "review_ready" && task.status != "merge_failed" {
+        if task.status != "diff_ready"
+            && task.status != "review_ready"
+            && task.status != "merge_failed"
+        {
             return Err(AppError::InvalidInput(
-                "请先完成 AI 审查后再确认合并".into(),
+                "请先生成代码差异后再确认合并".into(),
             ));
         }
         let workspace = load_workspace(db, &task.workspace_key)?;
@@ -347,11 +351,49 @@ impl CodeReviewService {
         .await;
         match result {
             Ok(_) => {
-                let task = db.update_code_review_push_status(&task.task_key, "pushed", "")?;
+                let mut task = db.update_code_review_push_status(&task.task_key, "pushed", "")?;
                 let stale_count = db.mark_older_duplicate_code_review_tasks_stale(
                     &task,
                     "已有更新的同分支审查任务完成远程推送，本任务已过期",
                 )?;
+                let switch_result = checkout_branch(repo, &task.source_branch).await;
+                let switched_back_to_source = switch_result.is_ok();
+                if let Err(error) = switch_result {
+                    let message = format!("远程已推送，但切回源分支失败：{}", error);
+                    task = db.update_code_review_push_status(&task.task_key, "pushed", &message)?;
+                    audit(
+                        db,
+                        "code_review_push_return_branch_failed",
+                        "medium",
+                        "警告",
+                        &format!(
+                            "代码审核任务已推送远程，但切回源分支失败: {}",
+                            task.task_key
+                        ),
+                        json!({
+                            "taskKey": task.task_key,
+                            "workspaceKey": task.workspace_key,
+                            "sourceBranch": task.source_branch,
+                            "targetBranch": task.target_branch,
+                            "error": message
+                        }),
+                    );
+                } else if let Err(error) =
+                    GitWorkspaceService::refresh(db, &workspace.workspace_key).await
+                {
+                    audit(
+                        db,
+                        "code_review_push_workspace_refresh_failed",
+                        "low",
+                        "警告",
+                        &format!("代码审核任务推送后刷新 Git 工作区失败: {}", task.task_key),
+                        json!({
+                            "taskKey": task.task_key,
+                            "workspaceKey": task.workspace_key,
+                            "error": error.to_string()
+                        }),
+                    );
+                }
                 audit(
                     db,
                     "code_review_push_success",
@@ -361,7 +403,10 @@ impl CodeReviewService {
                     json!({
                         "taskKey": task.task_key,
                         "workspaceKey": task.workspace_key,
-                        "staleDuplicateTasks": stale_count
+                        "staleDuplicateTasks": stale_count,
+                        "sourceBranch": task.source_branch,
+                        "targetBranch": task.target_branch,
+                        "switchedBackToSource": switched_back_to_source
                     }),
                 );
                 Ok(task)
@@ -385,18 +430,28 @@ impl CodeReviewService {
 
     pub async fn abort_merge(db: &Database, task_key: &str) -> Result<CodeReviewTask, AppError> {
         let task = Self::get(db, task_key)?;
-        if task.status != "conflict" && task.status != "merge_failed" {
+        if task.status == "merged" || task.push_status == "pushed" {
             return Err(AppError::InvalidInput(
-                "只有冲突或合并失败的任务才能中止合并".into(),
+                "本地已合并或已推送的任务不能中止合并".into(),
             ));
         }
         let workspace = load_workspace(db, &task.workspace_key)?;
         let repo = Path::new(&workspace.repo_path);
         ensure_git_repo(repo)?;
+        if !has_merge_in_progress(repo).await {
+            return Err(AppError::InvalidInput(
+                "当前 Git 工作区没有可中止的合并；请在 Git 工作区处理未提交改动后再继续".into(),
+            ));
+        }
         git_output(repo, &["merge", "--abort"], Duration::from_secs(30)).await?;
+        let restored_status = if task.ai_review_markdown.trim().is_empty() {
+            "diff_ready"
+        } else {
+            "review_ready"
+        };
         let task = db.update_code_review_task_status(
             &task.task_key,
-            "review_ready",
+            restored_status,
             "已中止本次合并",
             false,
         )?;
@@ -514,7 +569,12 @@ fn ensure_git_repo(repo: &Path) -> Result<(), AppError> {
 }
 
 async fn ensure_clean_worktree(repo: &Path) -> Result<(), AppError> {
-    let porcelain = git_output(repo, &["status", "--porcelain"], Duration::from_secs(5)).await?;
+    let porcelain = git_output(
+        repo,
+        &["-c", "core.quotepath=false", "status", "--porcelain"],
+        Duration::from_secs(5),
+    )
+    .await?;
     if !porcelain.trim().is_empty() {
         return Err(AppError::InvalidInput(format!(
             "当前工作区有未提交改动，请先处理后再生成审查或合并：{}",
@@ -522,6 +582,16 @@ async fn ensure_clean_worktree(repo: &Path) -> Result<(), AppError> {
         )));
     }
     Ok(())
+}
+
+async fn has_merge_in_progress(repo: &Path) -> bool {
+    git_output(
+        repo,
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+        Duration::from_secs(5),
+    )
+    .await
+    .is_ok()
 }
 
 async fn fetch_prune(db: &Database, workspace: &GitWorkspace, repo: &Path) -> Result<(), AppError> {

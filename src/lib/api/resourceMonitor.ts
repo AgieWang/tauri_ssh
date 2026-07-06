@@ -2,8 +2,12 @@ import { devApiFetch, hasTauriRuntime, invoke } from "./client";
 import type {
   CollectResourceBatchInput,
   CollectResourceBatchResult,
+  KillMysqlQueryInput,
+  KillMysqlQueryResult,
   ListResourceAlertEventsInput,
   ListResourceAlertRulesInput,
+  MysqlSlowQuery,
+  MysqlSlowQueryListInput,
   ResourceAlertEvent,
   ResourceAlertRule,
   ResourceMetricSnapshot,
@@ -69,6 +73,20 @@ export const resourceMonitorApi = {
     hasTauriRuntime()
       ? invoke<CollectResourceBatchResult>("collect_resource_snapshots_batch", { input })
       : devApiFetch<CollectResourceBatchResult>("/resource-monitor/collect-batch", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+  listMysqlSlowQueries: (input: MysqlSlowQueryListInput) =>
+    hasTauriRuntime()
+      ? invoke<MysqlSlowQuery[]>("list_mysql_slow_queries", { input })
+      : devApiFetch<MysqlSlowQuery[]>("/resource-monitor/mysql/slow-queries", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+  killMysqlQuery: (input: KillMysqlQueryInput) =>
+    hasTauriRuntime()
+      ? invoke<KillMysqlQueryResult>("kill_mysql_query", { input })
+      : devApiFetch<KillMysqlQueryResult>("/resource-monitor/mysql/kill-query", {
           method: "POST",
           body: JSON.stringify(input),
         }),

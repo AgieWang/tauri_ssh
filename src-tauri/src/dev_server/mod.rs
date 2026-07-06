@@ -25,20 +25,21 @@ use crate::models::{
     ExecuteJenkinsBuildStopApprovedInput, ForgetJenkinsRecentParameterValueInput,
     GenerateJenkinsFailureAnalysisInput, GetJenkinsBuildInput, GetJenkinsJobDetailInput,
     GitWorkspaceDiffInput, InspectJenkinsFileParameterInput, JenkinsBuildLogInput,
-    ListAiSkillsInput, ListApprovalRequestsInput, ListCodeReviewTasksInput,
+    KillMysqlQueryInput, ListAiSkillsInput, ListApprovalRequestsInput, ListCodeReviewTasksInput,
     ListDeploymentRunsInput, ListGitWorkspacesInput, ListJenkinsArtifactsInput,
     ListJenkinsBuildsInput, ListJenkinsConnectionsInput, ListJenkinsJobsInput,
     ListJenkinsParameterTemplatesInput, ListJenkinsParametersInput,
     ListJenkinsRecentParameterValuesInput, ListResourceAlertEventsInput,
     ListResourceAlertRulesInput, ListSecureCredentialAuditLogsInput,
     ListSecureCredentialSessionsInput, ListSecureCredentialsInput, MergeGitWorkspaceBranchInput,
-    ParseCodeReviewBatchInput, PollJenkinsQueueItemInput, RecordJenkinsLogCopyAuditInput,
-    ResourceSnapshotListInput, RotateSecureCredentialInput, RunAiRunbookInput,
-    RunCodeReviewAiInput, SecureCredentialGitReadInput, SecureCredentialGitWriteInput,
-    SecureCredentialHttpRequestInput, SecureCredentialHttpWriteInput,
-    SecureCredentialProviderTestInput, SecureCredentialRepositoryListInput,
-    SetJenkinsJobFavoriteInput, SetSecureCredentialEnabledInput, StageGitWorkspaceFilesInput,
-    StopJenkinsBuildInput, SwitchGitWorkspaceBranchInput, TriggerJenkinsBuildInput,
+    MysqlSlowQueryListInput, ParseCodeReviewBatchInput, PollJenkinsQueueItemInput,
+    RecordJenkinsLogCopyAuditInput, ResourceSnapshotListInput, RotateSecureCredentialInput,
+    RunAiRunbookInput, RunCodeReviewAiInput, SecureCredentialGitReadInput,
+    SecureCredentialGitWriteInput, SecureCredentialHttpRequestInput,
+    SecureCredentialHttpWriteInput, SecureCredentialProviderTestInput,
+    SecureCredentialRepositoryListInput, SetJenkinsJobFavoriteInput,
+    SetSecureCredentialEnabledInput, StageGitWorkspaceFilesInput, StopJenkinsBuildInput,
+    SwitchGitWorkspaceBranchInput, TriggerJenkinsBuildInput,
     UpdateSecureCredentialPolicySettingsInput, UpdateSystemSettingsInput, UpsertAiExperienceInput,
     UpsertAiProviderInput, UpsertAiProviderRouteInput, UpsertAiRunbookInput, UpsertAiSkillInput,
     UpsertDatabaseConnectionInput, UpsertJenkinsConnectionInput,
@@ -401,6 +402,14 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .route(
             "/dev-api/resource-monitor/collect-batch",
             post(collect_resource_snapshots_batch),
+        )
+        .route(
+            "/dev-api/resource-monitor/mysql/slow-queries",
+            post(list_mysql_slow_queries),
+        )
+        .route(
+            "/dev-api/resource-monitor/mysql/kill-query",
+            post(kill_mysql_query),
         )
         .route(
             "/dev-api/resource-monitor/alert-rules/list",
@@ -7938,6 +7947,26 @@ async fn collect_resource_snapshots_batch(
     let state = app_state(&ctx);
     Ok(Json(
         ResourceMonitorService::collect_batch(&state.db, input).await?,
+    ))
+}
+
+async fn list_mysql_slow_queries(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<MysqlSlowQueryListInput>,
+) -> DevApiResult<Vec<crate::models::MysqlSlowQuery>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::list_mysql_slow_queries(&state.db, input).await?,
+    ))
+}
+
+async fn kill_mysql_query(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<KillMysqlQueryInput>,
+) -> DevApiResult<crate::models::KillMysqlQueryResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        ResourceMonitorService::kill_mysql_query(&state.db, input).await?,
     ))
 }
 

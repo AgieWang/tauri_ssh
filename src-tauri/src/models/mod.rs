@@ -2212,6 +2212,42 @@ pub struct CollectResourceBatchResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MysqlSlowQueryListInput {
+    pub connection_key: String,
+    pub min_elapsed_secs: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MysqlSlowQuery {
+    pub process_id: i64,
+    pub user: String,
+    pub host: String,
+    pub database: Option<String>,
+    pub command: String,
+    pub elapsed_secs: i64,
+    pub state: Option<String>,
+    pub info: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KillMysqlQueryInput {
+    pub connection_key: String,
+    pub process_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KillMysqlQueryResult {
+    pub process_id: i64,
+    pub killed: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceMonitorOverview {
     pub total_targets: i64,
     pub enabled_targets: i64,

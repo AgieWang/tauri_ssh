@@ -108,6 +108,8 @@ const batchStatusText: Record<string, string> = {
   low_confidence: "置信度不足",
 };
 
+const mergeableTaskStatuses = ["diff_ready", "review_ready", "merge_failed"];
+
 export default function SecureCredentialCodeReviewPage() {
   const [workspaces, setWorkspaces] = useState<GitWorkspace[]>([]);
   const [branches, setBranches] = useState<GitWorkspaceBranch[]>([]);
@@ -292,15 +294,24 @@ export default function SecureCredentialCodeReviewPage() {
 
   async function createAndPrepare() {
     const values = await form.validateFields();
+    let created: CodeReviewTask | null = null;
     setLoading(true);
     try {
-      const created = await codeReviewApi.create(values);
+      created = await codeReviewApi.create(values);
       const prepared = await codeReviewApi.prepareDiff(created.taskKey);
       setActiveTask(prepared);
       setDetailOpen(true);
       await loadTasks();
       message.success("Diff 已生成");
     } catch (error) {
+      if (created) {
+        try {
+          await codeReviewApi.cancel(created.taskKey);
+          await loadTasks();
+        } catch {
+          // 创建成功但生成 Diff 失败时，尽力清理草稿任务，避免留下不可继续的审查记录。
+        }
+      }
       message.error(getErrorMessage(error));
     } finally {
       setLoading(false);
@@ -398,6 +409,14 @@ export default function SecureCredentialCodeReviewPage() {
           await loadTasks();
           message.success("本地合并完成");
         } catch (error) {
+          try {
+            const latest = await codeReviewApi.get(task.taskKey);
+            setActiveTask(latest);
+            setDetailOpen(true);
+            await loadTasks();
+          } catch {
+            await loadTasks();
+          }
           message.error(getErrorMessage(error));
         } finally {
           setLoading(false);
@@ -455,7 +474,7 @@ export default function SecureCredentialCodeReviewPage() {
     const selected = tasks.filter((task) => selectedTaskKeys.includes(task.taskKey));
     const supersededCount = selected.filter(isTaskSuperseded).length;
     const mergeable = selected.filter(
-      (task) => ["review_ready", "merge_failed"].includes(task.status) && !isTaskSuperseded(task),
+      (task) => mergeableTaskStatuses.includes(task.status) && !isTaskSuperseded(task),
     );
     const highRiskItems = mergeable.filter(isHighRiskTask);
     const candidates = mergeable.filter((task) => !isHighRiskTask(task));
@@ -702,7 +721,7 @@ export default function SecureCredentialCodeReviewPage() {
                 size="small"
                 disabled={
                   Boolean(superseded) ||
-                  !["review_ready", "merge_failed"].includes(row.status) ||
+                  !mergeableTaskStatuses.includes(row.status) ||
                   isHighRiskTask(row)
                 }
                 onClick={() => void mergeTask(row)}
@@ -710,6 +729,11 @@ export default function SecureCredentialCodeReviewPage() {
                 合并
               </Button>
             </Tooltip>
+            {["conflict", "merge_failed"].includes(row.status) ? (
+              <Button icon={<Undo2 size={14} />} size="small" onClick={() => void abortMerge(row)}>
+                中止
+              </Button>
+            ) : null}
             <Tooltip title={supersededTitle}>
               <Button
                 icon={<Upload size={14} />}
@@ -1129,7 +1153,7 @@ export default function SecureCredentialCodeReviewPage() {
                   <Tooltip title={supersededTitle}>
                     <Button
                       icon={<ShieldCheck size={14} />}
-                      disabled={Boolean(superseded) || !["review_ready", "merge_failed"].includes(activeTask.status)}
+                      disabled={Boolean(superseded) || !mergeableTaskStatuses.includes(activeTask.status)}
                       onClick={() => void mergeTask(activeTask)}
                     >
                       确认合并

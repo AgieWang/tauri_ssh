@@ -286,6 +286,8 @@ pub fn run() {
             commands::resource_monitor::collect_database_resource_snapshot,
             commands::resource_monitor::collect_redis_resource_snapshot,
             commands::resource_monitor::collect_resource_snapshots_batch,
+            commands::resource_monitor::list_mysql_slow_queries,
+            commands::resource_monitor::kill_mysql_query,
             commands::resource_monitor::list_resource_alert_rules,
             commands::resource_monitor::upsert_resource_alert_rule,
             commands::resource_monitor::delete_resource_alert_rule,

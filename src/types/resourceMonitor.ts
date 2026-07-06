@@ -54,6 +54,34 @@ export interface CollectResourceBatchResult {
   snapshots: ResourceMetricSnapshot[];
 }
 
+export interface MysqlSlowQueryListInput {
+  connectionKey: string;
+  minElapsedSecs?: number | null;
+  limit?: number | null;
+}
+
+export interface MysqlSlowQuery {
+  processId: number;
+  user: string;
+  host: string;
+  database?: string | null;
+  command: string;
+  elapsedSecs: number;
+  state?: string | null;
+  info?: string | null;
+}
+
+export interface KillMysqlQueryInput {
+  connectionKey: string;
+  processId: number;
+}
+
+export interface KillMysqlQueryResult {
+  processId: number;
+  killed: boolean;
+  message: string;
+}
+
 export interface ResourceMonitorOverview {
   totalTargets: number;
   enabledTargets: number;

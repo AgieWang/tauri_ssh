@@ -6,7 +6,8 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
     CollectResourceBatchInput, CollectResourceBatchResult, CreateAuditLogInput, DatabaseConnection,
-    ListResourceAlertEventsInput, ListResourceAlertRulesInput, ResourceAlertEvent,
+    KillMysqlQueryInput, KillMysqlQueryResult, ListResourceAlertEventsInput,
+    ListResourceAlertRulesInput, MysqlSlowQuery, MysqlSlowQueryListInput, ResourceAlertEvent,
     ResourceAlertRule, ResourceMetricSnapshot, ResourceMonitorOverview, ResourceMonitorTarget,
     ResourceSnapshotListInput, UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput,
 };
@@ -286,6 +287,84 @@ impl ResourceMonitorService {
         Ok(snapshot)
     }
 
+    pub async fn list_mysql_slow_queries(
+        db: &Database,
+        input: MysqlSlowQueryListInput,
+    ) -> Result<Vec<MysqlSlowQuery>, AppError> {
+        let (connection, password) =
+            Self::resolve_direct_mysql_connection(db, &input.connection_key)?;
+        let min_elapsed_secs = input.min_elapsed_secs.unwrap_or(5).clamp(0, 86_400);
+        let limit = input.limit.unwrap_or(100).clamp(1, 200);
+        let rows =
+            list_mysql_slow_queries(&connection, password.as_deref(), min_elapsed_secs, limit)
+                .await?;
+        let _ = AuditService::create(
+            db,
+            CreateAuditLogInput {
+                actor: "local-user".into(),
+                source: "resource_monitor".into(),
+                server_alias: String::new(),
+                action: "resource.mysql.slow_queries.list".into(),
+                risk: "readonly".into(),
+                result: "成功".into(),
+                summary: format!("查看 MySQL 慢查询：{}", input.connection_key),
+                detail_json: Some(
+                    json!({
+                        "connectionKey": input.connection_key,
+                        "minElapsedSecs": min_elapsed_secs,
+                        "count": rows.len()
+                    })
+                    .to_string(),
+                ),
+                request_id: None,
+                approval_id: None,
+            },
+        );
+        Ok(rows)
+    }
+
+    pub async fn kill_mysql_query(
+        db: &Database,
+        input: KillMysqlQueryInput,
+    ) -> Result<KillMysqlQueryResult, AppError> {
+        if input.process_id <= 0 {
+            return Err(AppError::InvalidInput("MySQL 线程 ID 无效".into()));
+        }
+        let (connection, password) =
+            Self::resolve_direct_mysql_connection(db, &input.connection_key)?;
+        kill_mysql_query(&connection, password.as_deref(), input.process_id).await?;
+        let result = KillMysqlQueryResult {
+            process_id: input.process_id,
+            killed: true,
+            message: format!("已发送 KILL QUERY {}", input.process_id),
+        };
+        let _ = AuditService::create(
+            db,
+            CreateAuditLogInput {
+                actor: "local-user".into(),
+                source: "resource_monitor".into(),
+                server_alias: String::new(),
+                action: "resource.mysql.query.kill".into(),
+                risk: "write".into(),
+                result: "成功".into(),
+                summary: format!(
+                    "终止 MySQL 查询：{} / {}",
+                    input.connection_key, input.process_id
+                ),
+                detail_json: Some(
+                    json!({
+                        "connectionKey": input.connection_key,
+                        "processId": input.process_id
+                    })
+                    .to_string(),
+                ),
+                request_id: None,
+                approval_id: None,
+            },
+        );
+        Ok(result)
+    }
+
     pub async fn collect_redis(
         db: &Database,
         connection_key: &str,
@@ -423,6 +502,35 @@ impl ResourceMonitorService {
             return Err(AppError::InvalidInput("资源 Key 不能为空".into()));
         }
         Ok(())
+    }
+
+    fn resolve_direct_mysql_connection(
+        db: &Database,
+        connection_key: &str,
+    ) -> Result<(DatabaseConnection, Option<String>), AppError> {
+        let connection_key = connection_key.trim();
+        if connection_key.is_empty() {
+            return Err(AppError::InvalidInput("MySQL 连接 Key 不能为空".into()));
+        }
+        let row = db
+            .get_database_connection_secret_row(connection_key)?
+            .ok_or_else(|| AppError::NotFound(format!("MySQL 连接 '{}' 不存在", connection_key)))?;
+        let connection = row.connection;
+        if connection.db_type != "mysql" {
+            return Err(AppError::InvalidInput("该资源不是 MySQL 连接".into()));
+        }
+        if connection.connection_mode != "direct" {
+            return Err(AppError::InvalidInput(
+                "SSH 隧道 MySQL 慢查询查看会在隧道连接模块接入后启用".into(),
+            ));
+        }
+        let password = DatabaseOpsService::resolve_connection_password(
+            db,
+            &connection,
+            row.password_nonce.as_deref(),
+            row.password_ciphertext.as_deref(),
+        )?;
+        Ok((connection, password))
     }
 
     fn save_failed_snapshot(
@@ -713,6 +821,9 @@ async fn collect_mysql_metrics(
     } else {
         None
     };
+    let slow_query_threshold_secs = mysql_slow_query_threshold_secs(&pool).await;
+    let current_slow_queries =
+        count_current_mysql_slow_queries(&pool, slow_query_threshold_secs).await;
     pool.close().await;
 
     let summary = json!({
@@ -723,7 +834,9 @@ async fn collect_mysql_metrics(
         "databaseSizeScope": size_scope,
         "tableCount": table_count,
         "cacheHitPercent": buffer_hit,
-        "slowQueries": status.get("Slow_queries").and_then(|value| value.as_f64()),
+        "slowQueries": current_slow_queries,
+        "cumulativeSlowQueries": status.get("Slow_queries").and_then(|value| value.as_f64()),
+        "slowQueryThresholdSecs": slow_query_threshold_secs,
         "statusText": "采集成功",
     });
     let metrics = json!({
@@ -734,6 +847,103 @@ async fn collect_mysql_metrics(
         "summary": summary,
     });
     Ok((summary, metrics))
+}
+
+async fn list_mysql_slow_queries(
+    connection: &DatabaseConnection,
+    password: Option<&str>,
+    min_elapsed_secs: i64,
+    limit: i64,
+) -> Result<Vec<MysqlSlowQuery>, AppError> {
+    use sqlx::{mysql::MySqlPoolOptions, Row};
+
+    let url = DatabaseOpsService::mysql_url(connection, password);
+    let pool = MySqlPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(&url)
+        .await
+        .map_err(|error| AppError::Custom(format!("MySQL 慢查询连接失败: {}", error)))?;
+
+    let rows = sqlx::query(
+        "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, INFO
+         FROM information_schema.PROCESSLIST
+         WHERE COMMAND IN ('Query','Execute')
+           AND TIME >= ?
+           AND ID <> CONNECTION_ID()
+           AND INFO IS NOT NULL
+         ORDER BY TIME DESC
+         LIMIT ?",
+    )
+    .bind(min_elapsed_secs)
+    .bind(limit)
+    .fetch_all(&pool)
+    .await
+    .map_err(|error| AppError::Custom(format!("读取 MySQL 慢查询失败: {}", error)))?;
+    pool.close().await;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| MysqlSlowQuery {
+            process_id: row.try_get::<i64, _>("ID").unwrap_or_default(),
+            user: row.try_get::<String, _>("USER").unwrap_or_default(),
+            host: row.try_get::<String, _>("HOST").unwrap_or_default(),
+            database: row.try_get::<Option<String>, _>("DB").unwrap_or(None),
+            command: row.try_get::<String, _>("COMMAND").unwrap_or_default(),
+            elapsed_secs: row.try_get::<i64, _>("TIME").unwrap_or_default(),
+            state: row.try_get::<Option<String>, _>("STATE").unwrap_or(None),
+            info: row.try_get::<Option<String>, _>("INFO").unwrap_or(None),
+        })
+        .collect())
+}
+
+async fn mysql_slow_query_threshold_secs(pool: &sqlx::MySqlPool) -> i64 {
+    let value = sqlx::query_scalar::<_, f64>("SELECT @@long_query_time")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(5.0);
+    value.ceil().max(0.0) as i64
+}
+
+async fn count_current_mysql_slow_queries(pool: &sqlx::MySqlPool, min_elapsed_secs: i64) -> f64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM information_schema.PROCESSLIST
+         WHERE COMMAND IN ('Query','Execute')
+           AND TIME >= ?
+           AND ID <> CONNECTION_ID()
+           AND INFO IS NOT NULL",
+    )
+    .bind(min_elapsed_secs)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0) as f64
+}
+
+async fn kill_mysql_query(
+    connection: &DatabaseConnection,
+    password: Option<&str>,
+    process_id: i64,
+) -> Result<(), AppError> {
+    use sqlx::mysql::MySqlPoolOptions;
+
+    let url = DatabaseOpsService::mysql_url(connection, password);
+    let pool = MySqlPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(&url)
+        .await
+        .map_err(|error| AppError::Custom(format!("MySQL 终止查询连接失败: {}", error)))?;
+
+    // MySQL 不支持把 KILL QUERY 的线程 ID 作为普通参数绑定，前面已校验为正整数。
+    sqlx::query(&format!("KILL QUERY {}", process_id))
+        .execute(&pool)
+        .await
+        .map_err(|error| AppError::Custom(format!("终止 MySQL 查询失败: {}", error)))?;
+    pool.close().await;
+    Ok(())
 }
 
 async fn collect_postgres_metrics(

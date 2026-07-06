@@ -17,6 +17,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -25,6 +26,7 @@ import { Activity, Database, HardDrive, MemoryStick, Network, RefreshCw, Server 
 import { getErrorMessage, resourceMonitorApi } from "@/lib/api";
 import type {
   CollectResourceBatchResult,
+  MysqlSlowQuery,
   ResourceAlertEvent,
   ResourceAlertRule,
   ResourceMetricSnapshot,
@@ -63,7 +65,7 @@ const metricOptions = [
   { label: "活动连接数", value: "activeConnections", targetTypes: ["mysql", "postgresql"] },
   { label: "缓存命中率", value: "cacheHitPercent", targetTypes: ["mysql", "postgresql"] },
   { label: "锁等待", value: "lockWaits", targetTypes: ["mysql", "postgresql"] },
-  { label: "慢查询", value: "slowQueries", targetTypes: ["mysql"] },
+  { label: "慢查询数量", value: "slowQueries", targetTypes: ["mysql"] },
   { label: "Redis 客户端连接", value: "connectedClients", targetTypes: ["redis"] },
   { label: "Redis Key 数", value: "keyCount", targetTypes: ["redis"] },
   { label: "Redis 命中率", value: "hitPercent", targetTypes: ["redis"] },
@@ -106,6 +108,25 @@ function formatRedisMaxMemory(value: number | null) {
 
 function formatCount(value: number | null, suffix = "") {
   return value === null ? "-" : `${value.toFixed(0)}${suffix}`;
+}
+
+function formatDurationSeconds(value: number) {
+  if (value >= 86400) return `${(value / 86400).toFixed(1)} 天`;
+  if (value >= 3600) return `${(value / 3600).toFixed(1)} 小时`;
+  if (value >= 60) return `${(value / 60).toFixed(1)} 分钟`;
+  return `${value} 秒`;
+}
+
+function renderSlowQueryCell(value: string | number | null | undefined, fallback = "-") {
+  const text = value === null || value === undefined || value === "" ? fallback : String(value);
+  if (text === fallback) return <Text type="secondary">{fallback}</Text>;
+  return (
+    <Tooltip title={text}>
+      <Text style={{ display: "inline-block", maxWidth: "100%" }} ellipsis>
+        {text}
+      </Text>
+    </Tooltip>
+  );
 }
 
 function MetricProgress({ value }: { value: number | null }) {
@@ -181,7 +202,11 @@ function renderDetailMetricCards(targetType: string, snapshot: ResourceMetricSna
   );
 }
 
-function renderDetailStatusCard(targetType: string, snapshot: ResourceMetricSnapshot | null | undefined) {
+function renderDetailStatusCard(
+  targetType: string,
+  snapshot: ResourceMetricSnapshot | null | undefined,
+  mysqlSlowQueryCount?: number,
+) {
   if (targetType === "server") {
     return (
       <Card title="吞吐">
@@ -217,7 +242,15 @@ function renderDetailStatusCard(targetType: string, snapshot: ResourceMetricSnap
       <Space size={32} wrap>
         <Text>最大连接：{formatCount(summaryNumber(snapshot, "maxConnections"))}</Text>
         <Text>表数量：{formatCount(summaryNumber(snapshot, "tableCount"))}</Text>
-        <Text>慢查询：{formatCount(summaryNumber(snapshot, "slowQueries"))}</Text>
+        {targetType === "mysql" ? (
+          <Tooltip
+            title={`累计慢查询：${formatCount(summaryNumber(snapshot, "cumulativeSlowQueries"))}；阈值：${formatCount(summaryNumber(snapshot, "slowQueryThresholdSecs"), " 秒")}`}
+          >
+            <Text>慢查询数量：{formatCount(typeof mysqlSlowQueryCount === "number" ? mysqlSlowQueryCount : null)}</Text>
+          </Tooltip>
+        ) : (
+          <Text>慢查询：{formatCount(summaryNumber(snapshot, "slowQueries"))}</Text>
+        )}
         <Text>锁等待：{formatCount(summaryNumber(snapshot, "lockWaits"))}</Text>
       </Space>
     </Card>
@@ -366,8 +399,11 @@ export default function ResourceMonitorPage() {
   const [alertRules, setAlertRules] = useState<ResourceAlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<ResourceAlertEvent[]>([]);
   const [detailAlerts, setDetailAlerts] = useState<ResourceAlertEvent[]>([]);
+  const [mysqlSlowQueries, setMysqlSlowQueries] = useState<MysqlSlowQuery[]>([]);
   const [loading, setLoading] = useState(false);
   const [collectingKey, setCollectingKey] = useState<string | null>(null);
+  const [slowQueryLoading, setSlowQueryLoading] = useState(false);
+  const [killingProcessId, setKillingProcessId] = useState<number | null>(null);
   const [batchResult, setBatchResult] = useState<CollectResourceBatchResult | null>(null);
   const [selected, setSelected] = useState<ResourceMonitorTarget | null>(null);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
@@ -375,6 +411,7 @@ export default function ResourceMonitorPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [groupFilter, setGroupFilter] = useState<string>("all");
+  const [slowQueryMinSecs, setSlowQueryMinSecs] = useState(5);
   const [keyword, setKeyword] = useState("");
 
   const loadData = useCallback(async () => {
@@ -437,6 +474,11 @@ export default function ResourceMonitorPage() {
 
   const openDetail = async (target: ResourceMonitorTarget) => {
     setSelected(target);
+    setMysqlSlowQueries([]);
+    const threshold = summaryNumber(target.latestSnapshot, "slowQueryThresholdSecs");
+    if (target.targetType === "mysql" && threshold !== null) {
+      setSlowQueryMinSecs(threshold);
+    }
     try {
       const [rows, events] = await Promise.all([
         resourceMonitorApi.listSnapshots({
@@ -452,9 +494,55 @@ export default function ResourceMonitorPage() {
       ]);
       setHistory(rows);
       setDetailAlerts(events);
+      if (target.targetType === "mysql") {
+        await loadMysqlSlowQueries(target.targetKey, threshold ?? slowQueryMinSecs);
+      }
     } catch (error) {
       message.error(getErrorMessage(error));
     }
+  };
+
+  const loadMysqlSlowQueries = async (connectionKey = selected?.targetKey, minElapsedSecs = slowQueryMinSecs) => {
+    if (!connectionKey) return;
+    setSlowQueryLoading(true);
+    try {
+      const rows = await resourceMonitorApi.listMysqlSlowQueries({
+        connectionKey,
+        minElapsedSecs,
+        limit: 100,
+      });
+      setMysqlSlowQueries(rows);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setSlowQueryLoading(false);
+    }
+  };
+
+  const killMysqlQuery = async (row: MysqlSlowQuery) => {
+    if (!selected) return;
+    Modal.confirm({
+      title: "确认终止该 MySQL 查询？",
+      content: `线程 ID：${row.processId}，已执行 ${row.elapsedSecs} 秒。该操作只终止当前语句，不断开连接。`,
+      okText: "终止查询",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        setKillingProcessId(row.processId);
+        try {
+          const result = await resourceMonitorApi.killMysqlQuery({
+            connectionKey: selected.targetKey,
+            processId: row.processId,
+          });
+          message.success(result.message);
+          await loadMysqlSlowQueries(selected.targetKey);
+        } catch (error) {
+          message.error(getErrorMessage(error));
+        } finally {
+          setKillingProcessId(null);
+        }
+      },
+    });
   };
 
   const openRuleModal = (rule?: ResourceAlertRule) => {
@@ -632,7 +720,7 @@ export default function ResourceMonitorPage() {
             const locks = summaryNumber(row.latestSnapshot, "lockWaits");
             return (
               <Space direction="vertical" size={0}>
-                <Text className="text-xs">慢查询 {slow === null ? "-" : slow.toFixed(0)}</Text>
+                <Text className="text-xs">慢查询数量 {slow === null ? "-" : slow.toFixed(0)}</Text>
                 <Text className="text-xs">锁等待 {locks === null ? "-" : locks.toFixed(0)}</Text>
               </Space>
             );
@@ -1067,8 +1155,11 @@ export default function ResourceMonitorPage() {
       <Drawer
         title={selected ? `${selected.displayName} 资源详情` : "资源详情"}
         open={!!selected}
-        onClose={() => setSelected(null)}
-        width={760}
+        onClose={() => {
+          setSelected(null);
+          setMysqlSlowQueries([]);
+        }}
+        width={920}
       >
         {selected ? (
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -1089,7 +1180,124 @@ export default function ResourceMonitorPage() {
 
             {renderDetailMetricCards(selected.targetType, selectedSnapshot)}
 
-            {renderDetailStatusCard(selected.targetType, selectedSnapshot)}
+            {renderDetailStatusCard(selected.targetType, selectedSnapshot, mysqlSlowQueries.length)}
+
+            {selected.targetType === "mysql" ? (
+              <Card
+                title="MySQL 慢查询"
+                extra={
+                  <Space wrap>
+                    <Text type="secondary">最小耗时</Text>
+                    <InputNumber
+                      min={0}
+                      max={86400}
+                      addonAfter="秒"
+                      value={slowQueryMinSecs}
+                      onChange={(value) => setSlowQueryMinSecs(typeof value === "number" ? value : 5)}
+                      style={{ width: 130 }}
+                    />
+                    <Button
+                      size="small"
+                      icon={<RefreshCw size={14} />}
+                      loading={slowQueryLoading}
+                      onClick={() => loadMysqlSlowQueries(selected.targetKey)}
+                    >
+                      刷新
+                    </Button>
+                  </Space>
+                }
+              >
+                <Table
+                  rowKey="processId"
+                  size="small"
+                  loading={slowQueryLoading}
+                  dataSource={mysqlSlowQueries}
+                  tableLayout="fixed"
+                  scroll={{ x: 1180 }}
+                  pagination={{ pageSize: 8, showSizeChanger: false }}
+                  columns={[
+                    {
+                      title: "线程 ID",
+                      dataIndex: "processId",
+                      width: 86,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "用户",
+                      dataIndex: "user",
+                      width: 140,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "来源",
+                      dataIndex: "host",
+                      width: 170,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "库",
+                      dataIndex: "database",
+                      width: 130,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "命令",
+                      dataIndex: "command",
+                      width: 100,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "耗时",
+                      dataIndex: "elapsedSecs",
+                      width: 110,
+                      render: (value) => (
+                        <Tooltip title={`${value} 秒`}>
+                          <Text>{formatDurationSeconds(Number(value))}</Text>
+                        </Tooltip>
+                      ),
+                    },
+                    {
+                      title: "状态",
+                      dataIndex: "state",
+                      width: 220,
+                      render: (value) => renderSlowQueryCell(value),
+                    },
+                    {
+                      title: "SQL",
+                      dataIndex: "info",
+                      width: 320,
+                      render: (value) =>
+                        value ? (
+                          <Paragraph
+                            copyable={{ text: String(value) }}
+                            ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
+                            style={{ margin: 0, wordBreak: "break-all" }}
+                          >
+                            {String(value)}
+                          </Paragraph>
+                        ) : (
+                          <Text type="secondary">-</Text>
+                        ),
+                    },
+                    {
+                      title: "操作",
+                      width: 90,
+                      fixed: "right",
+                      render: (_, row) => (
+                        <Button
+                          size="small"
+                          danger
+                          loading={killingProcessId === row.processId}
+                          onClick={() => killMysqlQuery(row)}
+                        >
+                          Kill
+                        </Button>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            ) : null}
 
             <Card title="指标趋势">
               <div

@@ -1,9 +1,10 @@
 use crate::error::CommandError;
 use crate::models::{
-    CollectResourceBatchInput, CollectResourceBatchResult, ListResourceAlertEventsInput,
-    ListResourceAlertRulesInput, ResourceAlertEvent, ResourceAlertRule, ResourceMetricSnapshot,
-    ResourceMonitorOverview, ResourceMonitorTarget, ResourceSnapshotListInput,
-    UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput,
+    CollectResourceBatchInput, CollectResourceBatchResult, KillMysqlQueryInput,
+    KillMysqlQueryResult, ListResourceAlertEventsInput, ListResourceAlertRulesInput,
+    MysqlSlowQuery, MysqlSlowQueryListInput, ResourceAlertEvent, ResourceAlertRule,
+    ResourceMetricSnapshot, ResourceMonitorOverview, ResourceMonitorTarget,
+    ResourceSnapshotListInput, UpsertResourceAlertRuleInput, UpsertResourceMonitorTargetInput,
 };
 use crate::services::resource_monitor::ResourceMonitorService;
 use crate::state::AppState;
@@ -84,6 +85,26 @@ pub async fn collect_resource_snapshots_batch(
     input: CollectResourceBatchInput,
 ) -> Result<CollectResourceBatchResult, CommandError> {
     ResourceMonitorService::collect_batch(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn list_mysql_slow_queries(
+    state: tauri::State<'_, AppState>,
+    input: MysqlSlowQueryListInput,
+) -> Result<Vec<MysqlSlowQuery>, CommandError> {
+    ResourceMonitorService::list_mysql_slow_queries(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn kill_mysql_query(
+    state: tauri::State<'_, AppState>,
+    input: KillMysqlQueryInput,
+) -> Result<KillMysqlQueryResult, CommandError> {
+    ResourceMonitorService::kill_mysql_query(&state.db, input)
         .await
         .map_err(|e| e.into())
 }

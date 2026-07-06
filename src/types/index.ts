@@ -239,8 +239,12 @@ export type {
 export type {
   CollectResourceBatchInput,
   CollectResourceBatchResult,
+  KillMysqlQueryInput,
+  KillMysqlQueryResult,
   ListResourceAlertEventsInput,
   ListResourceAlertRulesInput,
+  MysqlSlowQuery,
+  MysqlSlowQueryListInput,
   ResourceAlertEvent,
   ResourceAlertOperator,
   ResourceAlertRule,
