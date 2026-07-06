@@ -181,6 +181,7 @@ pub fn run() {
             commands::git_workspace::scan_git_workspace_root,
             commands::git_workspace::start_git_workspace_root_scan,
             commands::git_workspace::get_git_workspace_scan_status,
+            commands::git_workspace::start_git_provider_repositories_clone,
             commands::git_workspace::ai_commit_git_workspace,
             commands::git_workspace::get_git_workspace_status,
             commands::git_workspace::get_git_workspace_diff,

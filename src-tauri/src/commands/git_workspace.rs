@@ -1,8 +1,8 @@
 use crate::error::CommandError;
 use crate::models::{
-    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, CommitGitWorkspaceInput,
-    CommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch, GitWorkspaceDetail,
-    GitWorkspaceDiffInput, GitWorkspaceDiffResult, GitWorkspaceScanJobStatus,
+    AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, CloneGitProviderRepositoriesInput,
+    CommitGitWorkspaceInput, CommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch,
+    GitWorkspaceDetail, GitWorkspaceDiffInput, GitWorkspaceDiffResult, GitWorkspaceScanJobStatus,
     GitWorkspaceScanStartResult, GitWorkspaceStatusResult, ListGitWorkspacesInput,
     MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
     StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput, UpsertGitWorkspaceInput,
@@ -79,6 +79,14 @@ pub fn get_git_workspace_scan_status(
     job_id: String,
 ) -> Result<GitWorkspaceScanJobStatus, CommandError> {
     GitWorkspaceService::get_scan_status(&job_id).map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub fn start_git_provider_repositories_clone(
+    app: tauri::AppHandle,
+    input: CloneGitProviderRepositoriesInput,
+) -> Result<GitWorkspaceScanStartResult, CommandError> {
+    GitWorkspaceService::start_clone_provider_repositories(app, input).map_err(|e| e.into())
 }
 
 #[tauri::command]

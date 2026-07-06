@@ -1,19 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
+use tokio::task::JoinSet;
 use tokio::time::timeout;
 
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
     AiCommitGitWorkspaceInput, AiCommitGitWorkspaceResult, AiProviderAskInput,
-    CommitGitWorkspaceInput, CommitGitWorkspaceResult, GitWorkspace, GitWorkspaceBranch,
-    GitWorkspaceDetail, GitWorkspaceDiffInput, GitWorkspaceDiffResult, GitWorkspaceScanJobStatus,
-    GitWorkspaceScanStartResult, GitWorkspaceStatusResult, ListGitWorkspacesInput,
-    MergeGitWorkspaceBranchInput, ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult,
-    SecureCredential, StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput,
+    CloneGitProviderRepositoriesInput, CommitGitWorkspaceInput, CommitGitWorkspaceResult,
+    GitWorkspace, GitWorkspaceBranch, GitWorkspaceDetail, GitWorkspaceDiffInput,
+    GitWorkspaceDiffResult, GitWorkspaceScanJobStatus, GitWorkspaceScanStartResult,
+    GitWorkspaceStatusResult, ListGitWorkspacesInput, MergeGitWorkspaceBranchInput,
+    ScanGitWorkspaceRootInput, ScanGitWorkspaceRootResult, SecureCredential,
+    SecureCredentialRepository, StageGitWorkspaceFilesInput, SwitchGitWorkspaceBranchInput,
     UpsertGitWorkspaceInput,
 };
 use crate::services::ai_provider::AiProviderService;
@@ -27,6 +30,8 @@ pub struct GitWorkspaceService;
 const MAX_SCAN_ENTRIES: usize = 1000;
 const MAX_SCAN_REPOS: usize = 200;
 const MAX_SCAN_DURATION: Duration = Duration::from_secs(3);
+const CLONE_PROVIDER_CONCURRENCY: usize = 4;
+const CLONE_PROVIDER_TIMEOUT: Duration = Duration::from_secs(900);
 const SKIP_DIRS: &[&str] = &[
     ".cache",
     ".git",
@@ -42,6 +47,7 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 static SCAN_JOBS: OnceLock<Mutex<HashMap<String, GitWorkspaceScanJobStatus>>> = OnceLock::new();
+static ASKPASS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
 struct GitSnapshot {
@@ -51,6 +57,23 @@ struct GitSnapshot {
     changed_files: i64,
     ahead: i64,
     behind: i64,
+}
+
+#[derive(Clone)]
+struct RemoteRepositoryCloneTask {
+    root: PathBuf,
+    credential: SecureCredential,
+    repo: SecureCredentialRepository,
+    local_path: PathBuf,
+    remote_url: String,
+    username: String,
+    secret: String,
+}
+
+struct RemoteRepositoryCloneFailure {
+    provider: String,
+    full_name: String,
+    error: AppError,
 }
 
 impl GitWorkspaceService {
@@ -163,6 +186,9 @@ impl GitWorkspaceService {
             job_id: job_id.clone(),
             status: "running".into(),
             message: "扫描任务已启动，正在检查一级目录中的 Git 仓库。".into(),
+            progress_current: None,
+            progress_total: None,
+            progress_percent: None,
             started_at,
             finished_at: None,
             result: None,
@@ -178,6 +204,9 @@ impl GitWorkspaceService {
                     job_id: task_job_id,
                     status: "completed".into(),
                     message: scan_result.message.clone(),
+                    progress_current: Some(scan_result.scanned_entries),
+                    progress_total: Some(scan_result.scanned_entries),
+                    progress_percent: Some(100),
                     started_at: task_started_at,
                     finished_at: Some(now_text()),
                     result: Some(scan_result),
@@ -187,6 +216,9 @@ impl GitWorkspaceService {
                     job_id: task_job_id,
                     status: "failed".into(),
                     message: "扫描任务执行失败".into(),
+                    progress_current: None,
+                    progress_total: None,
+                    progress_percent: None,
                     started_at: task_started_at,
                     finished_at: Some(now_text()),
                     result: None,
@@ -199,6 +231,67 @@ impl GitWorkspaceService {
             job_id,
             status: "running".into(),
             message: "扫描任务已在后台启动".into(),
+        })
+    }
+
+    pub fn start_clone_provider_repositories(
+        app: tauri::AppHandle,
+        input: CloneGitProviderRepositoriesInput,
+    ) -> Result<GitWorkspaceScanStartResult, AppError> {
+        validate_clone_provider_input(&input)?;
+        let job_id = create_scan_job_id();
+        let started_at = now_text();
+        let task_started_at = started_at.clone();
+        let status = GitWorkspaceScanJobStatus {
+            job_id: job_id.clone(),
+            status: "running".into(),
+            message: "远端仓库扫描克隆任务已启动。".into(),
+            progress_current: Some(0),
+            progress_total: None,
+            progress_percent: Some(0),
+            started_at,
+            finished_at: None,
+            result: None,
+            error: None,
+        };
+        set_scan_job(status);
+
+        let task_job_id = job_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let result =
+                run_clone_provider_repositories_job(app, input, Some(task_job_id.clone())).await;
+            match result {
+                Ok(scan_result) => set_scan_job(GitWorkspaceScanJobStatus {
+                    job_id: task_job_id,
+                    status: "completed".into(),
+                    message: scan_result.message.clone(),
+                    progress_current: Some(scan_result.scanned_entries),
+                    progress_total: Some(scan_result.discovered),
+                    progress_percent: Some(100),
+                    started_at: task_started_at,
+                    finished_at: Some(now_text()),
+                    result: Some(scan_result),
+                    error: None,
+                }),
+                Err(error) => set_scan_job(GitWorkspaceScanJobStatus {
+                    job_id: task_job_id,
+                    status: "failed".into(),
+                    message: "远端仓库扫描克隆任务失败".into(),
+                    progress_current: None,
+                    progress_total: None,
+                    progress_percent: None,
+                    started_at: task_started_at,
+                    finished_at: Some(now_text()),
+                    result: None,
+                    error: Some(error.to_string()),
+                }),
+            }
+        });
+
+        Ok(GitWorkspaceScanStartResult {
+            job_id,
+            status: "running".into(),
+            message: "远端仓库扫描克隆任务已在后台启动".into(),
         })
     }
 
@@ -737,6 +830,15 @@ async fn run_scan_root_job(
     scan_root_inner(&state.db, input, job_id).await
 }
 
+async fn run_clone_provider_repositories_job(
+    app: tauri::AppHandle,
+    input: CloneGitProviderRepositoriesInput,
+    job_id: Option<String>,
+) -> Result<ScanGitWorkspaceRootResult, AppError> {
+    let state = app.state::<AppState>();
+    clone_provider_repositories_inner(&state.db, input, job_id).await
+}
+
 fn scan_jobs() -> &'static Mutex<HashMap<String, GitWorkspaceScanJobStatus>> {
     SCAN_JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -755,6 +857,25 @@ fn update_scan_job_message(job_id: &str, message: String) {
         Ok(mut jobs) => {
             if let Some(status) = jobs.get_mut(job_id) {
                 status.message = message;
+            }
+        }
+        Err(error) => log::error!("更新 Git 工作区扫描任务进度失败: {}", error),
+    }
+}
+
+fn update_scan_job_progress(job_id: &str, message: String, current: i64, total: i64) {
+    let percent = if total > 0 {
+        ((current * 100) / total).clamp(0, 99)
+    } else {
+        0
+    };
+    match scan_jobs().lock() {
+        Ok(mut jobs) => {
+            if let Some(status) = jobs.get_mut(job_id) {
+                status.message = message;
+                status.progress_current = Some(current);
+                status.progress_total = Some(total);
+                status.progress_percent = Some(percent);
             }
         }
         Err(error) => log::error!("更新 Git 工作区扫描任务进度失败: {}", error),
@@ -849,6 +970,346 @@ async fn scan_root_inner(
         limited,
         message,
     })
+}
+
+async fn clone_provider_repositories_inner(
+    db: &Database,
+    input: CloneGitProviderRepositoriesInput,
+    job_id: Option<String>,
+) -> Result<ScanGitWorkspaceRootResult, AppError> {
+    validate_clone_provider_input(&input)?;
+    let root = PathBuf::from(input.root_path.trim());
+    fs::create_dir_all(&root)?;
+    if !root.is_dir() {
+        return Err(AppError::InvalidInput("克隆根目录不存在或不是目录".into()));
+    }
+
+    let requested_keys = input
+        .credential_keys
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect::<Vec<_>>();
+    let credential_keys = requested_keys;
+    if credential_keys.is_empty() {
+        return Err(AppError::InvalidInput(
+            "请选择至少一个 Git 凭据，仅会同步已选择凭据可访问的仓库".into(),
+        ));
+    }
+
+    let max_pages = input.max_pages.unwrap_or(5).clamp(1, 50);
+    let per_page = input.per_page.unwrap_or(100).clamp(1, 100);
+    let mut saved = Vec::new();
+    let mut discovered = 0_i64;
+    let mut processed = 0_i64;
+    let mut skipped_entries = 0_i64;
+    let mut failed = 0_i64;
+    let mut failed_credentials = 0_i64;
+
+    for credential_key in credential_keys {
+        for page in 1..=max_pages {
+            if let Some(job_id) = &job_id {
+                update_scan_job_message(
+                    job_id,
+                    format!("正在读取 {} 的仓库列表：第 {} 页", credential_key, page),
+                );
+            }
+            let (credential, repositories) =
+                match SecureCredentialService::list_repositories_for_credential(
+                    db,
+                    &credential_key,
+                    page,
+                    per_page,
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        failed += 1;
+                        failed_credentials += 1;
+                        log::warn!("读取远端仓库列表失败 {}: {}", credential_key, error);
+                        if let Some(job_id) = &job_id {
+                            update_scan_job_message(
+                                job_id,
+                                format!(
+                                    "读取 {} 的仓库列表失败，已跳过该凭据：{}",
+                                    credential_key, error
+                                ),
+                            );
+                        }
+                        break;
+                    }
+                };
+            if repositories.is_empty() {
+                break;
+            }
+            let page_repo_count = repositories.len();
+            discovered += page_repo_count as i64;
+            let secret = SecureCredentialService::get_secret(db, &credential.credential_key)?;
+            let username = git_username_for_credential(&credential);
+            let mut clone_tasks = Vec::new();
+            for repo in repositories {
+                let local_path = provider_repo_local_path(&root, &repo);
+                if local_path.exists() {
+                    skipped_entries += 1;
+                    processed += 1;
+                    if let Some(job_id) = &job_id {
+                        update_scan_job_progress(
+                            job_id,
+                            format!(
+                                "目标目录已存在，已跳过：{} ({}/{})",
+                                repo.full_name, processed, discovered
+                            ),
+                            processed,
+                            discovered,
+                        );
+                    }
+                    continue;
+                }
+                let remote_url = match repo_clone_url(&repo) {
+                    Ok(remote_url) => remote_url,
+                    Err(error) => {
+                        failed += 1;
+                        processed += 1;
+                        log::warn!(
+                            "远端仓库 clone 地址无效 {} / {}: {}",
+                            credential.provider,
+                            repo.full_name,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                clone_tasks.push(RemoteRepositoryCloneTask {
+                    root: root.clone(),
+                    credential: credential.clone(),
+                    repo,
+                    local_path,
+                    remote_url,
+                    username: username.clone(),
+                    secret: secret.clone(),
+                });
+            }
+            let mut running = JoinSet::new();
+            let mut task_index = 0usize;
+            while task_index < clone_tasks.len() || !running.is_empty() {
+                while task_index < clone_tasks.len() && running.len() < CLONE_PROVIDER_CONCURRENCY {
+                    let task = clone_tasks[task_index].clone();
+                    task_index += 1;
+                    running.spawn(async move {
+                        let result = clone_repository_with_credential(
+                            &task.root,
+                            &task.remote_url,
+                            &task.local_path,
+                            &task.username,
+                            &task.secret,
+                        )
+                        .await;
+                        match result {
+                            Ok(()) => Ok(task),
+                            Err(error) => Err(RemoteRepositoryCloneFailure {
+                                provider: task.credential.provider.clone(),
+                                full_name: task.repo.full_name.clone(),
+                                error,
+                            }),
+                        }
+                    });
+                }
+                let Some(joined) = running.join_next().await else {
+                    continue;
+                };
+                processed += 1;
+                match joined {
+                    Ok(Ok(task)) => {
+                        if let Some(job_id) = &job_id {
+                            update_scan_job_progress(
+                                job_id,
+                                format!(
+                                    "正在登记工作区：{} ({}/{})",
+                                    task.repo.full_name, processed, discovered
+                                ),
+                                processed,
+                                discovered,
+                            );
+                        }
+                        match register_cloned_repository(
+                            db,
+                            &task.local_path,
+                            &task.credential,
+                            &task.repo,
+                        )
+                        .await
+                        {
+                            Ok(workspace) => saved.push(workspace),
+                            Err(error) => {
+                                failed += 1;
+                                log::warn!(
+                                    "登记远端仓库工作区失败 {} / {}: {}",
+                                    task.credential.provider,
+                                    task.repo.full_name,
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        failed += 1;
+                        log::warn!(
+                            "克隆远端仓库失败 {} / {}: {}",
+                            error.provider,
+                            error.full_name,
+                            error.error
+                        );
+                    }
+                    Err(error) => {
+                        failed += 1;
+                        log::warn!("远端仓库克隆任务异常: {}", error);
+                    }
+                }
+                if let Some(job_id) = &job_id {
+                    update_scan_job_progress(
+                        job_id,
+                        format!(
+                            "远端仓库同步进度：{}/{}，已添加/更新 {} 个，跳过 {} 个，失败 {} 个",
+                            processed,
+                            discovered,
+                            saved.len(),
+                            skipped_entries,
+                            failed
+                        ),
+                        processed,
+                        discovered,
+                    );
+                }
+            }
+            if page_repo_count < per_page as usize {
+                break;
+            }
+        }
+    }
+
+    let saved_len = saved.len();
+    Ok(ScanGitWorkspaceRootResult {
+        workspaces: saved,
+        discovered,
+        scanned_entries: discovered,
+        skipped_entries,
+        limited: false,
+        message: format!(
+            "远端仓库扫描克隆完成：发现 {} 个仓库，已添加/更新 {} 个工作区，跳过 {} 个，失败 {} 个（凭据失败 {} 个）。",
+            discovered, saved_len, skipped_entries, failed, failed_credentials
+        ),
+    })
+}
+
+async fn register_cloned_repository(
+    db: &Database,
+    local_path: &Path,
+    credential: &SecureCredential,
+    repo: &SecureCredentialRepository,
+) -> Result<GitWorkspace, AppError> {
+    let snapshot = inspect_git_repo_light(&local_path).await;
+    let input = UpsertGitWorkspaceInput {
+        id: None,
+        workspace_key: normalize_workspace_key(&format!(
+            "{}-{}",
+            credential.provider, repo.full_name
+        )),
+        name: repo.name.clone(),
+        repo_path: local_path.to_string_lossy().to_string(),
+        credential_key: Some(credential.credential_key.clone()),
+        description: Some("远端仓库扫描克隆自动添加".into()),
+    };
+    upsert_discovered_workspace(db, input, &snapshot)
+}
+
+async fn clone_repository_with_credential(
+    root: &Path,
+    remote_url: &str,
+    local_path: &Path,
+    username: &str,
+    secret: &str,
+) -> Result<(), AppError> {
+    let askpass = write_git_workspace_askpass_script()?;
+    let envs = vec![
+        ("GIT_ASKPASS", askpass.to_string_lossy().to_string()),
+        ("GIT_WORKSPACE_USERNAME", username.to_string()),
+        ("GIT_WORKSPACE_TOKEN", secret.to_string()),
+    ];
+    let local_path_text = local_path.to_string_lossy().to_string();
+    let args = ["clone", remote_url, local_path_text.as_str()];
+    let result = run_git_output_with_env(
+        root,
+        &args,
+        CLONE_PROVIDER_TIMEOUT,
+        &envs,
+        &[secret.to_string()],
+    )
+    .await
+    .map(|_| ());
+    let _ = fs::remove_file(&askpass);
+    result
+}
+
+fn provider_repo_local_path(root: &Path, repo: &SecureCredentialRepository) -> PathBuf {
+    let repo_name = if repo.name.trim().is_empty() {
+        repo.full_name
+            .split('/')
+            .filter(|item| !item.trim().is_empty())
+            .next_back()
+            .unwrap_or("repo")
+    } else {
+        repo.name.trim()
+    };
+    root.join(safe_path_segment(repo_name))
+}
+
+fn repo_clone_url(repo: &SecureCredentialRepository) -> Result<String, AppError> {
+    let web_url = repo.web_url.trim().trim_end_matches('/');
+    if web_url.is_empty() {
+        return Err(AppError::InvalidInput(format!(
+            "仓库 '{}' 缺少 Web URL，无法推导 clone 地址",
+            repo.full_name
+        )));
+    }
+    if web_url.ends_with(".git") {
+        Ok(web_url.to_string())
+    } else {
+        Ok(format!("{}.git", web_url))
+    }
+}
+
+fn safe_path_segment(value: &str) -> String {
+    let segment = value
+        .trim()
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect::<String>();
+    if segment.is_empty() || segment == "." || segment == ".." {
+        "repo".into()
+    } else {
+        segment
+    }
+}
+
+fn validate_clone_provider_input(
+    input: &CloneGitProviderRepositoriesInput,
+) -> Result<(), AppError> {
+    if input.root_path.trim().is_empty() {
+        return Err(AppError::InvalidInput("同步目标目录不能为空".into()));
+    }
+    if let Some(keys) = &input.credential_keys {
+        if keys.iter().any(|item| item.trim().is_empty()) {
+            return Err(AppError::InvalidInput("凭据 Key 不能为空".into()));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1440,10 +1901,12 @@ fn git_username_for_credential(credential: &SecureCredential) -> String {
 }
 
 fn write_git_workspace_askpass_script() -> Result<PathBuf, AppError> {
+    let sequence = ASKPASS_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
-        "tauri-ssh-git-workspace-askpass-{}-{}.{}",
+        "tauri-ssh-git-workspace-askpass-{}-{}-{}.{}",
         std::process::id(),
         chrono::Local::now().timestamp_millis(),
+        sequence,
         if cfg!(windows) { "bat" } else { "sh" }
     ));
     let content = if cfg!(windows) {

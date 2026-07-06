@@ -37,6 +37,13 @@ export interface ScanGitWorkspaceRootInput {
   credentialKey?: string;
 }
 
+export interface CloneGitProviderRepositoriesInput {
+  rootPath: string;
+  credentialKeys?: string[];
+  maxPages?: number | null;
+  perPage?: number | null;
+}
+
 export interface ScanGitWorkspaceRootResult {
   workspaces: GitWorkspace[];
   discovered: number;
@@ -56,6 +63,9 @@ export interface GitWorkspaceScanJobStatus {
   jobId: string;
   status: "running" | "completed" | "failed" | string;
   message: string;
+  progressCurrent?: number | null;
+  progressTotal?: number | null;
+  progressPercent?: number | null;
   startedAt: string;
   finishedAt: string | null;
   result: ScanGitWorkspaceRootResult | null;

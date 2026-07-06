@@ -6,6 +6,7 @@ import type {
   GitWorkspaceScanJobStatus,
   GitWorkspaceScanStartResult,
   GitWorkspaceStatusResult,
+  CloneGitProviderRepositoriesInput,
   GitWorkspaceDiffInput,
   GitWorkspaceDiffResult,
   AiCommitGitWorkspaceInput,
@@ -60,6 +61,10 @@ export const gitWorkspaceApi = {
   getScanStatus: (jobId: string) =>
     hasTauriRuntime()
       ? invoke<GitWorkspaceScanJobStatus>("get_git_workspace_scan_status", { jobId })
+      : Promise.resolve(requireTauriRuntime()),
+  startCloneProviderRepositories: (input: CloneGitProviderRepositoriesInput) =>
+    hasTauriRuntime()
+      ? invoke<GitWorkspaceScanStartResult>("start_git_provider_repositories_clone", { input })
       : Promise.resolve(requireTauriRuntime()),
   aiCommit: (input: AiCommitGitWorkspaceInput) =>
     hasTauriRuntime()

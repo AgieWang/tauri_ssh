@@ -10,6 +10,7 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Statistic,
@@ -1082,11 +1083,14 @@ export function SecureCredentialSessionsPage() {
 export function SecureCredentialGitWorkspacesPage() {
   const { items: credentials, load: loadCredentials } = useSecureCredentialData();
   const [form] = Form.useForm();
+  const [cloneForm] = Form.useForm();
   const [items, setItems] = useState<GitWorkspace[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [scanStatusText, setScanStatusText] = useState("");
+  const [scanProgress, setScanProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingCredential, setEditingCredential] = useState<GitWorkspace | null>(null);
@@ -1187,6 +1191,22 @@ export function SecureCredentialGitWorkspacesPage() {
     }
   }
 
+  async function pickCloneRootDirectory() {
+    if (!hasTauriRuntime()) {
+      message.warning("浏览器预览不支持本地目录选择，请在桌面应用中使用。");
+      return;
+    }
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const selected = await dialog.open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        cloneForm.setFieldValue("rootPath", selected);
+      }
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    }
+  }
+
   function openCreate() {
     form.setFieldsValue({
       workspaceKey: "",
@@ -1196,6 +1216,16 @@ export function SecureCredentialGitWorkspacesPage() {
       description: "",
     });
     setDrawerOpen(true);
+  }
+
+  function openCloneRemoteRepositories() {
+    cloneForm.setFieldsValue({
+      rootPath: "",
+      credentialKeys: [],
+      maxPages: 5,
+      perPage: 100,
+    });
+    setCloneModalOpen(true);
   }
 
   async function submit() {
@@ -1240,22 +1270,57 @@ export function SecureCredentialGitWorkspacesPage() {
     } finally {
       setScanning(false);
       setScanStatusText("");
+      setScanProgress(null);
+    }
+  }
+
+  async function cloneRemoteRepositories() {
+    const values = await cloneForm.validateFields();
+    setScanning(true);
+    setCloneModalOpen(false);
+    setScanStatusText("正在启动远端仓库扫描克隆任务...");
+    try {
+      const started = await gitWorkspaceApi.startCloneProviderRepositories({
+        rootPath: values.rootPath,
+        credentialKeys: values.credentialKeys,
+        maxPages: values.maxPages,
+        perPage: values.perPage,
+      });
+      setScanStatusText(`远端仓库扫描克隆已启动：${started.jobId}`);
+      const result = await waitForScanJob(started.jobId);
+      const notice = `${result.message} 状态可在列表中单独刷新。`;
+      if (result.workspaces.length === 0) {
+        message.warning(notice);
+      } else {
+        message.success(notice);
+      }
+      await load();
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setScanning(false);
+      setScanStatusText("");
+      setScanProgress(null);
     }
   }
 
   async function waitForScanJob(jobId: string) {
-    for (let index = 0; index < 120; index += 1) {
+    for (let index = 0; index < 7200; index += 1) {
       await wait(1000);
       const status = await gitWorkspaceApi.getScanStatus(jobId);
       setScanStatusText(status.message || `扫描状态：${status.status}`);
+      if (typeof status.progressPercent === "number") {
+        setScanProgress(status.progressPercent);
+      }
       if (status.status === "completed" && status.result) {
+        setScanProgress(100);
         return status.result;
       }
       if (status.status === "failed") {
         throw new Error(status.error || status.message || "Git 工作区扫描失败");
       }
     }
-    throw new Error("Git 工作区扫描超时，请缩小扫描根目录后重试。");
+    throw new Error("Git 工作区扫描超时，请缩小同步范围后重试。");
   }
 
   async function refreshOne(item: GitWorkspace) {
@@ -1527,6 +1592,13 @@ export function SecureCredentialGitWorkspacesPage() {
             >
               选择并扫描目录
             </Button>
+            <Button
+              icon={<GitBranch size={14} />}
+              loading={scanning}
+              onClick={openCloneRemoteRepositories}
+            >
+              扫描并克隆远端仓库
+            </Button>
             <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
               手动添加
             </Button>
@@ -1540,7 +1612,17 @@ export function SecureCredentialGitWorkspacesPage() {
         style={{ marginBottom: 16 }}
       />
       {scanStatusText ? (
-        <Alert type="info" showIcon message={scanStatusText} style={{ marginBottom: 16 }} />
+        <Alert
+          type="info"
+          showIcon
+          message={scanStatusText}
+          description={
+            scanProgress !== null ? (
+              <Progress percent={scanProgress} size="small" style={{ marginTop: 8 }} />
+            ) : null
+          }
+          style={{ marginBottom: 16 }}
+        />
       ) : null}
       <Card style={{ marginBottom: 16 }}>
         <Space wrap size="middle" style={{ width: "100%" }}>
@@ -1707,6 +1789,68 @@ export function SecureCredentialGitWorkspacesPage() {
           </Form.Item>
         </Form>
       </Drawer>
+
+      <Modal
+        title="扫描并克隆远端仓库"
+        open={cloneModalOpen}
+        confirmLoading={scanning}
+        okText="开始扫描克隆"
+        cancelText="取消"
+        onOk={() => void cloneRemoteRepositories()}
+        onCancel={() => setCloneModalOpen(false)}
+        width={620}
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Alert
+            type="info"
+            showIcon
+            message="默认不选择凭据；只会读取已选择 Git 凭据可访问的 GitHub / GitLab / Gitee / GitCode 仓库，直接克隆到所选同步目标目录下并自动登记为 Git 工作区。目标目录中已存在同名项目时会跳过该项目。凭据只通过 Git askpass 临时注入，不写入远程地址。"
+          />
+          <Form form={cloneForm} layout="vertical">
+            <Form.Item
+              name="rootPath"
+              label="同步目标目录"
+              rules={[{ required: true, message: "请选择同步目标目录" }]}
+            >
+              <Input
+                placeholder="/Users/bin/Documents/GitHub"
+                addonAfter={
+                  <Button type="link" size="small" onClick={() => void pickCloneRootDirectory()}>
+                    选择
+                  </Button>
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              name="credentialKeys"
+              label="Git 凭据"
+              rules={[{ required: true, message: "请选择至少一个 Git 凭据" }]}
+            >
+              <Select
+                mode="multiple"
+                options={credentialOptions}
+                placeholder="选择 GitHub / GitLab / Gitee / GitCode 凭据"
+              />
+            </Form.Item>
+            <Space align="start" style={{ width: "100%" }}>
+              <Form.Item
+                name="maxPages"
+                label="最多页数"
+                rules={[{ required: true, message: "请输入页数" }]}
+              >
+                <InputNumber min={1} max={50} style={{ width: 160 }} />
+              </Form.Item>
+              <Form.Item
+                name="perPage"
+                label="每页仓库数"
+                rules={[{ required: true, message: "请输入每页数量" }]}
+              >
+                <InputNumber min={1} max={100} style={{ width: 160 }} />
+              </Form.Item>
+            </Space>
+          </Form>
+        </Space>
+      </Modal>
 
       <Modal
         title={editingCredential ? `编辑 Git 凭证：${editingCredential.name}` : "编辑 Git 凭证"}

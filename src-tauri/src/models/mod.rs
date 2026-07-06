@@ -1455,6 +1455,15 @@ pub struct ScanGitWorkspaceRootInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CloneGitProviderRepositoriesInput {
+    pub root_path: String,
+    pub credential_keys: Option<Vec<String>>,
+    pub max_pages: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanGitWorkspaceRootResult {
     pub workspaces: Vec<GitWorkspace>,
     pub discovered: i64,
@@ -1478,6 +1487,9 @@ pub struct GitWorkspaceScanJobStatus {
     pub job_id: String,
     pub status: String,
     pub message: String,
+    pub progress_current: Option<i64>,
+    pub progress_total: Option<i64>,
+    pub progress_percent: Option<i64>,
     pub started_at: String,
     pub finished_at: Option<String>,
     pub result: Option<ScanGitWorkspaceRootResult>,

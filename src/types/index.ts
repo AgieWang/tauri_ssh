@@ -111,6 +111,7 @@ export type {
 export type {
   AiCommitGitWorkspaceInput,
   AiCommitGitWorkspaceResult,
+  CloneGitProviderRepositoriesInput,
   CommitGitWorkspaceInput,
   CommitGitWorkspaceResult,
   GitWorkspace,

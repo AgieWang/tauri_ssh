@@ -422,7 +422,9 @@ impl SecureCredentialService {
             }
             "gitlab" => {
                 let url = format!("{}/user", Self::api_base_url(&credential)?);
-                let req = client.get(&url).headers(Self::gitlab_headers(&secret)?);
+                let req = client
+                    .get(&url)
+                    .headers(Self::gitlab_headers(&credential, &secret)?);
                 (url, req)
             }
             "gitcode" | "gitee" => {
@@ -536,7 +538,9 @@ impl SecureCredentialService {
                     page,
                     per_page
                 );
-                let req = client.get(&url).headers(Self::gitlab_headers(&secret)?);
+                let req = client
+                    .get(&url)
+                    .headers(Self::gitlab_headers(&credential, &secret)?);
                 (url, req)
             }
             "gitcode" | "gitee" => {
@@ -561,7 +565,9 @@ impl SecureCredentialService {
         let text = response.text().await.map_err(Self::http_error)?;
         if !status.is_success() {
             return Err(AppError::Custom(format!(
-                "读取仓库列表失败: HTTP {} {}",
+                "读取仓库列表失败（凭据 {} / {}）: HTTP {} {}",
+                credential.credential_key,
+                credential.provider,
                 status.as_u16(),
                 Self::redact_text(&text)
             )));
@@ -584,6 +590,106 @@ impl SecureCredentialService {
             None,
         );
         Ok(repositories)
+    }
+
+    pub async fn list_repositories_for_credential(
+        db: &Database,
+        credential_key: &str,
+        page: i64,
+        per_page: i64,
+    ) -> Result<(SecureCredential, Vec<SecureCredentialRepository>), AppError> {
+        let credential_key = credential_key.trim();
+        if credential_key.is_empty() {
+            return Err(AppError::InvalidInput("凭据 Key 不能为空".into()));
+        }
+        let credential = db
+            .get_secure_credential(credential_key)?
+            .ok_or_else(|| AppError::NotFound(format!("安全凭证 '{}' 不存在", credential_key)))?;
+        if !["github", "gitlab", "gitcode", "gitee"].contains(&credential.provider.as_str()) {
+            return Err(AppError::InvalidInput(format!(
+                "Provider '{}' 不支持仓库列表",
+                credential.provider
+            )));
+        }
+        if !credential.enabled || credential.status != "active" || !credential.has_secret {
+            return Err(AppError::InvalidInput(format!(
+                "安全凭证 '{}' 当前不可用或未保存密钥",
+                credential_key
+            )));
+        }
+        Self::ensure_read_allowed(db, &credential)?;
+        Self::ensure_base_url_allowed(db, &credential)?;
+        Self::ensure_rate_limit(db, &credential)?;
+        let secret = Self::get_secret(db, &credential.credential_key)?;
+        let page = page.clamp(1, 1000);
+        let settings = db.get_secure_credential_policy_settings()?;
+        let per_page = per_page.clamp(1, settings.max_response_items.min(100));
+        let client = Self::http_client()?;
+        let (url, request) = match credential.provider.as_str() {
+            "github" => {
+                let url = format!(
+                    "{}/user/repos?page={}&per_page={}&sort=updated",
+                    Self::api_base_url(&credential)?,
+                    page,
+                    per_page
+                );
+                let req = client.get(&url).headers(Self::github_headers(&secret)?);
+                (url, req)
+            }
+            "gitlab" => {
+                let url = format!(
+                    "{}/projects?membership=true&simple=true&page={}&per_page={}",
+                    Self::api_base_url(&credential)?,
+                    page,
+                    per_page
+                );
+                let req = client
+                    .get(&url)
+                    .headers(Self::gitlab_headers(&credential, &secret)?);
+                (url, req)
+            }
+            "gitcode" | "gitee" => {
+                let url = format!(
+                    "{}/user/repos?page={}&per_page={}",
+                    Self::api_base_url(&credential)?,
+                    page,
+                    per_page
+                );
+                let req = client.get(&url).headers(Self::bearer_headers(&secret)?);
+                (url, req)
+            }
+            _ => unreachable!(),
+        };
+        let response = request.send().await.map_err(Self::http_error)?;
+        let status = response.status();
+        let text = response.text().await.map_err(Self::http_error)?;
+        if !status.is_success() {
+            return Err(AppError::Custom(format!(
+                "读取仓库列表失败（凭据 {} / {}）: HTTP {} {}",
+                credential.credential_key,
+                credential.provider,
+                status.as_u16(),
+                Self::redact_text(&text)
+            )));
+        }
+        let value: Value = serde_json::from_str(&text)?;
+        let repositories = Self::map_repositories(&credential.provider, &value, &url);
+        Self::record_audit(
+            db,
+            &credential,
+            "git_repositories_list",
+            "readonly",
+            "success",
+            0,
+            json!({
+                "caller": "git_workspace_clone",
+                "page": page,
+                "perPage": per_page,
+                "count": repositories.len()
+            }),
+            None,
+        );
+        Ok((credential, repositories))
     }
 
     pub async fn git_readonly_request(
@@ -619,7 +725,7 @@ impl SecureCredentialService {
                 .headers(Self::github_headers(&secret)?),
             "gitlab" => Self::http_client()?
                 .get(&url)
-                .headers(Self::gitlab_headers(&secret)?),
+                .headers(Self::gitlab_headers(&credential, &secret)?),
             "gitcode" | "gitee" => Self::http_client()?
                 .get(&url)
                 .headers(Self::bearer_headers(&secret)?),
@@ -832,7 +938,7 @@ impl SecureCredentialService {
         };
         request = match credential.provider.as_str() {
             "github" => request.headers(Self::github_headers(&secret)?),
-            "gitlab" => request.headers(Self::gitlab_headers(&secret)?),
+            "gitlab" => request.headers(Self::gitlab_headers(&credential, &secret)?),
             "gitcode" | "gitee" => request.headers(Self::bearer_headers(&secret)?),
             _ => request,
         };
@@ -1126,15 +1232,25 @@ impl SecureCredentialService {
         Ok(headers)
     }
 
-    fn gitlab_headers(secret: &str) -> Result<HeaderMap, AppError> {
+    fn gitlab_headers(credential: &SecureCredential, secret: &str) -> Result<HeaderMap, AppError> {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static("tauri-ssh"));
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        headers.insert(
-            "PRIVATE-TOKEN",
-            HeaderValue::from_str(secret)
-                .map_err(|_| AppError::InvalidInput("Token 不能作为 HTTP Header 使用".into()))?,
-        );
+        if credential.credential_type == "bearer_token" {
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", secret)).map_err(|_| {
+                    AppError::InvalidInput("Token 不能作为 HTTP Header 使用".into())
+                })?,
+            );
+        } else {
+            headers.insert(
+                "PRIVATE-TOKEN",
+                HeaderValue::from_str(secret).map_err(|_| {
+                    AppError::InvalidInput("Token 不能作为 HTTP Header 使用".into())
+                })?,
+            );
+        }
         Ok(headers)
     }
 
