@@ -1811,6 +1811,7 @@ pub struct DatabaseQueryInput {
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseQueryResult {
     pub columns: Vec<String>,
+    pub column_types: Vec<String>,
     pub rows: Vec<serde_json::Value>,
     pub row_count: i64,
     pub rows_affected: i64,

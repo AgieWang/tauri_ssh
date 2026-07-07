@@ -256,7 +256,7 @@ impl DatabaseOpsService {
             } else {
                 normalized_sql.clone()
             };
-            let (columns, mut rows) = match connection_info.db_type.as_str() {
+            let (columns, column_types, mut rows) = match connection_info.db_type.as_str() {
                 "mysql" => {
                     let url = Self::mysql_url(&connection_info, password.as_deref());
                     Self::query_mysql(&url, &paged_sql).await?
@@ -281,6 +281,7 @@ impl DatabaseOpsService {
             let row_count = rows.len() as i64;
             return Ok(DatabaseQueryResult {
                 columns,
+                column_types,
                 row_count,
                 rows_affected: 0,
                 rows,
@@ -306,6 +307,7 @@ impl DatabaseOpsService {
         };
         Ok(DatabaseQueryResult {
             columns: vec![],
+            column_types: vec![],
             row_count: 0,
             rows_affected: rows_affected as i64,
             rows: vec![],
@@ -344,6 +346,7 @@ impl DatabaseOpsService {
                 Err(error) => {
                     results.push(DatabaseQueryResult {
                         columns: vec![],
+                        column_types: vec![],
                         row_count: 0,
                         rows_affected: 0,
                         rows: vec![],
@@ -440,7 +443,7 @@ impl DatabaseOpsService {
                         normalized.to_string()
                     }
                 };
-                let (columns, rows) =
+                let (columns, _, rows) =
                     Self::query_by_connection(&connection_info, password.as_deref(), &sql).await?;
                 let content = Self::rows_to_csv(&columns, &rows);
                 let base = if mode == "table_csv" {
@@ -513,7 +516,7 @@ impl DatabaseOpsService {
                             "SELECT * FROM {}",
                             Self::export_table_name(&table.name, connection_info.db_type.as_str())
                         );
-                        let (columns, rows) =
+                        let (columns, _, rows) =
                             Self::query_by_connection(&connection_info, password.as_deref(), &sql)
                                 .await?;
                         row_count += rows.len() as i64;
@@ -1118,7 +1121,7 @@ impl DatabaseOpsService {
         connection: &DatabaseConnection,
         password: Option<&str>,
         sql: &str,
-    ) -> Result<(Vec<String>, Vec<serde_json::Value>), AppError> {
+    ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
         match connection.db_type.as_str() {
             "mysql" => {
                 let url = Self::mysql_url(connection, password);
@@ -1142,7 +1145,7 @@ impl DatabaseOpsService {
                 "SHOW CREATE TABLE {}",
                 Self::export_table_name(&table.name, "mysql")
             );
-            let (_, rows) = Self::query_by_connection(connection, password, &sql).await?;
+            let (_, _, rows) = Self::query_by_connection(connection, password, &sql).await?;
             let create_sql = rows
                 .first()
                 .and_then(|row| row.as_object())
@@ -1513,8 +1516,8 @@ impl DatabaseOpsService {
     async fn query_mysql(
         url: &str,
         sql: &str,
-    ) -> Result<(Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{mysql::MySqlPoolOptions, Column, Row};
+    ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
+        use sqlx::{mysql::MySqlPoolOptions, Column, Row, TypeInfo};
 
         let pool = MySqlPoolOptions::new()
             .max_connections(1)
@@ -1535,6 +1538,15 @@ impl DatabaseOpsService {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let column_types = rows
+            .first()
+            .map(|row| {
+                row.columns()
+                    .iter()
+                    .map(|column| column.type_info().name().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let data = rows
             .iter()
             .map(|row| {
@@ -1545,7 +1557,7 @@ impl DatabaseOpsService {
                 serde_json::Value::Object(item)
             })
             .collect::<Vec<_>>();
-        Ok((columns, data))
+        Ok((columns, column_types, data))
     }
 
     async fn execute_mysql(url: &str, sql: &str) -> Result<u64, AppError> {
@@ -1565,7 +1577,7 @@ impl DatabaseOpsService {
     }
 
     async fn list_mysql_databases(url: &str) -> Result<Vec<String>, AppError> {
-        let (_, rows) = Self::query_mysql(url, "SHOW DATABASES").await?;
+        let (_, _, rows) = Self::query_mysql(url, "SHOW DATABASES").await?;
         let mut databases = Vec::with_capacity(rows.len());
         for row in rows {
             if let Some(value) = row.as_object().and_then(|item| item.values().next()) {
@@ -1709,8 +1721,8 @@ impl DatabaseOpsService {
     async fn query_postgres(
         url: &str,
         sql: &str,
-    ) -> Result<(Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{postgres::PgPoolOptions, Column, Row};
+    ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
+        use sqlx::{postgres::PgPoolOptions, Column, Row, TypeInfo};
 
         let pool = PgPoolOptions::new()
             .max_connections(1)
@@ -1731,6 +1743,15 @@ impl DatabaseOpsService {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let column_types = rows
+            .first()
+            .map(|row| {
+                row.columns()
+                    .iter()
+                    .map(|column| column.type_info().name().to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let data = rows
             .iter()
             .map(|row| {
@@ -1741,7 +1762,7 @@ impl DatabaseOpsService {
                 serde_json::Value::Object(item)
             })
             .collect::<Vec<_>>();
-        Ok((columns, data))
+        Ok((columns, column_types, data))
     }
 
     async fn execute_postgres(url: &str, sql: &str) -> Result<u64, AppError> {
@@ -1761,7 +1782,7 @@ impl DatabaseOpsService {
     }
 
     async fn list_postgres_databases(url: &str) -> Result<Vec<String>, AppError> {
-        let (_, rows) = Self::query_postgres(
+        let (_, _, rows) = Self::query_postgres(
             url,
             "SELECT datname FROM pg_database WHERE datallowconn = true ORDER BY datname",
         )
@@ -2091,8 +2112,16 @@ fn mysql_cell_to_json(row: &sqlx::mysql::MySqlRow, index: usize) -> serde_json::
     {
         return serde_json::Value::Null;
     }
+    if let Ok(value) = row.try_get::<sqlx::types::Json<serde_json::Value>, _>(index) {
+        return value.0;
+    }
     if let Ok(value) = row.try_get::<String, _>(index) {
         return serde_json::Value::String(value);
+    }
+    if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
+        return String::from_utf8(value)
+            .map(serde_json::Value::String)
+            .unwrap_or_else(|_| serde_json::Value::String("<binary>".into()));
     }
     if let Ok(value) = row.try_get::<i64, _>(index) {
         return serde_json::json!(value);
@@ -2127,8 +2156,16 @@ fn postgres_cell_to_json(row: &sqlx::postgres::PgRow, index: usize) -> serde_jso
     {
         return serde_json::Value::Null;
     }
+    if let Ok(value) = row.try_get::<serde_json::Value, _>(index) {
+        return value;
+    }
     if let Ok(value) = row.try_get::<String, _>(index) {
         return serde_json::Value::String(value);
+    }
+    if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
+        return String::from_utf8(value)
+            .map(serde_json::Value::String)
+            .unwrap_or_else(|_| serde_json::Value::String("<binary>".into()));
     }
     if let Ok(value) = row.try_get::<i64, _>(index) {
         return serde_json::json!(value);

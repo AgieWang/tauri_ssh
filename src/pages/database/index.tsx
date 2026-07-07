@@ -1957,6 +1957,20 @@ export default function DatabasePage() {
   }
 
   function renderQueryResult(result: DatabaseQueryResult, index: number) {
+    function renderSqlCellValue(value: unknown) {
+      if (value == null) {
+        return (
+          <Text style={{ color: "#bfbfbf", fontWeight: 600, letterSpacing: 0 }}>
+            (NULL)
+          </Text>
+        );
+      }
+      if (typeof value === "object") {
+        return JSON.stringify(value);
+      }
+      return String(value ?? "");
+    }
+
     const rows = result.rows.map((row, rowIndex) => ({
       __rowId: `${index}-${result.page}-${rowIndex}`,
       ...row,
@@ -1971,16 +1985,18 @@ export default function DatabasePage() {
             size="small"
             scroll={{ x: true }}
             loading={queryLoading}
-            columns={result.columns.map((column) => ({
-              title: column,
+            columns={result.columns.map((column, columnIndex) => ({
+              title: (
+                <Space direction="vertical" size={0}>
+                  <Text strong>{column}</Text>
+                  <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
+                    {result.columnTypes?.[columnIndex] || "unknown"}
+                  </Text>
+                </Space>
+              ),
               dataIndex: column,
               ellipsis: true,
-              render: (value: unknown) =>
-                value == null
-                  ? "null"
-                  : typeof value === "object"
-                    ? JSON.stringify(value)
-                    : String(value ?? ""),
+              render: renderSqlCellValue,
             }))}
             dataSource={rows}
             pagination={{ pageSize: 20 }}

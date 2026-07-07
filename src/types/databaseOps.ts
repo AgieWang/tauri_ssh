@@ -70,6 +70,7 @@ export interface DatabaseQueryInput {
 
 export interface DatabaseQueryResult {
   columns: string[];
+  columnTypes: string[];
   rows: Array<Record<string, unknown>>;
   rowCount: number;
   rowsAffected: number;
