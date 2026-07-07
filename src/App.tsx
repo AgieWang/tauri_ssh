@@ -8,6 +8,7 @@ import { getAntdTheme } from "@/theme/antdTheme";
 import { AppRouter } from "@/Router";
 import { systemSettingsApi } from "@/lib/api";
 import { StartupUpdateChecker } from "@/components/ui/StartupUpdateChecker";
+import { StartupAutoLaunchPrompt } from "@/components/ui/StartupAutoLaunchPrompt";
 
 function App() {
   const appTheme = useAppStore((s) => s.theme);
@@ -72,6 +73,7 @@ function App() {
     <ConfigProvider locale={zhCN} theme={getAntdTheme(resolved)}>
       <ErrorBoundary>
         <AppRouter />
+        <StartupAutoLaunchPrompt />
         <StartupUpdateChecker />
       </ErrorBoundary>
     </ConfigProvider>

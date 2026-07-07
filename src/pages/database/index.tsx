@@ -18,6 +18,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Tree,
   Typography,
   message,
@@ -109,6 +110,15 @@ interface CreateTableColumnFormValues {
 interface CreateTableFormValues {
   tableName: string;
   columns: CreateTableColumnFormValues[];
+}
+
+interface SqlColumnCompletion {
+  label: string;
+  tableName: string;
+  schemaName?: string | null;
+  dataType: string;
+  columnType: string;
+  objectType: string;
 }
 
 function objectTypeMeta(objectType?: string) {
@@ -398,6 +408,7 @@ const SqlCodeEditor = lazy(async () => {
     sqlModule,
     languageModule,
     viewModule,
+    autocompleteModule,
   ] = await Promise.all([
     import("@uiw/react-codemirror"),
     import("@uiw/codemirror-theme-github"),
@@ -405,6 +416,7 @@ const SqlCodeEditor = lazy(async () => {
     import("@codemirror/lang-sql"),
     import("@codemirror/language"),
     import("@codemirror/view"),
+    import("@codemirror/autocomplete"),
   ]);
   const CodeMirror = codeMirrorModule.default;
   const dialectMap = {
@@ -412,22 +424,168 @@ const SqlCodeEditor = lazy(async () => {
     postgresql: sqlModule.PostgreSQL,
     standard: sqlModule.StandardSQL,
   };
+  const tableReferencePattern = /\b(?:from|join|update|into|table)\s+([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)(?:\s+(?:as\s+)?([`"]?[\w$]+[`"]?))?/gi;
+
+  function normalizeSqlIdentifier(value: string) {
+    return value
+      .trim()
+      .replace(/^[`"]|[`"]$/g, "")
+      .toLowerCase();
+  }
+
+  function statementBeforeCursor(text: string) {
+    return text.slice(text.lastIndexOf(";") + 1);
+  }
+
+  function isInsideSqlString(text: string) {
+    let single = false;
+    let double = false;
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      const previous = text[index - 1];
+      if (char === "'" && previous !== "\\" && !double) {
+        single = !single;
+      } else if (char === "\"" && previous !== "\\" && !single) {
+        double = !double;
+      }
+    }
+    return single;
+  }
+
+  function referencedTables(statement: string) {
+    const tables = new Set<string>();
+    const aliases = new Map<string, string>();
+    for (const match of statement.matchAll(tableReferencePattern)) {
+      const table = normalizeSqlIdentifier(match[1]);
+      const shortName = table.split(".").pop() ?? table;
+      tables.add(table);
+      tables.add(shortName);
+      const alias = match[2] ? normalizeSqlIdentifier(match[2]) : "";
+      if (alias && !["set", "where", "join", "on", "left", "right", "inner", "outer", "full", "cross"].includes(alias)) {
+        aliases.set(alias, table);
+      }
+    }
+    return { tables, aliases };
+  }
+
+  function tableMatchesColumn(column: SqlColumnCompletion, tableKey: string) {
+    const tableName = normalizeSqlIdentifier(column.tableName);
+    const schemaName = column.schemaName ? normalizeSqlIdentifier(column.schemaName) : "";
+    const fullName = schemaName ? `${schemaName}.${tableName}` : tableName;
+    return tableKey === tableName || tableKey === fullName;
+  }
+
   return {
     default: function LazySqlCodeEditor(props: {
       value: string;
       dialect: SqlDialectKey;
       dark: boolean;
       schema: Record<string, readonly string[]>;
+      columns: SqlColumnCompletion[];
       onChange: (value: string) => void;
       onRun: () => void;
     }) {
+      const dialect = dialectMap[props.dialect] ?? sqlModule.StandardSQL;
+      const sqlConfig = {
+        dialect,
+        schema: props.schema,
+        upperCaseKeywords: true,
+      };
+
+      function columnCompletionSource(context: unknown) {
+        const completionContext = context as {
+          pos: number;
+          explicit: boolean;
+          state: { doc: { sliceString: (from: number, to: number) => string } };
+          matchBefore: (regexp: RegExp) => { from: number; to: number; text: string } | null;
+        };
+        const beforeCursor = completionContext.state.doc.sliceString(0, completionContext.pos);
+        if (isInsideSqlString(beforeCursor)) {
+          return null;
+        }
+
+        const word = completionContext.matchBefore(/[\w$]*/);
+        if (!word || (!word.text && !completionContext.explicit)) {
+          return null;
+        }
+
+        const dotMatch = beforeCursor.match(/([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)\.[\w$]*$/);
+        const statement = statementBeforeCursor(beforeCursor);
+        const { tables, aliases } = referencedTables(statement);
+        const qualifier = dotMatch ? normalizeSqlIdentifier(dotMatch[1]) : "";
+        const qualifierTable = qualifier ? aliases.get(qualifier) ?? qualifier : "";
+        const activeColumns = props.columns
+          .filter((column) => {
+            if (qualifierTable) {
+              return tableMatchesColumn(column, qualifierTable);
+            }
+            if (tables.size === 0) {
+              return true;
+            }
+            return Array.from(tables).some((tableKey) => tableMatchesColumn(column, tableKey));
+          })
+          .slice(0, 300);
+
+        if (activeColumns.length === 0) {
+          return null;
+        }
+
+        const seen = new Set<string>();
+        const options = activeColumns
+          .filter((column) => {
+            const scopedKey = qualifierTable
+              ? column.label
+              : `${column.schemaName ?? ""}.${column.tableName}.${column.label}`;
+            if (seen.has(scopedKey)) {
+              return false;
+            }
+            seen.add(scopedKey);
+            return true;
+          })
+          .map((column) => ({
+            label: column.label,
+            type: "property",
+            detail: `${column.schemaName ? `${column.schemaName}.` : ""}${column.tableName}`,
+            info: column.columnType || column.dataType || column.objectType,
+            boost: tables.size > 0 || qualifierTable ? 90 : 10,
+          }));
+
+        return {
+          from: word.from,
+          options,
+          validFor: /^[\w$]*$/,
+        };
+      }
+
       return (
-        <CodeMirror
-          value={props.value}
-          height="190px"
-          theme={props.dark ? githubThemeModule.githubDark : githubThemeModule.githubLight}
-          extensions={[
+        <div
+          onKeyDownCapture={(event) => {
+            if (event.key !== "Enter" || !event.shiftKey) {
+              return;
+            }
+            // 在 React 捕获阶段抢先处理，避免 CodeMirror 将 Shift+Enter 当成换行。
+            event.preventDefault();
+            event.stopPropagation();
+            props.onRun();
+          }}
+        >
+          <CodeMirror
+            value={props.value}
+            height="190px"
+            theme={props.dark ? githubThemeModule.githubDark : githubThemeModule.githubLight}
+            extensions={[
             languageModule.indentUnit.of("  "),
+            viewModule.EditorView.domEventHandlers({
+              keydown: (event: KeyboardEvent) => {
+                if (event.key !== "Enter" || !event.shiftKey) {
+                  return false;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                props.onRun();
+                return true;
+              },
+            }),
             viewModule.keymap.of([
               {
                 key: "Shift-Enter",
@@ -440,9 +598,17 @@ const SqlCodeEditor = lazy(async () => {
             ]),
             viewModule.EditorView.lineWrapping,
             sqlModule.sql({
-              dialect: dialectMap[props.dialect] ?? sqlModule.StandardSQL,
+              dialect,
               schema: props.schema,
               upperCaseKeywords: true,
+            }),
+            autocompleteModule.autocompletion({
+              override: [
+                columnCompletionSource,
+                sqlModule.schemaCompletionSource(sqlConfig),
+                sqlModule.keywordCompletionSource(dialect, true),
+              ],
+              maxRenderedOptions: 80,
             }),
           ]}
           basicSetup={{
@@ -456,7 +622,7 @@ const SqlCodeEditor = lazy(async () => {
             indentOnInput: true,
             bracketMatching: true,
             closeBrackets: true,
-            autocompletion: true,
+            autocompletion: false,
             rectangularSelection: true,
             crosshairCursor: true,
             highlightActiveLine: true,
@@ -467,8 +633,9 @@ const SqlCodeEditor = lazy(async () => {
             completionKeymap: true,
             lintKeymap: true,
           }}
-          onChange={(value) => props.onChange(value)}
-        />
+            onChange={(value) => props.onChange(value)}
+          />
+        </div>
       );
     },
   };
@@ -776,6 +943,21 @@ export default function DatabasePage() {
     }
     return schema;
   }, [databaseSchema]);
+
+  const sqlColumnCompletions = useMemo<SqlColumnCompletion[]>(
+    () =>
+      (databaseSchema?.tables ?? []).flatMap((table) =>
+        table.columnDetails.map((column) => ({
+          label: column.name,
+          tableName: table.name,
+          schemaName: table.schemaName,
+          dataType: column.dataType,
+          columnType: column.columnType,
+          objectType: table.objectType,
+        })),
+      ),
+    [databaseSchema],
+  );
 
   const sqlAiSchemaSummary = useMemo(
     () =>
@@ -2214,9 +2396,11 @@ export default function DatabasePage() {
                       disabled={!queryConnectionKey || databaseLoading}
                       onChange={setQueryDatabaseName}
                     />
-                    <Button type="primary" loading={queryLoading} onClick={executeQuery}>
-                      执行 SQL
-                    </Button>
+                    <Tooltip title="SQL 编辑器聚焦时按 Shift + Enter 执行">
+                      <Button type="primary" loading={queryLoading} onClick={executeQuery}>
+                        执行 SQL
+                      </Button>
+                    </Tooltip>
                   </Space.Compact>
                   <Alert
                     showIcon
@@ -2238,6 +2422,7 @@ export default function DatabasePage() {
                         dialect={sqlDialect}
                         dark={theme === "dark"}
                         schema={sqlCompletionSchema}
+                        columns={sqlColumnCompletions}
                         onChange={setQuerySql}
                         onRun={executeQuery}
                       />
