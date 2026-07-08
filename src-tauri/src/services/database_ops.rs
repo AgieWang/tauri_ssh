@@ -15,7 +15,8 @@ use tokio::time::{timeout, Duration};
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
-    DatabaseColumnSchema, DatabaseConnection, DatabaseConnectionTestResult, DatabaseExportInput,
+    DatabaseCellUpdateInput, DatabaseCellUpdateResult, DatabaseColumnSchema, DatabaseConnection,
+    DatabaseConnectionTestResult, DatabaseEditableQueryMeta, DatabaseExportInput,
     DatabaseExportResult, DatabaseIndexSchema, DatabaseNameListInput, DatabaseNameListResult,
     DatabaseQueryInput, DatabaseQueryResult, DatabaseSchemaInput, DatabaseSchemaResult,
     DatabaseTableSchema, RedisDatabaseInfo, RedisDatabaseListInput, RedisDatabaseListResult,
@@ -279,9 +280,17 @@ impl DatabaseOpsService {
                 rows.truncate(page_size as usize);
             }
             let row_count = rows.len() as i64;
+            let editable = Self::build_editable_query_meta(
+                &connection_info,
+                password.as_deref(),
+                &normalized_sql,
+                &columns,
+            )
+            .await;
             return Ok(DatabaseQueryResult {
                 columns,
                 column_types,
+                editable: Some(editable),
                 row_count,
                 rows_affected: 0,
                 rows,
@@ -308,6 +317,7 @@ impl DatabaseOpsService {
         Ok(DatabaseQueryResult {
             columns: vec![],
             column_types: vec![],
+            editable: None,
             row_count: 0,
             rows_affected: rows_affected as i64,
             rows: vec![],
@@ -347,6 +357,7 @@ impl DatabaseOpsService {
                     results.push(DatabaseQueryResult {
                         columns: vec![],
                         column_types: vec![],
+                        editable: None,
                         row_count: 0,
                         rows_affected: 0,
                         rows: vec![],
@@ -364,6 +375,103 @@ impl DatabaseOpsService {
         }
 
         Ok(results)
+    }
+
+    pub async fn update_query_result_cell(
+        db: &Database,
+        input: DatabaseCellUpdateInput,
+    ) -> Result<DatabaseCellUpdateResult, AppError> {
+        let connection = db
+            .get_database_connection_secret_row(&input.connection_key)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("数据库连接 '{}' 不存在", input.connection_key))
+            })?;
+        let mut connection_info = connection.connection;
+        if connection_info.db_type == "redis" {
+            return Err(AppError::InvalidInput("Redis 不支持表格单元格更新".into()));
+        }
+        if connection_info.connection_mode != "direct" {
+            return Err(AppError::InvalidInput(
+                "SSH 隧道单元格更新会在隧道模块接入后启用".into(),
+            ));
+        }
+        if connection_info.security_mode == "approval_all" {
+            return Err(AppError::InvalidInput(
+                "当前连接安全级别为全部审批，暂不支持直接编辑查询结果".into(),
+            ));
+        }
+        if let Some(database_name) = input
+            .database_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            connection_info.database_name = database_name.to_string();
+        }
+        let password = Self::resolve_connection_password(
+            db,
+            &connection_info,
+            connection.password_nonce.as_deref(),
+            connection.password_ciphertext.as_deref(),
+        )?;
+        let tables = Self::list_schema_by_connection(&connection_info, password.as_deref()).await?;
+        let table =
+            Self::find_table_schema(&tables, input.table_schema.as_deref(), &input.table_name)
+                .ok_or_else(|| AppError::InvalidInput("目标表不存在或不可编辑".into()))?;
+        if table.object_type.to_ascii_uppercase().contains("VIEW") {
+            return Err(AppError::InvalidInput("视图结果暂不支持直接编辑".into()));
+        }
+        let primary_key_columns = Self::primary_key_columns(table)
+            .ok_or_else(|| AppError::InvalidInput("目标表缺少主键或唯一键，无法安全更新".into()))?;
+        let column = table
+            .column_details
+            .iter()
+            .find(|item| item.name == input.column_name)
+            .ok_or_else(|| AppError::InvalidInput("目标字段不存在".into()))?;
+        if primary_key_columns.contains(&input.column_name) {
+            return Err(AppError::InvalidInput(
+                "主键字段不能在结果表格中直接编辑".into(),
+            ));
+        }
+        let primary_key = input.primary_key.as_object().ok_or_else(|| {
+            AppError::InvalidInput("主键条件格式无效，必须是字段到值的对象".into())
+        })?;
+        for primary_column in &primary_key_columns {
+            if !primary_key.contains_key(primary_column) {
+                return Err(AppError::InvalidInput(format!(
+                    "缺少主键字段 '{}'，无法安全更新",
+                    primary_column
+                )));
+            }
+        }
+
+        let rows_affected = match connection_info.db_type.as_str() {
+            "mysql" => {
+                let url = Self::mysql_url(&connection_info, password.as_deref());
+                Self::update_mysql_cell(&url, table, &primary_key_columns, &input, column).await?
+            }
+            "postgresql" => {
+                let url = Self::postgres_url(&connection_info, password.as_deref());
+                Self::update_postgres_cell(&url, table, &primary_key_columns, &input, column)
+                    .await?
+            }
+            _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
+        };
+
+        if rows_affected == 0 {
+            return Ok(DatabaseCellUpdateResult {
+                updated: false,
+                rows_affected: 0,
+                message: "未更新任何行，数据可能已被其他操作修改，请重新查询后再编辑".into(),
+                value: input.old_value,
+            });
+        }
+        Ok(DatabaseCellUpdateResult {
+            updated: true,
+            rows_affected: rows_affected as i64,
+            message: "单元格已更新".into(),
+            value: input.new_value,
+        })
     }
 
     pub async fn export_database(
@@ -1135,6 +1243,267 @@ impl DatabaseOpsService {
         }
     }
 
+    async fn list_schema_by_connection(
+        connection: &DatabaseConnection,
+        password: Option<&str>,
+    ) -> Result<Vec<DatabaseTableSchema>, AppError> {
+        match connection.db_type.as_str() {
+            "mysql" => {
+                let database_name = connection.database_name.trim();
+                if database_name.is_empty() {
+                    return Err(AppError::InvalidInput("请先选择数据库".into()));
+                }
+                let url = Self::mysql_url(connection, password);
+                Self::list_mysql_schema(&url, database_name).await
+            }
+            "postgresql" => {
+                let url = Self::postgres_url(connection, password);
+                Self::list_postgres_schema(&url).await
+            }
+            _ => Err(AppError::InvalidInput("数据库类型无效".into())),
+        }
+    }
+
+    async fn build_editable_query_meta(
+        connection: &DatabaseConnection,
+        password: Option<&str>,
+        sql: &str,
+        result_columns: &[String],
+    ) -> DatabaseEditableQueryMeta {
+        let Some(target) = Self::parse_simple_select_table(sql) else {
+            return Self::disabled_editable_meta("仅简单单表 SELECT 查询支持直接编辑结果");
+        };
+        let Ok(tables) = Self::list_schema_by_connection(connection, password).await else {
+            return Self::disabled_editable_meta("无法读取表结构，结果暂不可编辑");
+        };
+        let Some(table) = Self::find_table_schema(&tables, target.schema.as_deref(), &target.table)
+        else {
+            return Self::disabled_editable_meta("查询目标表不存在，结果暂不可编辑");
+        };
+        if table.object_type.to_ascii_uppercase().contains("VIEW") {
+            return Self::disabled_editable_meta("视图结果暂不支持直接编辑");
+        }
+        let table_columns = table
+            .columns
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        let primary_key_columns = match Self::primary_key_columns(table) {
+            Some(columns) => columns,
+            None => return Self::disabled_editable_meta("目标表缺少主键或唯一键，无法安全编辑"),
+        };
+        let mut readonly_columns = Vec::new();
+        let mut editable_columns = Vec::new();
+        for column in result_columns {
+            if !table_columns.contains(column) || primary_key_columns.contains(column) {
+                readonly_columns.push(column.clone());
+            } else {
+                editable_columns.push(column.clone());
+            }
+        }
+        let missing_primary_key = primary_key_columns
+            .iter()
+            .any(|column| !result_columns.contains(column));
+        let mut enabled = !editable_columns.is_empty() && !missing_primary_key;
+        let mut reason = if missing_primary_key {
+            "查询结果缺少主键/唯一键字段，无法定位要更新的行".to_string()
+        } else if editable_columns.is_empty() {
+            "查询结果没有可编辑的真实表字段".to_string()
+        } else {
+            "可编辑".to_string()
+        };
+        if connection.security_mode == "approval_all" {
+            enabled = false;
+            reason = "当前连接安全级别为全部审批，暂不支持直接编辑查询结果".into();
+        }
+        DatabaseEditableQueryMeta {
+            enabled,
+            reason,
+            table_name: Some(table.name.clone()),
+            table_schema: table.schema_name.clone().or(target.schema),
+            primary_key_columns,
+            editable_columns,
+            readonly_columns,
+        }
+    }
+
+    fn disabled_editable_meta(reason: &str) -> DatabaseEditableQueryMeta {
+        DatabaseEditableQueryMeta {
+            enabled: false,
+            reason: reason.into(),
+            table_name: None,
+            table_schema: None,
+            primary_key_columns: vec![],
+            editable_columns: vec![],
+            readonly_columns: vec![],
+        }
+    }
+
+    fn find_table_schema<'a>(
+        tables: &'a [DatabaseTableSchema],
+        schema_name: Option<&str>,
+        table_name: &str,
+    ) -> Option<&'a DatabaseTableSchema> {
+        tables.iter().find(|table| {
+            table.name == table_name
+                && schema_name
+                    .map(|schema| table.schema_name.as_deref().unwrap_or("") == schema)
+                    .unwrap_or(true)
+        })
+    }
+
+    fn primary_key_columns(table: &DatabaseTableSchema) -> Option<Vec<String>> {
+        table
+            .indexes
+            .iter()
+            .find(|index| {
+                index.name.eq_ignore_ascii_case("PRIMARY") || index.name.ends_with("_pkey")
+            })
+            .or_else(|| table.indexes.iter().find(|index| index.unique))
+            .map(|index| index.columns.clone())
+            .filter(|columns| !columns.is_empty())
+    }
+
+    async fn update_mysql_cell(
+        url: &str,
+        table: &DatabaseTableSchema,
+        primary_key_columns: &[String],
+        input: &DatabaseCellUpdateInput,
+        column: &DatabaseColumnSchema,
+    ) -> Result<u64, AppError> {
+        use sqlx::mysql::MySqlPoolOptions;
+
+        let pool = MySqlPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(url)
+            .await
+            .map_err(|error| AppError::Custom(format!("连接 MySQL 失败: {}", error)))?;
+        let pk_object = input.primary_key.as_object().ok_or_else(|| {
+            AppError::InvalidInput("主键条件格式无效，必须是字段到值的对象".into())
+        })?;
+        let mut where_parts = primary_key_columns
+            .iter()
+            .map(|column| format!("{} <=> ?", Self::export_table_name(column, "mysql")))
+            .collect::<Vec<_>>();
+        where_parts.push(format!(
+            "{} <=> ?",
+            Self::export_table_name(&input.column_name, "mysql")
+        ));
+        let sql = format!(
+            "UPDATE {} SET {} = ? WHERE {}",
+            Self::qualified_table_name(table.schema_name.as_deref(), &table.name, "mysql"),
+            Self::export_table_name(&input.column_name, "mysql"),
+            where_parts.join(" AND ")
+        );
+        let mut query = sqlx::query(&sql).bind(Self::json_to_db_string(
+            &input.new_value,
+            &column.data_type,
+            "mysql",
+        ));
+        for primary_column in primary_key_columns {
+            query = query.bind(Self::json_to_db_string(
+                pk_object
+                    .get(primary_column)
+                    .unwrap_or(&serde_json::Value::Null),
+                "",
+                "mysql",
+            ));
+        }
+        query = query.bind(Self::json_to_db_string(
+            &input.old_value,
+            &column.data_type,
+            "mysql",
+        ));
+        let result = query
+            .execute(&pool)
+            .await
+            .map_err(|error| AppError::Custom(format!("更新 MySQL 单元格失败: {}", error)))?;
+        Ok(result.rows_affected())
+    }
+
+    async fn update_postgres_cell(
+        url: &str,
+        table: &DatabaseTableSchema,
+        primary_key_columns: &[String],
+        input: &DatabaseCellUpdateInput,
+        column: &DatabaseColumnSchema,
+    ) -> Result<u64, AppError> {
+        use sqlx::postgres::PgPoolOptions;
+
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(url)
+            .await
+            .map_err(|error| AppError::Custom(format!("连接 PostgreSQL 失败: {}", error)))?;
+        let pk_object = input.primary_key.as_object().ok_or_else(|| {
+            AppError::InvalidInput("主键条件格式无效，必须是字段到值的对象".into())
+        })?;
+        let mut next_param = 2;
+        let mut where_parts = Vec::new();
+        for primary_column in primary_key_columns {
+            let primary_type = table
+                .column_details
+                .iter()
+                .find(|item| item.name == *primary_column)
+                .map(Self::postgres_cast_type)
+                .unwrap_or_else(|| "text".into());
+            where_parts.push(format!(
+                "{} IS NOT DISTINCT FROM ${}::{}",
+                Self::export_table_name(primary_column, "postgresql"),
+                next_param,
+                primary_type
+            ));
+            next_param += 1;
+        }
+        let old_value_param = next_param;
+        let column_type = Self::postgres_cast_type(column);
+        where_parts.push(format!(
+            "{} IS NOT DISTINCT FROM ${}::{}",
+            Self::export_table_name(&input.column_name, "postgresql"),
+            old_value_param,
+            column_type
+        ));
+        let sql = format!(
+            "UPDATE {} SET {} = $1::{} WHERE {}",
+            Self::qualified_table_name(table.schema_name.as_deref(), &table.name, "postgresql"),
+            Self::export_table_name(&input.column_name, "postgresql"),
+            column_type,
+            where_parts.join(" AND ")
+        );
+        let mut query = sqlx::query(&sql).bind(Self::json_to_db_string(
+            &input.new_value,
+            &column.data_type,
+            "postgresql",
+        ));
+        for primary_column in primary_key_columns {
+            let primary_type = table
+                .column_details
+                .iter()
+                .find(|item| item.name == *primary_column)
+                .map(|item| item.data_type.as_str())
+                .unwrap_or("");
+            query = query.bind(Self::json_to_db_string(
+                pk_object
+                    .get(primary_column)
+                    .unwrap_or(&serde_json::Value::Null),
+                primary_type,
+                "postgresql",
+            ));
+        }
+        query = query.bind(Self::json_to_db_string(
+            &input.old_value,
+            &column.data_type,
+            "postgresql",
+        ));
+        let result = query
+            .execute(&pool)
+            .await
+            .map_err(|error| AppError::Custom(format!("更新 PostgreSQL 单元格失败: {}", error)))?;
+        Ok(result.rows_affected())
+    }
+
     async fn create_table_backup_sql(
         connection: &DatabaseConnection,
         password: Option<&str>,
@@ -1311,6 +1680,97 @@ impl DatabaseOpsService {
         let quote = if db_type == "mysql" { "`" } else { "\"" };
         let escaped = value.replace(quote, &format!("{}{}", quote, quote));
         format!("{}{}{}", quote, escaped, quote)
+    }
+
+    fn qualified_table_name(schema: Option<&str>, table: &str, db_type: &str) -> String {
+        match schema.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(schema) => format!(
+                "{}.{}",
+                Self::export_table_name(schema, db_type),
+                Self::export_table_name(table, db_type)
+            ),
+            None => Self::export_table_name(table, db_type),
+        }
+    }
+
+    fn json_to_db_string(
+        value: &serde_json::Value,
+        data_type: &str,
+        db_type: &str,
+    ) -> Option<String> {
+        match value {
+            serde_json::Value::Null => None,
+            serde_json::Value::Bool(value) => {
+                if db_type == "postgresql" && Self::is_boolean_type(data_type) {
+                    Some(value.to_string())
+                } else if *value {
+                    Some("1".into())
+                } else {
+                    Some("0".into())
+                }
+            }
+            serde_json::Value::Number(value) => Some(value.to_string()),
+            serde_json::Value::String(value) => Some(value.clone()),
+            _ => Some(value.to_string()),
+        }
+    }
+
+    fn is_boolean_type(data_type: &str) -> bool {
+        matches!(
+            data_type.to_ascii_lowercase().as_str(),
+            "bool" | "boolean" | "tinyint(1)"
+        )
+    }
+
+    fn postgres_cast_type(column: &DatabaseColumnSchema) -> String {
+        let candidate = if column.column_type.trim().is_empty() {
+            column.data_type.trim()
+        } else {
+            column.column_type.trim()
+        };
+        if candidate.is_empty()
+            || candidate.eq_ignore_ascii_case("USER-DEFINED")
+            || !candidate.chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || matches!(ch, '_' | ' ' | '(' | ')' | ',' | '[' | ']')
+            })
+        {
+            return "text".into();
+        }
+        candidate.to_ascii_lowercase()
+    }
+
+    fn parse_simple_select_table(sql: &str) -> Option<EditableSelectTarget> {
+        let normalized = sql.trim().trim_end_matches(';').trim();
+        let lower = normalized.to_ascii_lowercase();
+        if !lower.starts_with("select ") {
+            return None;
+        }
+        for forbidden in [
+            " join ",
+            " group by ",
+            " having ",
+            " union ",
+            " intersect ",
+            " except ",
+            " distinct ",
+            " from (",
+            " with ",
+        ] {
+            if lower.contains(forbidden) {
+                return None;
+            }
+        }
+        let from_index = find_keyword_outside_quotes(normalized, "from")?;
+        let after_from = normalized[from_index + 4..].trim_start();
+        let (table_token, _) = read_identifier_path(after_from)?;
+        let parts = split_identifier_path(&table_token)?;
+        let table = parts.last()?.clone();
+        let schema = if parts.len() >= 2 {
+            Some(parts[parts.len() - 2].clone())
+        } else {
+            None
+        };
+        Some(EditableSelectTarget { schema, table })
     }
 
     fn safe_file_part(value: &str) -> String {
@@ -2124,10 +2584,10 @@ fn mysql_cell_to_json(row: &sqlx::mysql::MySqlRow, index: usize) -> serde_json::
             .unwrap_or_else(|_| serde_json::Value::String("<binary>".into()));
     }
     if let Ok(value) = row.try_get::<i64, _>(index) {
-        return serde_json::json!(value);
+        return safe_json_i64(value);
     }
     if let Ok(value) = row.try_get::<u64, _>(index) {
-        return serde_json::json!(value);
+        return safe_json_u64(value);
     }
     if let Ok(value) = row.try_get::<f64, _>(index) {
         return serde_json::json!(value);
@@ -2168,7 +2628,7 @@ fn postgres_cell_to_json(row: &sqlx::postgres::PgRow, index: usize) -> serde_jso
             .unwrap_or_else(|_| serde_json::Value::String("<binary>".into()));
     }
     if let Ok(value) = row.try_get::<i64, _>(index) {
-        return serde_json::json!(value);
+        return safe_json_i64(value);
     }
     if let Ok(value) = row.try_get::<i32, _>(index) {
         return serde_json::json!(value);
@@ -2189,6 +2649,148 @@ fn postgres_cell_to_json(row: &sqlx::postgres::PgRow, index: usize) -> serde_jso
         return serde_json::Value::String(value.to_string());
     }
     serde_json::Value::String("<unprintable>".into())
+}
+
+fn safe_json_i64(value: i64) -> serde_json::Value {
+    const JS_MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+    const JS_MIN_SAFE_INTEGER: i64 = -9_007_199_254_740_991;
+    if (JS_MIN_SAFE_INTEGER..=JS_MAX_SAFE_INTEGER).contains(&value) {
+        serde_json::json!(value)
+    } else {
+        serde_json::Value::String(value.to_string())
+    }
+}
+
+fn safe_json_u64(value: u64) -> serde_json::Value {
+    const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+    if value <= JS_MAX_SAFE_INTEGER {
+        serde_json::json!(value)
+    } else {
+        serde_json::Value::String(value.to_string())
+    }
+}
+
+struct EditableSelectTarget {
+    schema: Option<String>,
+    table: String,
+}
+
+fn find_keyword_outside_quotes(sql: &str, keyword: &str) -> Option<usize> {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_backtick = false;
+    let bytes = sql.as_bytes();
+    let keyword_bytes = keyword.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let ch = bytes[index] as char;
+        match ch {
+            '\'' if !in_double_quote && !in_backtick => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote && !in_backtick => in_double_quote = !in_double_quote,
+            '`' if !in_single_quote && !in_double_quote => in_backtick = !in_backtick,
+            _ => {}
+        }
+        if !in_single_quote
+            && !in_double_quote
+            && !in_backtick
+            && index + keyword_bytes.len() <= bytes.len()
+            && bytes[index..index + keyword_bytes.len()].eq_ignore_ascii_case(keyword_bytes)
+        {
+            let before_ok = index == 0
+                || !(bytes[index - 1] as char).is_ascii_alphanumeric() && bytes[index - 1] != b'_';
+            let after_index = index + keyword_bytes.len();
+            let after_ok = after_index >= bytes.len()
+                || !(bytes[after_index] as char).is_ascii_alphanumeric()
+                    && bytes[after_index] != b'_';
+            if before_ok && after_ok {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+fn read_identifier_path(input: &str) -> Option<(String, usize)> {
+    let mut token = String::new();
+    let mut consumed = 0;
+    let mut chars = input.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if ch.is_whitespace() {
+            if token.is_empty() {
+                consumed = index + ch.len_utf8();
+                continue;
+            }
+            break;
+        }
+        if matches!(ch, '`' | '"') {
+            token.push(ch);
+            let quote = ch;
+            let mut closed = false;
+            while let Some((_, quoted)) = chars.next() {
+                token.push(quoted);
+                if quoted == quote {
+                    closed = true;
+                    break;
+                }
+            }
+            if !closed {
+                return None;
+            }
+            consumed = index + ch.len_utf8();
+            continue;
+        }
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '$') {
+            token.push(ch);
+            consumed = index + ch.len_utf8();
+            continue;
+        }
+        break;
+    }
+    if token.trim().is_empty() {
+        None
+    } else {
+        Some((token, consumed))
+    }
+}
+
+fn split_identifier_path(token: &str) -> Option<Vec<String>> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = token.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if matches!(ch, '`' | '"') {
+            let quote = ch;
+            let mut quoted = String::new();
+            let mut closed = false;
+            while let Some(inner) = chars.next() {
+                if inner == quote {
+                    closed = true;
+                    break;
+                }
+                quoted.push(inner);
+            }
+            if !closed {
+                return None;
+            }
+            current.push_str(&quoted);
+            continue;
+        }
+        if ch == '.' {
+            if current.trim().is_empty() {
+                return None;
+            }
+            parts.push(current.trim().to_string());
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+    }
+    if current.trim().is_empty() {
+        return None;
+    }
+    parts.push(current.trim().to_string());
+    Some(parts)
 }
 
 fn percent_encode(value: &str) -> String {

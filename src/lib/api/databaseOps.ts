@@ -1,5 +1,7 @@
 import { devApiFetch, hasTauriRuntime, invoke } from "./client";
 import type {
+  DatabaseCellUpdateInput,
+  DatabaseCellUpdateResult,
   DatabaseConnection,
   DatabaseConnectionTestResult,
   DatabaseExportInput,
@@ -79,6 +81,13 @@ export const databaseOpsApi = {
     hasTauriRuntime()
       ? invoke<DatabaseQueryResult[]>("execute_database_sql_batch", { input })
       : devApiFetch<DatabaseQueryResult[]>("/database/sql/batch", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+  updateQueryResultCell: (input: DatabaseCellUpdateInput) =>
+    hasTauriRuntime()
+      ? invoke<DatabaseCellUpdateResult>("update_database_query_result_cell", { input })
+      : devApiFetch<DatabaseCellUpdateResult>("/database/query/cell", {
           method: "POST",
           body: JSON.stringify(input),
         }),

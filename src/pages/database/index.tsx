@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Alert,
   AutoComplete,
@@ -14,6 +14,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tabs,
@@ -91,6 +92,24 @@ interface ModifyColumnFormValues {
   dataType?: string;
   nullable?: boolean;
   defaultValue?: string;
+}
+
+interface EditingSqlCell {
+  resultIndex: number;
+  rowIndex: number;
+  columnName: string;
+  columnType: string;
+  tableName: string;
+  tableSchema?: string | null;
+  primaryKey: Record<string, unknown>;
+  oldValue: unknown;
+  draftValue: string;
+}
+
+interface PendingSqlAutoExecute {
+  connectionKey: string;
+  databaseName?: string;
+  sql: string;
 }
 
 interface AddIndexFormValues {
@@ -786,6 +805,8 @@ export default function DatabasePage() {
   const [queryConnectionKey, setQueryConnectionKey] = useState<string>();
   const [queryDatabaseName, setQueryDatabaseName] = useState<string>();
   const [databaseNames, setDatabaseNames] = useState<string[]>([]);
+  const pendingQueryDatabaseNameRef = useRef<string | undefined>(undefined);
+  const pendingSqlAutoExecuteRef = useRef<PendingSqlAutoExecute | null>(null);
   const [databaseSchema, setDatabaseSchema] = useState<DatabaseSchemaResult | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [objectConnectionKey, setObjectConnectionKey] = useState<string>();
@@ -801,6 +822,8 @@ export default function DatabasePage() {
   const [queryResults, setQueryResults] = useState<DatabaseQueryResult[]>([]);
   const [activeQueryResultKey, setActiveQueryResultKey] = useState("0");
   const [queryLoading, setQueryLoading] = useState(false);
+  const [editingSqlCell, setEditingSqlCell] = useState<EditingSqlCell | null>(null);
+  const [savingSqlCells, setSavingSqlCells] = useState<Record<string, EditingSqlCell>>({});
   const [databaseLoading, setDatabaseLoading] = useState(false);
   const [sqlExecutionStatus, setSqlExecutionStatus] = useState<SqlExecutionStatus>("idle");
   const [sqlExecutionMessage, setSqlExecutionMessage] = useState("等待执行 SQL");
@@ -1062,9 +1085,13 @@ export default function DatabasePage() {
         connectionKey,
       });
       setDatabaseNames(result.databases);
-      const preferred = result.current && result.databases.includes(result.current)
-        ? result.current
-        : result.databases[0];
+      const pendingDatabaseName = pendingQueryDatabaseNameRef.current;
+      pendingQueryDatabaseNameRef.current = undefined;
+      const preferred = pendingDatabaseName && result.databases.includes(pendingDatabaseName)
+        ? pendingDatabaseName
+        : result.current && result.databases.includes(result.current)
+          ? result.current
+          : result.databases[0];
       setQueryDatabaseName(preferred);
       setSqlExecutionStatus("idle");
       setSqlExecutionMessage(
@@ -1350,9 +1377,16 @@ export default function DatabasePage() {
     if (!objectConnectionKey) return;
     const dbType = selectedObjectConnection?.dbType;
     const tableName = tableSqlName(object, dbType);
+    const sql = `SELECT * FROM ${tableName} LIMIT 500;`;
+    pendingQueryDatabaseNameRef.current = objectDatabaseName;
+    pendingSqlAutoExecuteRef.current = {
+      connectionKey: objectConnectionKey,
+      databaseName: objectDatabaseName,
+      sql,
+    };
     setQueryConnectionKey(objectConnectionKey);
     setQueryDatabaseName(objectDatabaseName);
-    setQuerySql(`SELECT * FROM ${tableName} LIMIT 500;`);
+    setQuerySql(sql);
     setActiveTab("sql");
   }
 
@@ -1619,8 +1653,11 @@ export default function DatabasePage() {
     }
   }
 
-  async function executeQuery() {
-    if (!queryConnectionKey) {
+  async function executeQuery(input?: PendingSqlAutoExecute) {
+    const connectionKey = input?.connectionKey ?? queryConnectionKey;
+    const databaseName = input ? input.databaseName : queryDatabaseName;
+    const sql = input?.sql ?? querySql;
+    if (!connectionKey) {
       message.warning("请先选择数据库连接");
       return;
     }
@@ -1631,9 +1668,9 @@ export default function DatabasePage() {
     setSqlExecutionMessage("SQL 执行中...");
     try {
       const results = await databaseOpsApi.executeSqlBatch({
-        connectionKey: queryConnectionKey,
-        databaseName: queryDatabaseName,
-        sql: querySql,
+        connectionKey,
+        databaseName,
+        sql,
         page: 1,
         pageSize: 500,
       });
@@ -1661,6 +1698,22 @@ export default function DatabasePage() {
       setQueryLoading(false);
     }
   }
+
+  useEffect(() => {
+    const pending = pendingSqlAutoExecuteRef.current;
+    if (!pending || activeTab !== "sql" || databaseLoading || queryLoading) {
+      return;
+    }
+    if (
+      queryConnectionKey !== pending.connectionKey
+      || queryDatabaseName !== pending.databaseName
+      || querySql !== pending.sql
+    ) {
+      return;
+    }
+    pendingSqlAutoExecuteRef.current = null;
+    void executeQuery(pending);
+  }, [activeTab, databaseLoading, queryConnectionKey, queryDatabaseName, queryLoading, querySql]);
 
   async function runDatabaseExport() {
     if (!exportConnectionKey || !exportDatabaseName) {
@@ -1956,51 +2009,315 @@ export default function DatabasePage() {
     }
   }
 
-  function renderQueryResult(result: DatabaseQueryResult, index: number) {
-    function renderSqlCellValue(value: unknown) {
-      if (value == null) {
-        return (
-          <Text style={{ color: "#bfbfbf", fontWeight: 600, letterSpacing: 0 }}>
-            (NULL)
-          </Text>
-        );
-      }
-      if (typeof value === "object") {
-        return JSON.stringify(value);
-      }
-      return String(value ?? "");
+  function formatSqlCellDraft(value: unknown) {
+    if (value == null) return "";
+    if (typeof value === "object") {
+      return JSON.stringify(value, null, 2);
     }
+    return String(value);
+  }
 
+  function parseSqlCellDraft(rawValue: string, columnType: string) {
+    const value = rawValue.trim();
+    const normalizedType = columnType.toLowerCase();
+    if (normalizedType.includes("json")) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        throw new Error("JSON 字段必须输入合法 JSON");
+      }
+    }
+    if (
+      /^(tinyint|smallint|int|integer|bigint|decimal|numeric|float|double|real)/i.test(
+        normalizedType,
+      )
+    ) {
+      if (value === "") return "";
+      const numberValue = Number(value);
+      if (!Number.isFinite(numberValue)) {
+        throw new Error("数字字段必须输入有效数字");
+      }
+      return numberValue;
+    }
+    if (normalizedType === "bool" || normalizedType === "boolean") {
+      if (["true", "1", "是", "yes"].includes(value.toLowerCase())) return true;
+      if (["false", "0", "否", "no"].includes(value.toLowerCase())) return false;
+      throw new Error("布尔字段请输入 true/false 或 1/0");
+    }
+    return rawValue;
+  }
+
+  function openSqlCellEditor(
+    result: DatabaseQueryResult,
+    resultIndex: number,
+    row: Record<string, unknown>,
+    rowIndex: number,
+    columnName: string,
+    columnType: string,
+  ) {
+    const editable = result.editable;
+    if (!editable?.enabled || !editable.tableName) {
+      message.info(editable?.reason ?? "当前查询结果不可编辑");
+      return;
+    }
+    if (!editable.editableColumns.includes(columnName)) {
+      message.info("该字段不可直接编辑");
+      return;
+    }
+    const primaryKey: Record<string, unknown> = {};
+    for (const primaryColumn of editable.primaryKeyColumns) {
+      if (!(primaryColumn in row)) {
+        message.warning(`结果缺少主键字段 ${primaryColumn}，无法编辑`);
+        return;
+      }
+      primaryKey[primaryColumn] = row[primaryColumn];
+    }
+    const oldValue = row[columnName];
+    setEditingSqlCell({
+      resultIndex,
+      rowIndex,
+      columnName,
+      columnType,
+      tableName: editable.tableName,
+      tableSchema: editable.tableSchema,
+      primaryKey,
+      oldValue,
+      draftValue: formatSqlCellDraft(oldValue),
+    });
+  }
+
+  function editingSqlCellKey(cell: EditingSqlCell) {
+    return `${cell.resultIndex}:${cell.rowIndex}:${cell.columnName}`;
+  }
+
+  async function saveSqlCellEdit(cell: EditingSqlCell) {
+    if (!queryConnectionKey) return;
+    const cellKey = editingSqlCellKey(cell);
+    if (cell.draftValue === formatSqlCellDraft(cell.oldValue)) {
+      setEditingSqlCell((current) =>
+        current && editingSqlCellKey(current) === cellKey ? null : current,
+      );
+      return;
+    }
+    let newValue: unknown = null;
+    try {
+      newValue = parseSqlCellDraft(cell.draftValue, cell.columnType);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+      return;
+    }
+    setSavingSqlCells((current) => ({ ...current, [cellKey]: cell }));
+    try {
+      const result = await databaseOpsApi.updateQueryResultCell({
+        connectionKey: queryConnectionKey,
+        databaseName: queryDatabaseName,
+        tableName: cell.tableName,
+        tableSchema: cell.tableSchema,
+        primaryKey: cell.primaryKey,
+        columnName: cell.columnName,
+        oldValue: cell.oldValue,
+        newValue,
+      });
+      if (!result.updated) {
+        message.warning(result.message);
+        return;
+      }
+      setQueryResults((current) =>
+        current.map((queryResult, resultIndex) => {
+          if (resultIndex !== cell.resultIndex) return queryResult;
+          return {
+            ...queryResult,
+            rows: queryResult.rows.map((row, rowIndex) =>
+              rowIndex === cell.rowIndex
+                ? { ...row, [cell.columnName]: result.value }
+                : row,
+            ),
+          };
+        }),
+      );
+      message.success(result.message);
+      setEditingSqlCell((current) =>
+        current && editingSqlCellKey(current) === cellKey ? null : current,
+      );
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setSavingSqlCells((current) => {
+        const next = { ...current };
+        delete next[cellKey];
+        return next;
+      });
+    }
+  }
+
+  function renderQueryResult(result: DatabaseQueryResult, index: number) {
     const rows = result.rows.map((row, rowIndex) => ({
       __rowId: `${index}-${result.page}-${rowIndex}`,
+      __resultRowIndex: rowIndex,
       ...row,
     }));
+    const editableReason = result.editable?.reason;
+    function renderSqlCellValue(value: unknown, row: Record<string, unknown>, rowIndex: number, column: string, columnType: string) {
+      const cellKey = `${index}:${rowIndex}:${column}`;
+      const editingCell = editingSqlCell
+        && editingSqlCell.resultIndex === index
+        && editingSqlCell.rowIndex === rowIndex
+        && editingSqlCell.columnName === column
+          ? editingSqlCell
+          : null;
+      const savingCell = savingSqlCells[cellKey] ?? null;
+      const activeCell = editingCell ?? savingCell;
+      if (activeCell) {
+        const isMultiline = typeof activeCell.oldValue === "object" && activeCell.oldValue !== null;
+        const isSaving = Boolean(savingCell);
+        const inputStyle = {
+          minWidth: 120,
+          width: "100%",
+          padding: "0 6px",
+          lineHeight: "24px",
+        };
+        const savingSpinner = isSaving ? (
+          <Spin
+            size="small"
+            style={{
+              position: "absolute",
+              right: -28,
+              top: "50%",
+              transform: "translateY(-50%)",
+              pointerEvents: "none",
+              zIndex: 2,
+            }}
+          />
+        ) : null;
+        const updateDraft = (draftValue: string) =>
+          setEditingSqlCell((current) =>
+            current && editingSqlCellKey(current) === editingSqlCellKey(activeCell)
+              ? { ...current, draftValue }
+              : current,
+          );
+        if (isMultiline) {
+          return (
+            <span style={{ position: "relative", display: "block", width: "100%" }}>
+              <Input.TextArea
+                autoFocus={!isSaving}
+                rows={4}
+                size="small"
+                value={activeCell.draftValue}
+                disabled={isSaving}
+                style={{ ...inputStyle, minWidth: 260, paddingRight: isSaving ? 24 : 6 }}
+                onChange={(event) => updateDraft(event.target.value)}
+                onBlur={() => {
+                  if (!isSaving) void saveSqlCellEdit(activeCell);
+                }}
+                onKeyDown={(event) => {
+                  if (isSaving) return;
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setEditingSqlCell(null);
+                  }
+                }}
+              />
+              {savingSpinner}
+            </span>
+          );
+        }
+        return (
+          <span style={{ position: "relative", display: "block", width: "100%" }}>
+            <Input
+              autoFocus={!isSaving}
+              size="small"
+              value={activeCell.draftValue}
+              disabled={isSaving}
+              style={{ ...inputStyle, paddingRight: isSaving ? 24 : 6 }}
+              onChange={(event) => updateDraft(event.target.value)}
+              onBlur={() => {
+                if (!isSaving) void saveSqlCellEdit(activeCell);
+              }}
+              onPressEnter={(event) => {
+                event.preventDefault();
+                if (!isSaving) void saveSqlCellEdit(activeCell);
+              }}
+              onKeyDown={(event) => {
+                if (isSaving) return;
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setEditingSqlCell(null);
+                }
+              }}
+            />
+            {savingSpinner}
+          </span>
+        );
+      }
+      const content = value == null ? (
+        <Text style={{ color: "#bfbfbf", fontWeight: 600, letterSpacing: 0 }}>
+          (NULL)
+        </Text>
+      ) : typeof value === "object" ? (
+        JSON.stringify(value)
+      ) : (
+        String(value ?? "")
+      );
+      const canEdit = result.editable?.enabled && result.editable.editableColumns.includes(column);
+      if (!canEdit) return content;
+      return (
+        <Tooltip title="点击编辑单元格">
+          <span
+            style={{
+              display: "inline-block",
+              width: "100%",
+              minHeight: 22,
+              cursor: "text",
+              borderBottom: "1px dashed #1677ff",
+            }}
+            onClick={() => openSqlCellEditor(result, index, row, rowIndex, column, columnType)}
+          >
+            {content}
+          </span>
+        </Tooltip>
+      );
+    }
     return (
       <Space direction="vertical" style={{ width: "100%" }} size="small">
         {result.status === "error" ? (
           <Alert showIcon type="error" message={result.message} />
         ) : (
-          <Table
-            rowKey="__rowId"
-            size="small"
-            scroll={{ x: true }}
-            loading={queryLoading}
-            columns={result.columns.map((column, columnIndex) => ({
-              title: (
-                <Space direction="vertical" size={0}>
-                  <Text strong>{column}</Text>
-                  <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
-                    {result.columnTypes?.[columnIndex] || "unknown"}
-                  </Text>
-                </Space>
-              ),
-              dataIndex: column,
-              ellipsis: true,
-              render: renderSqlCellValue,
-            }))}
-            dataSource={rows}
-            pagination={{ pageSize: 20 }}
-          />
+          <>
+            {editableReason && !result.editable?.enabled && result.statementType === "select" && (
+              <Alert showIcon type="info" message={editableReason} />
+            )}
+            <Table
+              rowKey="__rowId"
+              size="small"
+              scroll={{ x: true }}
+              loading={queryLoading}
+              columns={result.columns.map((column, columnIndex) => {
+                const columnType = result.columnTypes?.[columnIndex] || "unknown";
+                return {
+                  title: (
+                    <Space direction="vertical" size={0}>
+                      <Text strong>{column}</Text>
+                      <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
+                        {columnType}
+                      </Text>
+                    </Space>
+                  ),
+                  dataIndex: column,
+                  ellipsis: true,
+                  render: (value: unknown, row: Record<string, unknown>) =>
+                    renderSqlCellValue(
+                      value,
+                      row,
+                      Number(row.__resultRowIndex ?? 0),
+                      column,
+                      columnType,
+                    ),
+                };
+              })}
+              dataSource={rows}
+              pagination={{ pageSize: 20 }}
+            />
+          </>
         )}
         <Text type="secondary">
           状态：{result.status}，语句：{result.statementType.toUpperCase()}，
@@ -2413,7 +2730,7 @@ export default function DatabasePage() {
                       onChange={setQueryDatabaseName}
                     />
                     <Tooltip title="SQL 编辑器聚焦时按 Shift + Enter 执行">
-                      <Button type="primary" loading={queryLoading} onClick={executeQuery}>
+                      <Button type="primary" loading={queryLoading} onClick={() => executeQuery()}>
                         执行 SQL
                       </Button>
                     </Tooltip>

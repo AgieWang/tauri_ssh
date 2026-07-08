@@ -149,11 +149,14 @@ export type {
 } from "./codeReview";
 export type {
   DatabaseAuthType,
+  DatabaseCellUpdateInput,
+  DatabaseCellUpdateResult,
   DatabaseColumnSchema,
   DatabaseConnection,
   DatabaseConnectionMode,
   DatabaseConnectionStatus,
   DatabaseConnectionTestResult,
+  DatabaseEditableQueryMeta,
   DatabaseExportInput,
   DatabaseExportMode,
   DatabaseExportResult,

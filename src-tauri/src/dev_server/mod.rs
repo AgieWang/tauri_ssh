@@ -349,6 +349,10 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             "/dev-api/database/sql/batch",
             post(execute_database_sql_batch),
         )
+        .route(
+            "/dev-api/database/query/cell",
+            post(update_database_query_result_cell),
+        )
         .route("/dev-api/database/export", post(export_database))
         .route("/dev-api/database/redis/scan", post(scan_redis_keys))
         .route(
@@ -7422,6 +7426,16 @@ async fn execute_database_sql_batch(
     let state = app_state(&ctx);
     Ok(Json(
         DatabaseOpsService::execute_sql_batch(&state.db, input).await?,
+    ))
+}
+
+async fn update_database_query_result_cell(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseCellUpdateInput>,
+) -> DevApiResult<crate::models::DatabaseCellUpdateResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::update_query_result_cell(&state.db, input).await?,
     ))
 }
 

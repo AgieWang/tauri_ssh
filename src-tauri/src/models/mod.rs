@@ -1812,6 +1812,7 @@ pub struct DatabaseQueryInput {
 pub struct DatabaseQueryResult {
     pub columns: Vec<String>,
     pub column_types: Vec<String>,
+    pub editable: Option<DatabaseEditableQueryMeta>,
     pub rows: Vec<serde_json::Value>,
     pub row_count: i64,
     pub rows_affected: i64,
@@ -1822,6 +1823,40 @@ pub struct DatabaseQueryResult {
     pub statement_type: String,
     pub status: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseEditableQueryMeta {
+    pub enabled: bool,
+    pub reason: String,
+    pub table_name: Option<String>,
+    pub table_schema: Option<String>,
+    pub primary_key_columns: Vec<String>,
+    pub editable_columns: Vec<String>,
+    pub readonly_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseCellUpdateInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub table_name: String,
+    pub table_schema: Option<String>,
+    pub primary_key: serde_json::Value,
+    pub column_name: String,
+    pub old_value: serde_json::Value,
+    pub new_value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseCellUpdateResult {
+    pub updated: bool,
+    pub rows_affected: i64,
+    pub message: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,10 +1,11 @@
 use crate::error::CommandError;
 use crate::models::{
-    DatabaseConnection, DatabaseConnectionTestResult, DatabaseExportInput, DatabaseExportResult,
-    DatabaseNameListInput, DatabaseNameListResult, DatabaseQueryInput, DatabaseQueryResult,
-    DatabaseSchemaInput, DatabaseSchemaResult, RedisDatabaseListInput, RedisDatabaseListResult,
-    RedisDescribeKeysInput, RedisKeyTreeInput, RedisKeyTreeResult, RedisScanInput, RedisScanResult,
-    RedisValuePreview, RedisValuePreviewInput, UpsertDatabaseConnectionInput,
+    DatabaseCellUpdateInput, DatabaseCellUpdateResult, DatabaseConnection,
+    DatabaseConnectionTestResult, DatabaseExportInput, DatabaseExportResult, DatabaseNameListInput,
+    DatabaseNameListResult, DatabaseQueryInput, DatabaseQueryResult, DatabaseSchemaInput,
+    DatabaseSchemaResult, RedisDatabaseListInput, RedisDatabaseListResult, RedisDescribeKeysInput,
+    RedisKeyTreeInput, RedisKeyTreeResult, RedisScanInput, RedisScanResult, RedisValuePreview,
+    RedisValuePreviewInput, UpsertDatabaseConnectionInput,
 };
 use crate::services::database_ops::DatabaseOpsService;
 use crate::state::AppState;
@@ -88,6 +89,16 @@ pub async fn execute_database_sql_batch(
     input: DatabaseQueryInput,
 ) -> Result<Vec<DatabaseQueryResult>, CommandError> {
     DatabaseOpsService::execute_sql_batch(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn update_database_query_result_cell(
+    state: tauri::State<'_, AppState>,
+    input: DatabaseCellUpdateInput,
+) -> Result<DatabaseCellUpdateResult, CommandError> {
+    DatabaseOpsService::update_query_result_cell(&state.db, input)
         .await
         .map_err(|e| e.into())
 }

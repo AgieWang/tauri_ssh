@@ -71,6 +71,7 @@ export interface DatabaseQueryInput {
 export interface DatabaseQueryResult {
   columns: string[];
   columnTypes: string[];
+  editable?: DatabaseEditableQueryMeta | null;
   rows: Array<Record<string, unknown>>;
   rowCount: number;
   rowsAffected: number;
@@ -81,6 +82,34 @@ export interface DatabaseQueryResult {
   statementType: string;
   status: string;
   message: string;
+}
+
+export interface DatabaseEditableQueryMeta {
+  enabled: boolean;
+  reason: string;
+  tableName?: string | null;
+  tableSchema?: string | null;
+  primaryKeyColumns: string[];
+  editableColumns: string[];
+  readonlyColumns: string[];
+}
+
+export interface DatabaseCellUpdateInput {
+  connectionKey: string;
+  databaseName?: string | null;
+  tableName: string;
+  tableSchema?: string | null;
+  primaryKey: Record<string, unknown>;
+  columnName: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+export interface DatabaseCellUpdateResult {
+  updated: boolean;
+  rowsAffected: number;
+  message: string;
+  value: unknown;
 }
 
 export interface DatabaseNameListInput {

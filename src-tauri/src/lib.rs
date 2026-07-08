@@ -214,6 +214,7 @@ pub fn run() {
             commands::database_ops::list_database_schema,
             commands::database_ops::execute_database_sql,
             commands::database_ops::execute_database_sql_batch,
+            commands::database_ops::update_database_query_result_cell,
             commands::database_ops::export_database,
             commands::database_ops::scan_redis_keys,
             commands::database_ops::describe_redis_keys,
