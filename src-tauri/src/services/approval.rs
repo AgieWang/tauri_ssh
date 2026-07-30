@@ -4,7 +4,6 @@ use crate::models::{
     ApprovalRequest, CreateApprovalRequestInput, DecideApprovalRequestInput,
     ListApprovalRequestsInput,
 };
-use crate::services::system_settings::SystemSettingsService;
 
 pub struct ApprovalService;
 
@@ -23,16 +22,7 @@ impl ApprovalService {
     ) -> Result<ApprovalRequest, AppError> {
         Self::normalize_create(&mut input);
         Self::validate_create(&input)?;
-        let approval = db.create_approval_request(&input)?;
-        if Self::should_auto_approve(db, &approval)? {
-            return db.decide_approval_request(&DecideApprovalRequestInput {
-                id: approval.id,
-                decision: "approved".into(),
-                note: "AI 临时放行已开启，系统自动确认；危险命令黑名单仍不放行。".into(),
-                decided_by: "ai-unrestricted".into(),
-            });
-        }
-        Ok(approval)
+        db.create_approval_request(&input)
     }
 
     pub fn decide(
@@ -124,26 +114,13 @@ impl ApprovalService {
         }
         Ok(())
     }
-
-    fn should_auto_approve(db: &Database, approval: &ApprovalRequest) -> Result<bool, AppError> {
-        if approval.risk == "blocked" {
-            return Ok(false);
-        }
-        if !SystemSettingsService::get_ai_unrestricted_state(db)?.active {
-            return Ok(false);
-        }
-        // AI 放行只绕过人工审批，不绕过危险命令黑名单。
-        if SystemSettingsService::dangerous_command_match(db, &approval.command)?.is_some() {
-            return Ok(false);
-        }
-        Ok(true)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{CreateApprovalRequestInput, EnableAiUnrestrictedInput};
+    use crate::services::system_settings::SystemSettingsService;
 
     fn approval_input(command: &str) -> CreateApprovalRequestInput {
         CreateApprovalRequestInput {
@@ -184,18 +161,49 @@ mod tests {
     }
 
     #[test]
-    fn create_keeps_dangerous_blacklist_command_pending() {
+    fn enabling_ai_unrestricted_auto_approves_all_existing_pending_approvals() {
         let db = Database::init(":memory:").expect("init db");
+        let ordinary = ApprovalService::create(
+            &db,
+            approval_input("UPDATE tmp_org_no_list SET org_no = org_no WHERE 1 = 0"),
+        )
+        .expect("create ordinary approval");
+        let mut blocked_input = approval_input("rm -rf /");
+        blocked_input.risk = "blocked".into();
+        let blocked = ApprovalService::create(&db, blocked_input).expect("create blocked approval");
+        assert_eq!(ordinary.status, "pending");
+        assert_eq!(blocked.status, "pending");
+
         SystemSettingsService::enable_ai_unrestricted_mode(
             &db,
             EnableAiUnrestrictedInput { minutes: Some(30) },
         )
         .expect("enable ai unrestricted");
 
-        let approval =
-            ApprovalService::create(&db, approval_input("rm -rf /")).expect("create approval");
+        for id in [ordinary.id, blocked.id] {
+            let approval = db
+                .get_approval_request(id)
+                .expect("get approval")
+                .expect("approval exists");
+            assert_eq!(approval.status, "approved");
+            assert_eq!(approval.decided_by, "ai-unrestricted");
+        }
+    }
 
-        assert_eq!(approval.status, "pending");
-        assert!(approval.decided_by.is_empty());
+    #[test]
+    fn create_auto_approves_blocked_risk_when_ai_unrestricted_is_active() {
+        let db = Database::init(":memory:").expect("init db");
+        SystemSettingsService::enable_ai_unrestricted_mode(
+            &db,
+            EnableAiUnrestrictedInput { minutes: Some(30) },
+        )
+        .expect("enable ai unrestricted");
+        let mut input = approval_input("rm -rf /");
+        input.risk = "blocked".into();
+
+        let approval = ApprovalService::create(&db, input).expect("create approval");
+
+        assert_eq!(approval.status, "approved");
+        assert_eq!(approval.decided_by, "ai-unrestricted");
     }
 }

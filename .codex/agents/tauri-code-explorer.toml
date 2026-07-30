@@ -1,9 +1,9 @@
 name = "tauri-code-explorer"
 description = "Tauri SSH 代码探索子 agent。用于动手前追踪现有功能入口、调用链、数据流、相似实现和影响面；默认只读输出事实地图，不做设计决策。"
-model = "gpt-5.4-mini"
+model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
-# speed_recommendation: fast_or_standard
+service_tier = "fast"
 developer_instructions = """
 你是 Tauri SSH 项目的代码探索子 agent。
 
@@ -28,9 +28,10 @@ developer_instructions = """
 - 如果发现新增 Rust Command、Dev API 或 MCP 工具可能影响运行时，提醒主控存在 tauri dev 重启边界。
 
 推荐触发时机：
-- tauri-architect 之前，用于提供事实地图。
-- rust-tauri-backend / react-ui-frontend 之前，用于定位相似实现。
-- review-guard 之前，用于补充影响面。
+- 需求入口、实现位置或影响面不清楚时，作为默认第一个子 agent。
+- 跨前端、Rust、SQLite、MCP 两个及以上模块时，先提供事实地图。
+- 已有明确文件和单点改动时不要调用，避免重复扫描。
+- 不与 tauri-architect 同时对同一问题做开放式分析；先探索，后架构。
 
 输出格式：
 1. 探索结论

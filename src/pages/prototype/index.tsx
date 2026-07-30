@@ -3448,21 +3448,46 @@ export function ApprovalPage() {
   const [approvalDetail, setApprovalDetail] = useState<ApprovalRequest | null>(null);
   const [approvalSaving, setApprovalSaving] = useState(false);
   const [approvalForm] = Form.useForm<CreateApprovalRequestInput>();
+  // 只应用最新一次请求的结果，避免筛选切换时旧请求覆盖列表。
+  const approvalRefreshSequenceRef = useRef(0);
+  const approvalForegroundRefreshSequenceRef = useRef(0);
 
-  const loadApprovals = useCallback(async () => {
-    setApprovalLoading(true);
+  const loadApprovals = useCallback(async (showLoading = true) => {
+    const requestSequence = ++approvalRefreshSequenceRef.current;
+    const foregroundSequence = showLoading
+      ? ++approvalForegroundRefreshSequenceRef.current
+      : null;
+    if (showLoading) {
+      setApprovalLoading(true);
+    }
     try {
       const rows = await approvalApi.list({ status: approvalStatus, limit: 200 });
-      setApprovalRows(rows);
+      if (requestSequence === approvalRefreshSequenceRef.current) {
+        setApprovalRows(rows);
+      }
     } catch (error) {
-      message.error(getErrorMessage(error));
+      if (
+        foregroundSequence !== null
+        && foregroundSequence === approvalForegroundRefreshSequenceRef.current
+      ) {
+        message.error(getErrorMessage(error));
+      } else {
+        console.warn("审批队列自动刷新失败", error);
+      }
     } finally {
-      setApprovalLoading(false);
+      if (
+        foregroundSequence !== null
+        && foregroundSequence === approvalForegroundRefreshSequenceRef.current
+      ) {
+        setApprovalLoading(false);
+      }
     }
   }, [approvalStatus]);
 
   useEffect(() => {
     void loadApprovals();
+    const timer = window.setInterval(() => void loadApprovals(false), 5_000);
+    return () => window.clearInterval(timer);
   }, [loadApprovals]);
 
   const statusMeta: Record<string, { color: string; label: string }> = {
@@ -3702,7 +3727,7 @@ export function ApprovalPage() {
                 { value: "expired", label: "已过期" },
               ]}
             />
-            <Button icon={<RefreshCw size={14} />} onClick={loadApprovals} loading={approvalLoading}>刷新</Button>
+            <Button icon={<RefreshCw size={14} />} onClick={() => void loadApprovals()} loading={approvalLoading}>刷新</Button>
             <Button type="primary" onClick={() => setApprovalDrawerOpen(true)}>新建审批请求</Button>
           </Space>
         )}

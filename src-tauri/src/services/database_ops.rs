@@ -1977,7 +1977,7 @@ impl DatabaseOpsService {
         url: &str,
         sql: &str,
     ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{mysql::MySqlPoolOptions, Column, Row, TypeInfo};
+        use sqlx::{mysql::MySqlPoolOptions, Column, Executor, Row, TypeInfo};
 
         let pool = MySqlPoolOptions::new()
             .max_connections(1)
@@ -1985,28 +1985,24 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 MySQL 失败: {}", error)))?;
+        let describe = (&pool)
+            .describe(sql)
+            .await
+            .map_err(|error| AppError::Custom(format!("读取 MySQL 查询列信息失败: {}", error)))?;
+        let columns = describe
+            .columns()
+            .iter()
+            .map(|column| column.name().to_string())
+            .collect::<Vec<_>>();
+        let column_types = describe
+            .columns()
+            .iter()
+            .map(|column| column.type_info().name().to_string())
+            .collect::<Vec<_>>();
         let rows = sqlx::query(sql)
             .fetch_all(&pool)
             .await
             .map_err(|error| AppError::Custom(format!("执行 MySQL 查询失败: {}", error)))?;
-        let columns = rows
-            .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|column| column.name().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let column_types = rows
-            .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|column| column.type_info().name().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         let data = rows
             .iter()
             .map(|row| {
@@ -2182,7 +2178,7 @@ impl DatabaseOpsService {
         url: &str,
         sql: &str,
     ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{postgres::PgPoolOptions, Column, Row, TypeInfo};
+        use sqlx::{postgres::PgPoolOptions, Column, Executor, Row, TypeInfo};
 
         let pool = PgPoolOptions::new()
             .max_connections(1)
@@ -2190,28 +2186,24 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 PostgreSQL 失败: {}", error)))?;
+        let describe = (&pool)
+            .describe(sql)
+            .await
+            .map_err(|error| AppError::Custom(format!("读取 PostgreSQL 查询列信息失败: {}", error)))?;
+        let columns = describe
+            .columns()
+            .iter()
+            .map(|column| column.name().to_string())
+            .collect::<Vec<_>>();
+        let column_types = describe
+            .columns()
+            .iter()
+            .map(|column| column.type_info().name().to_string())
+            .collect::<Vec<_>>();
         let rows = sqlx::query(sql)
             .fetch_all(&pool)
             .await
             .map_err(|error| AppError::Custom(format!("执行 PostgreSQL 查询失败: {}", error)))?;
-        let columns = rows
-            .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|column| column.name().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let column_types = rows
-            .first()
-            .map(|row| {
-                row.columns()
-                    .iter()
-                    .map(|column| column.type_info().name().to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         let data = rows
             .iter()
             .map(|row| {

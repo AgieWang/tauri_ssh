@@ -2,6 +2,7 @@ pub mod schema;
 
 use std::sync::Mutex;
 
+use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::AppError;
@@ -94,6 +95,24 @@ fn map_jenkins_connection_row(row: &Row<'_>) -> rusqlite::Result<JenkinsConnecti
 /// 数据库封装，线程安全
 pub struct Database {
     conn: Mutex<Connection>,
+}
+
+fn ai_unrestricted_is_active(conn: &Connection) -> Result<bool, AppError> {
+    let until = conn
+        .query_row(
+            "SELECT value FROM app_config
+             WHERE key = 'settings.ai_unrestricted_until' AND deleted_at IS NULL",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(until) = until else {
+        return Ok(false);
+    };
+    let Ok(until) = DateTime::parse_from_rfc3339(&until) else {
+        return Ok(false);
+    };
+    Ok(until.with_timezone(&Utc) > Utc::now())
 }
 
 impl Database {
@@ -3644,9 +3663,53 @@ impl Database {
             ],
         )?;
         let id = conn.last_insert_rowid();
+        if ai_unrestricted_is_active(&conn)? {
+            conn.execute(
+                "UPDATE approval_requests
+                 SET status = 'approved',
+                     decision_note = 'AI 临时放行已开启，系统自动确认。',
+                     decided_by = 'ai-unrestricted',
+                     decided_at = datetime('now', 'localtime'),
+                     updated_at = datetime('now', 'localtime')
+                 WHERE id = ?1 AND status = 'pending' AND deleted_at IS NULL",
+                [id],
+            )?;
+        }
         drop(conn);
         self.get_approval_request(id)?
             .ok_or_else(|| AppError::NotFound(format!("审批请求 '{}' 不存在", id)))
+    }
+
+    /// 在同一事务内开启 AI 临时放行，并统一确认当前队列中所有待审批请求。
+    pub fn enable_ai_unrestricted_and_approve_pending(
+        &self,
+        until: &str,
+    ) -> Result<usize, AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let transaction = conn.transaction()?;
+        transaction.execute(
+            "INSERT INTO app_config (key, value, updated_at)
+             VALUES ('settings.ai_unrestricted_until', ?1, datetime('now', 'localtime'))
+             ON CONFLICT(key) DO UPDATE SET
+               value = excluded.value,
+               updated_at = excluded.updated_at",
+            [until],
+        )?;
+        let affected = transaction.execute(
+            "UPDATE approval_requests
+             SET status = 'approved',
+                 decision_note = 'AI 临时放行已开启，系统自动确认。',
+                 decided_by = 'ai-unrestricted',
+                 decided_at = datetime('now', 'localtime'),
+                 updated_at = datetime('now', 'localtime')
+             WHERE status = 'pending' AND deleted_at IS NULL",
+            [],
+        )?;
+        transaction.commit()?;
+        Ok(affected)
     }
 
     pub fn decide_approval_request(

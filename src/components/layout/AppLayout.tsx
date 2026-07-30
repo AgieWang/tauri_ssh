@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Layout, Button, Modal, Tooltip, message, theme as antdTheme } from "antd";
+import { Layout, Button, Modal, Tooltip, message, notification, theme as antdTheme } from "antd";
 import { MenuFoldOutlined, MenuUnfoldOutlined, SettingOutlined, SyncOutlined } from "@ant-design/icons";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -10,8 +10,8 @@ import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { UpdateModal } from "@/components/ui/UpdateModal";
-import { getErrorMessage, hasTauriRuntime, systemApi, systemSettingsApi, updaterApi } from "@/lib/api";
-import type { AiUnrestrictedState } from "@/types";
+import { approvalApi, getErrorMessage, hasTauriRuntime, systemApi, systemSettingsApi, updaterApi } from "@/lib/api";
+import type { AiUnrestrictedState, ApprovalRequest } from "@/types";
 import packageJson from "../../../package.json";
 
 const { Header, Sider, Content } = Layout;
@@ -87,8 +87,8 @@ function AiUnrestrictedButton() {
       okButtonProps: { danger: true },
       content: (
         <div>
-          <p>开启后 30 分钟内，服务器、数据库、Git 等写入审批会自动确认，并保留审批记录。</p>
-          <p>系统设置中的危险命令黑名单仍会在本地强制阻止，不能绕过。</p>
+          <p>开启后会立即确认当前审批队列中的全部待审批项；30 分钟内新建的审批也会自动确认，并保留审批记录。</p>
+          <p>终端服务自身的硬性安全拦截不属于审批队列，仍会在执行前阻止。</p>
         </div>
       ),
       async onOk() {
@@ -120,7 +120,7 @@ function AiUnrestrictedButton() {
   };
 
   return (
-    <Tooltip title={state.active ? "点击关闭 AI 临时放行" : "30 分钟内自动确认写入审批，危险命令仍阻止"}>
+    <Tooltip title={state.active ? "点击关闭 AI 临时放行" : "确认队列中全部待审批项，并在 30 分钟内自动确认新审批"}>
       <Button
         danger={state.active}
         type={state.active ? "primary" : "default"}
@@ -202,13 +202,74 @@ interface AppLayoutProps {
   headerExtra?: ReactNode;
 }
 
+/**
+ * 持续感知待审批队列。首次读取只建立基线，避免应用启动时把历史待办误报为新消息。
+ */
+function ApprovalQueueMonitor({ onOpenQueue }: { onOpenQueue: () => void }) {
+  const knownPendingIdsRef = useRef<Set<number> | null>(null);
+  const refreshingRef = useRef(false);
+
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      if (disposed || refreshingRef.current) {
+        return;
+      }
+      refreshingRef.current = true;
+      try {
+        const pendingRows = await approvalApi.list({ status: "pending", limit: 200 });
+        if (disposed) {
+          return;
+        }
+        const pendingIds = new Set(pendingRows.map((row) => row.id));
+        const knownPendingIds = knownPendingIdsRef.current;
+        knownPendingIdsRef.current = pendingIds;
+        if (knownPendingIds === null) {
+          return;
+        }
+        const newestRows = pendingRows.filter((row) => !knownPendingIds.has(row.id));
+        if (newestRows.length === 0) {
+          return;
+        }
+        const latest = newestRows[0] as ApprovalRequest;
+        notification.warning({
+          key: "new-approval-request",
+          message: newestRows.length === 1 ? "收到新的审批请求" : `收到 ${newestRows.length} 条新的审批请求`,
+          description: latest.summary || latest.reason || latest.action,
+          duration: 0,
+          btn: <Button type="primary" size="small" onClick={onOpenQueue}>前往处理</Button>,
+        });
+      } catch (error) {
+        // 队列监控不能干扰正常页面操作，下一轮自动重试即可。
+        console.warn("审批队列自动刷新失败", error);
+      } finally {
+        refreshingRef.current = false;
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [onOpenQueue]);
+
+  return null;
+}
+
 export function AppLayout({ headerExtra }: AppLayoutProps) {
   const { sidebarCollapsed, toggleSidebar } = useAppStore();
   const { token } = antdTheme.useToken();
   const navigate = useNavigate();
+  const openApprovalQueue = useCallback(() => {
+    notification.destroy("new-approval-request");
+    navigate("/approval");
+  }, [navigate]);
 
   return (
     <Layout style={{ height: "100vh" }}>
+      <ApprovalQueueMonitor onOpenQueue={openApprovalQueue} />
       <Sider
         collapsed={sidebarCollapsed}
         collapsedWidth={60}

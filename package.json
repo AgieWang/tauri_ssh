@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "tauri build --bundles app",
     "mobile:dev": "kill-port 1520 & vite --config vite.mobile.config.ts",
     "mobile:build": "vite --config vite.mobile.config.ts build"
   },

@@ -64,6 +64,10 @@ impl SystemSettingsService {
     ) -> Result<SystemSettings, AppError> {
         normalize(&mut input);
         validate(&input)?;
+        let ai_unrestricted_active = input
+            .ai_unrestricted_until
+            .as_ref()
+            .is_some_and(|until| ai_unrestricted_state_from_until(Some(until.clone())).active);
         db.set_config(KEY_THEME, &input.theme)?;
         db.set_config(KEY_AUTO_UPDATE, bool_text(input.auto_update))?;
         db.set_config(KEY_MCP_ENABLED, bool_text(input.mcp_enabled))?;
@@ -78,10 +82,16 @@ impl SystemSettingsService {
         db.set_config(KEY_PLATFORM, &input.platform)?;
         db.set_config(KEY_CLOSE_BEHAVIOR, &input.close_behavior)?;
         db.set_config(KEY_LANGUAGE, &input.language)?;
-        db.set_config(
-            KEY_AI_UNRESTRICTED_UNTIL,
-            input.ai_unrestricted_until.as_deref().unwrap_or(""),
-        )?;
+        if ai_unrestricted_active {
+            db.enable_ai_unrestricted_and_approve_pending(
+                input.ai_unrestricted_until.as_deref().unwrap_or_default(),
+            )?;
+        } else {
+            db.set_config(
+                KEY_AI_UNRESTRICTED_UNTIL,
+                input.ai_unrestricted_until.as_deref().unwrap_or(""),
+            )?;
+        }
         db.set_config(
             KEY_DANGEROUS_COMMANDS,
             &serde_json::to_string(&input.dangerous_commands)?,
@@ -187,7 +197,7 @@ impl SystemSettingsService {
     ) -> Result<AiUnrestrictedState, AppError> {
         let minutes = input.minutes.unwrap_or(30).clamp(1, 30);
         let until = Utc::now() + Duration::minutes(minutes);
-        db.set_config(KEY_AI_UNRESTRICTED_UNTIL, &until.to_rfc3339())?;
+        db.enable_ai_unrestricted_and_approve_pending(&until.to_rfc3339())?;
         Self::get_ai_unrestricted_state(db)
     }
 
@@ -432,5 +442,59 @@ fn ai_unrestricted_state_from_until(until: Option<String>) -> AiUnrestrictedStat
             None
         },
         remaining_seconds,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{CreateApprovalRequestInput, UpdateSystemSettingsInput};
+
+    #[test]
+    fn update_with_active_ai_unrestricted_until_approves_existing_queue() {
+        let db = Database::init(":memory:").expect("init db");
+        let approval = db
+            .create_approval_request(&CreateApprovalRequestInput {
+                source: "test".into(),
+                requester: "test".into(),
+                server_alias: String::new(),
+                action: "test_action".into(),
+                risk: "blocked".into(),
+                command: "rm -rf /".into(),
+                resource: "test".into(),
+                reason: "test".into(),
+                summary: "test".into(),
+                payload_json: None,
+                expires_at: None,
+            })
+            .expect("create approval");
+        assert_eq!(approval.status, "pending");
+
+        SystemSettingsService::update(
+            &db,
+            UpdateSystemSettingsInput {
+                theme: "system".into(),
+                auto_update: true,
+                mcp_enabled: true,
+                launch_on_startup: false,
+                audit_retention_days: 90,
+                log_level: "info".into(),
+                backup_dir: "backups".into(),
+                database_download_dir: "database-downloads".into(),
+                platform: "macos-windows".into(),
+                close_behavior: "minimize".into(),
+                language: "zh-CN".into(),
+                ai_unrestricted_until: Some((Utc::now() + Duration::minutes(10)).to_rfc3339()),
+                dangerous_commands: default_dangerous_commands(),
+            },
+        )
+        .expect("update system settings");
+
+        let approval = db
+            .get_approval_request(approval.id)
+            .expect("get approval")
+            .expect("approval exists");
+        assert_eq!(approval.status, "approved");
+        assert_eq!(approval.decided_by, "ai-unrestricted");
     }
 }
