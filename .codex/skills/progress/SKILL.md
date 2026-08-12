@@ -1,269 +1,40 @@
 ---
 name: progress
-description: |
-  生成全面的项目进度报告，涵盖 Rust 后端三层架构、React 前端分层、Tauri 配置、代码质量和架构健康度评估。
-
-  触发场景：
-  - 用户想了解项目整体进度和当前状态
-  - 需要一份完整的项目状态快照报告
-  - 需要评估代码质量、架构合规性和开发活跃度
-
-  触发词：进度、progress、报告、状态、概览、overview、项目状态
+description: 用于用户显式调用 /progress、$progress，或明确要求综合 Git、任务、代码和验证证据生成完整项目进度报告；普通“状态/报告/概览”不触发。
 ---
 
-作为项目进度分析助手，综合分析 Tauri 桌面应用项目全貌后，输出结构化的全面进度报告。
+# /progress
 
-> 与 /next 的区别：/progress 是全面的只读报告（当前状态的快照），/next 是精简的下一步建议。
+`/progress` 是只读的全仓进度报告工作流。普通“状态”“报告”“概览”和业务状态字段不会触发。
 
----
+报告结构按需读取 [`references/report-template.md`](references/report-template.md)。
 
-## 第一步：收集项目全貌（并行执行）
+## 证据收集
 
-### 1.1 Git 提交分析
-```bash
-git log -20 --format="%H|%an|%cn|%s" --no-merges
-```
+1. 读取仓库约束、当前分支、`git status -s` 和最近 20 条非合并提交。
+2. 读取活跃任务、项目状态文档和已明确的验收项；任务勾选只作为进度证据之一。
+3. 用 `rg --files` 统计 Rust Commands/Services/Database/Models 与前端 Pages/Components/API/Store，不全量加载源码。
+4. 抽样追踪关键调用链，检查 Command → Service → Database、页面 → API wrapper → invoke 的分层事实。
+5. 读取现有测试、CI、构建或运行时证据；未在当前轮验证的结果标记为历史/未验证。
+6. 只有报告明确需要真实数据库或运行时状态时，才使用相应 MCP/浏览器做只读核验。
 
-### 1.2 Rust 后端扫描（三层架构）
-```
-# Tauri Commands 层
-Grep pattern: "#\[tauri::command\]" path: src-tauri/src/commands/ output_mode: content
-Glob pattern: "src-tauri/src/commands/*.rs"
+## 准确性规则
 
-# Services 业务逻辑层
-Glob pattern: "src-tauri/src/services/*.rs"
+- 只读不写：不改代码、文档、任务勾选、Git 或外部系统。
+- 提交、文件数、测试数不能直接换算为“完成百分比”；百分比只能来自有明确定义分母的任务/验收清单。
+- 构建通过、HTTP 200、MR 合并和任务完成均不等于生产验收，必须分栏呈现。
+- 每个数字注明来源或统计口径；无法验证的判断标为“未知”，不得填充模板值。
+- 风险结论要给出文件、任务、日志、测试或运行时证据。
 
-# Database 数据库层
-Glob pattern: "src-tauri/src/database/*.rs"
+## 输出要求
 
-# Models 数据模型
-Glob pattern: "src-tauri/src/models/*.rs"
+- 结论先行，区分“已实现、已验证、待真实环境验收、被阻塞”。
+- 覆盖开发活动、任务/需求、Rust 后端、React 前端、配置权限、测试质量和风险。
+- 报告末尾最多给三个下一步方向；详细路线建议留给显式 `/next`。
+- 不预估工期，不把陈旧文档当成当前事实。
 
-# 核心文件
-Read src-tauri/src/lib.rs
-Read src-tauri/src/main.rs
+## 不应触发
 
-# 依赖
-Read src-tauri/Cargo.toml
-```
-
-### 1.3 React 前端扫描（分层架构）
-```
-# 页面组件
-Glob pattern: "src/pages/**/*.tsx"
-
-# 可复用组件
-Glob pattern: "src/components/**/*.tsx"
-
-# API 调用层
-Glob pattern: "src/lib/api/*.ts"
-
-# 状态管理（Zustand）
-Glob pattern: "src/store/*.ts"
-
-# 自定义 Hooks
-Glob pattern: "src/hooks/*.ts"
-
-# 路由配置
-Read src/main.tsx
-
-# 依赖
-Read package.json
-```
-
-### 1.4 Tauri 配置扫描
-```
-Read src-tauri/tauri.conf.json
-Glob pattern: "src-tauri/capabilities/*.json"
-```
-
-### 1.5 代码待办扫描
-```
-Grep pattern: "FIXME|TODO|todo!" path: src-tauri/src/ glob: "*.rs" output_mode: count
-Grep pattern: "FIXME|TODO" path: src/ glob: "*.{tsx,ts}" output_mode: count
-```
-
-### 1.6 架构合规检查
-```
-# 检查是否有 Command 直接包含业务逻辑（应该在 Services 层）
-Grep pattern: "fn.*\{[\s\S]{100,}" path: src-tauri/src/commands/ glob: "*.rs" output_mode: count
-
-# 检查前端是否直接使用 invoke（应该封装在 API 层）
-Grep pattern: "invoke\(" path: src/pages/ glob: "*.tsx" output_mode: count
-```
-
----
-
-## 第二步：输出进度报告
-
-```markdown
-# 项目进度报告 - Tauri Desktop App
-
-生成时间: YYYY-MM-DD HH:MM
-
----
-
-## 开发活动概览
-最近 20 次提交分析：
-- 主要贡献者: [列出提交者]
-- 开发重点: [总结最近提交的关键词]
-- 活跃度: [最近 7 天/最近 30 天提交数]
-
----
-
-## 代码模块进度
-
-### Rust 后端（src-tauri/src/）- 三层架构
-
-#### Commands 层（src-tauri/src/commands/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| Tauri Commands | X 个 | 前端可调用的 IPC 接口 |
-| Command 模块文件 | X 个 | *.rs 文件数量 |
-| 架构合规性 | 合规/警告 | Command 是否仅做参数处理（不包含业务逻辑） |
-
-**已实现的 Commands**:
-- [列出所有 #[tauri::command] 函数名]
-
-#### Services 层（src-tauri/src/services/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| Service 模块 | X 个 | 业务逻辑模块 |
-| 代码行数 | ~X 行 | 业务逻辑复杂度 |
-
-#### Database 层（src-tauri/src/database/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| Database 模块 | X 个 | 数据库操作模块 |
-| SQLite 表数量 | X 个 | 通过代码分析推断 |
-
-#### Models 层（src-tauri/src/models/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| 数据模型 | X 个 | Rust struct 定义 |
-| Serde 支持 | X 个 | 支持序列化的模型 |
-
-#### 依赖与插件
-| 类型 | 数量/状态 |
-|------|-----------|
-| Cargo 依赖 | X 个 |
-| Tauri 官方插件 | X 个 (列出名称) |
-| 第三方 crate | X 个 (关键 crate) |
-
----
-
-### React 前端（src/）- 分层架构
-
-#### Pages 层（src/pages/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| 页面组件 | X 个 | 路由级别组件 |
-| React Router 路由 | X 个 | 路由配置数量 |
-
-#### Components 层（src/components/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| 可复用组件 | X 个 | 通用 UI 组件 |
-| Ant Design 组件使用 | X 种 | 使用的 antd 组件类型 |
-
-#### API 层（src/lib/api/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| API 封装模块 | X 个 | Tauri invoke 封装 |
-| 架构合规性 | 合规/警告 | 页面组件是否直接调用 invoke |
-
-#### 状态管理（src/store/）
-| 指标 | 数量 | 说明 |
-|------|------|------|
-| Zustand Store | X 个 | 全局状态存储 |
-
-#### 依赖与技术栈
-| 技术 | 版本/状态 |
-|------|-----------|
-| React | 19.x |
-| TypeScript | 5.8.x |
-| Ant Design | 5.x |
-| TailwindCSS | 4.x |
-| Zustand | X.x |
-| React Router | v7 |
-| Vite | 7.x |
-
----
-
-### Tauri 配置
-
-#### Capabilities 权限声明
-| 指标 | 状态/数量 |
-|------|-----------|
-| Capabilities 文件 | X 个 |
-| 已声明权限总数 | X 项 |
-| 核心权限 | [core:default, opener:default, etc.] |
-
-#### 应用配置
-| 配置项 | 值 |
-|--------|-----|
-| 应用标识 | com.agilefr.tauri |
-| 应用名称 | [从 tauri.conf.json 读取] |
-| 开发端口 | 1420 |
-| 窗口数量 | X 个 |
-
----
-
-## 架构合规性评估
-
-| 检查项 | 状态 | 说明 |
-|--------|------|------|
-| Rust 三层分离 | 合规/警告/问题 | Commands/Services/Database 职责分离 |
-| 前端分层清晰 | 合规/警告/问题 | Pages/Components/API/Store 分层 |
-| IPC 调用封装 | 合规/警告/问题 | 页面组件是否通过 API 层调用 invoke |
-| 权限声明完整 | 合规/警告/问题 | Capabilities 是否覆盖所有插件使用 |
-| 类型安全 | 合规/警告/问题 | TypeScript strict 模式 + Rust Result |
-
----
-
-## 代码质量指标
-
-| 指标 | Rust 后端 | TypeScript 前端 | 说明 |
-|------|-----------|----------------|------|
-| FIXME | X 处 | X 处 | 需要修复的问题 |
-| TODO | X 处 | X 处 | 待实现功能 |
-| 总源文件 | X 个 | X 个 | .rs 和 .tsx/.ts 文件 |
-
----
-
-## 综合健康度评估
-
-### 架构健康度: X/5
-- [根据三层架构合规性、分层清晰度评分]
-
-### 代码完整度: X%
-- [基于 TODO/FIXME 数量、已实现功能比例评估]
-
-### 开发活跃度: 高/中/低
-- [基于最近提交频率评估]
-
-### 潜在风险
-- [列出发现的架构问题、安全隐患、性能瓶颈]
-
----
-
-## 下一步建议
-
-> **详细的下一步开发建议，请运行 `/next` 命令获取**
-
-**快速建议**:
-1. [基于待办事项给出 1-2 条优先建议]
-2. [基于架构合规性给出优化建议]
-```
-
----
-
-## 强制规则
-| 规则 | 说明 |
-|------|------|
-| 不预估时间 | 禁止输出"预计 X 小时/天" |
-| 只读不写 | /progress 只分析不修改文件 |
-| 客观评估 | 给出客观的进度评估，基于代码扫描结果 |
-| 架构优先 | 重点关注三层架构合规性 |
-| 结尾联动 | 报告末尾推荐运行 /next 获取具体下一步 |
-| 数据驱动 | 所有数字和评估都必须基于实际扫描结果 |
+- “接口返回状态是什么”——业务排查，不是项目进度。
+- “给我一份本次改动报告”——输出当前任务总结即可。
+- “更新项目状态文档”——使用显式 `/update-status`。

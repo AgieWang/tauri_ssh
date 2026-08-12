@@ -20,7 +20,16 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { BookOpen, Copy, FilePlus, RefreshCw, RotateCcw, Search, Sparkles, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  Copy,
+  FilePlus,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { aiSkillApi, getErrorMessage } from "@/lib/api";
 import type {
   AiExperience,
@@ -64,14 +73,19 @@ const riskOptions = [
 
 function sourceTag(skill: AiSkill) {
   if (skill.builtin) {
-    return <Tag color={skill.userOverridden ? "gold" : "blue"}>{skill.userOverridden ? "内置已覆盖" : "内置"}</Tag>;
+    return (
+      <Tag color={skill.userOverridden ? "gold" : "blue"}>
+        {skill.userOverridden ? "内置已覆盖" : "内置"}
+      </Tag>
+    );
   }
   return <Tag color="green">用户</Tag>;
 }
 
 function scopeTags(scopes: string[]) {
   return scopes.map((scope) => {
-    const label = scopeOptions.find((item) => item.value === scope)?.label ?? scope;
+    const label =
+      scopeOptions.find((item) => item.value === scope)?.label ?? scope;
     return <Tag key={scope}>{label}</Tag>;
   });
 }
@@ -105,7 +119,11 @@ function runbookStatusTag(status: string) {
     blocked: "已禁止",
     error: "失败",
   };
-  return <Tag color={colorMap[status] ?? "default"}>{labelMap[status] ?? status}</Tag>;
+  return (
+    <Tag color={colorMap[status] ?? "default"}>
+      {labelMap[status] ?? status}
+    </Tag>
+  );
 }
 
 export default function SkillsPage() {
@@ -114,11 +132,15 @@ export default function SkillsPage() {
     <div className="prototype-page">
       <div className="prototype-page-header">
         <div>
-          <Typography.Title level={3} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>
+          <Typography.Title
+            level={3}
+            style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}
+          >
             Skill 管理
           </Typography.Title>
           <Typography.Text type="secondary">
-            管理应用内置与用户自定义 Skill，并注入到终端、SQL、日志、SFTP、MCP 等 AI 交互。
+            管理应用内置与用户自定义 Skill，并注入到终端、SQL、日志、SFTP、MCP
+            等 AI 交互。
           </Typography.Text>
         </div>
       </div>
@@ -143,14 +165,22 @@ function SkillTab() {
   const [showBuiltin, setShowBuiltin] = useState(true);
   const [scope, setScope] = useState<AiSkillScope | undefined>();
   const [items, setItems] = useState<AiSkill[]>([]);
-  const [stats, setStats] = useState({ total: 0, user: 0, builtin: 0, enabled: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    user: 0,
+    builtin: 0,
+    enabled: 0,
+  });
   const [triggerPrompt, setTriggerPrompt] = useState("");
-  const [triggerResult, setTriggerResult] = useState<AiSkillTriggerResult | null>(null);
+  const [triggerResult, setTriggerResult] =
+    useState<AiSkillTriggerResult | null>(null);
   const [triggerLoading, setTriggerLoading] = useState(false);
   const [editing, setEditing] = useState<AiSkill | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [form] = Form.useForm<UpsertAiSkillInput>();
-  const [preview, setPreview] = useState<AiSkillPromptPreviewResult | null>(null);
+  const [preview, setPreview] = useState<AiSkillPromptPreviewResult | null>(
+    null,
+  );
   const [previewLoading, setPreviewLoading] = useState(false);
 
   async function load() {
@@ -272,7 +302,9 @@ function SkillTab() {
     setSyncing(true);
     try {
       const result = await aiSkillApi.syncBuiltin();
-      message.success(`同步完成：扫描 ${result.scanned}，新增 ${result.inserted}，更新 ${result.updated}`);
+      message.success(
+        `同步完成：扫描 ${result.scanned}，新增 ${result.inserted}，更新 ${result.updated}`,
+      );
       await load();
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -301,7 +333,9 @@ function SkillTab() {
 
   const matchMap = useMemo(() => {
     const map = new Map<number, number>();
-    triggerResult?.matches.forEach((item) => map.set(item.skill.id, item.matchedWords.length));
+    triggerResult?.matches.forEach((item) =>
+      map.set(item.skill.id, item.matchedWords.length),
+    );
     return map;
   }, [triggerResult]);
 
@@ -311,7 +345,11 @@ function SkillTab() {
       dataIndex: "name",
       width: 230,
       render: (_, record) => (
-        <Button type="link" style={{ padding: 0 }} onClick={() => openEdit(record)}>
+        <Button
+          type="link"
+          style={{ padding: 0 }}
+          onClick={() => openEdit(record)}
+        >
           {record.name}
         </Button>
       ),
@@ -328,9 +366,13 @@ function SkillTab() {
       render: (_, record) => (
         <Space size={[4, 4]} wrap>
           {record.triggerWords.slice(0, 6).map((word) => (
-            <Tag key={word} style={{ whiteSpace: "nowrap" }}>{word}</Tag>
+            <Tag key={word} style={{ whiteSpace: "nowrap" }}>
+              {word}
+            </Tag>
           ))}
-          {record.triggerWords.length > 6 ? <Tag>+{record.triggerWords.length - 6}</Tag> : null}
+          {record.triggerWords.length > 6 ? (
+            <Tag>+{record.triggerWords.length - 6}</Tag>
+          ) : null}
         </Space>
       ),
     },
@@ -347,15 +389,29 @@ function SkillTab() {
       width: 240,
       render: (_, record) => (
         <Space size={6}>
-          <Button size="small" onClick={() => openEdit(record)}>编辑</Button>
-          <Button size="small" icon={<Copy size={14} />} onClick={() => aiSkillApi.copy(record.id).then(load)}>复制</Button>
+          <Button size="small" onClick={() => openEdit(record)}>
+            编辑
+          </Button>
+          <Button
+            size="small"
+            icon={<Copy size={14} />}
+            onClick={() => aiSkillApi.copy(record.id).then(load)}
+          >
+            复制
+          </Button>
           <Switch
             size="small"
             checked={record.enabled}
-            onChange={(checked) => aiSkillApi.setEnabled(record.id, checked).then(load)}
+            onChange={(checked) =>
+              aiSkillApi.setEnabled(record.id, checked).then(load)
+            }
           />
           {record.builtin ? (
-            <Button size="small" icon={<RotateCcw size={14} />} onClick={() => aiSkillApi.restoreBuiltin(record.id).then(load)} />
+            <Button
+              size="small"
+              icon={<RotateCcw size={14} />}
+              onClick={() => aiSkillApi.restoreBuiltin(record.id).then(load)}
+            />
           ) : (
             <Button
               size="small"
@@ -380,19 +436,34 @@ function SkillTab() {
 
   return (
     <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      <Card size="small" title={<Space><Sparkles size={16} />测试触发</Space>}>
+      <Card
+        size="small"
+        title={
+          <Space>
+            <Sparkles size={16} />
+            测试触发
+          </Space>
+        }
+      >
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            输入运维问题后点击测试，系统会按触发词和作用域计算会注入哪些 Skill；输入停止后也会自动预览。
+            输入运维问题后点击测试，系统会按触发词和作用域计算会注入哪些
+            Skill；输入停止后也会自动预览。
           </Typography.Text>
           <Space.Compact style={{ width: "100%" }}>
             <Input
               value={triggerPrompt}
               onChange={(event) => setTriggerPrompt(event.target.value)}
               onPressEnter={() => runTriggerTest(true)}
-              placeholder={'测试："nginx 502 怎么排查" 或 "docker 容器一直 restarting"'}
+              placeholder={
+                '测试："nginx 502 怎么排查" 或 "docker 容器一直 restarting"'
+              }
             />
-            <Button loading={triggerLoading} type="primary" onClick={() => runTriggerTest(true)}>
+            <Button
+              loading={triggerLoading}
+              type="primary"
+              onClick={() => runTriggerTest(true)}
+            >
               测试触发
             </Button>
             <Button
@@ -410,7 +481,9 @@ function SkillTab() {
             <Typography.Text type="secondary">命中：</Typography.Text>
             <Space size={[6, 6]} wrap>
               {triggerResult.matches.map((item) => (
-                <Tag color="blue" key={item.skill.id}>{item.skill.name} · {item.matchedWords.length}</Tag>
+                <Tag color="blue" key={item.skill.id}>
+                  {item.skill.name} · {item.matchedWords.length}
+                </Tag>
               ))}
             </Space>
           </div>
@@ -418,20 +491,38 @@ function SkillTab() {
         {(triggerResult?.experiences ?? []).length ? (
           <div className="mt-3">
             <Typography.Text type="secondary">经验库命中：</Typography.Text>
-            <Space direction="vertical" size={6} style={{ width: "100%", marginTop: 8 }}>
+            <Space
+              direction="vertical"
+              size={6}
+              style={{ width: "100%", marginTop: 8 }}
+            >
               {(triggerResult?.experiences ?? []).map((item) => (
                 <Card size="small" key={item.experience.id}>
-                  <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                  <Space
+                    direction="vertical"
+                    size={4}
+                    style={{ width: "100%" }}
+                  >
                     <Space wrap>
-                      <Tag color="purple">{item.experience.scenario || "未分类"}</Tag>
-                      <Typography.Text strong>{item.experience.title}</Typography.Text>
-                      <Typography.Text type="secondary">得分 {item.score}</Typography.Text>
+                      <Tag color="purple">
+                        {item.experience.scenario || "未分类"}
+                      </Tag>
+                      <Typography.Text strong>
+                        {item.experience.title}
+                      </Typography.Text>
+                      <Typography.Text type="secondary">
+                        得分 {item.score}
+                      </Typography.Text>
                     </Space>
-                    <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                    <Typography.Paragraph
+                      style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}
+                    >
                       {item.summary || item.experience.solution.slice(0, 220)}
                     </Typography.Paragraph>
                     <Space size={[4, 4]} wrap>
-                      {item.matchedWords.map((word) => <Tag key={word}>{word}</Tag>)}
+                      {item.matchedWords.map((word) => (
+                        <Tag key={word}>{word}</Tag>
+                      ))}
                     </Space>
                   </Space>
                 </Card>
@@ -439,27 +530,70 @@ function SkillTab() {
             </Space>
           </div>
         ) : null}
-        {triggerPrompt.trim() && triggerResult && triggerResult.matches.length === 0 && (triggerResult.experiences ?? []).length === 0 ? (
+        {triggerPrompt.trim() &&
+        triggerResult &&
+        triggerResult.matches.length === 0 &&
+        (triggerResult.experiences ?? []).length === 0 ? (
           <div className="mt-3">
-            <Typography.Text type="secondary">未命中 Skill 或经验。可以检查触发词、作用域筛选、经验场景或是否启用。</Typography.Text>
+            <Typography.Text type="secondary">
+              未命中 Skill
+              或经验。可以检查触发词、作用域筛选、经验场景或是否启用。
+            </Typography.Text>
           </div>
         ) : null}
       </Card>
 
       <Card
         size="small"
-        title={<Space><BookOpen size={16} />技能</Space>}
+        title={
+          <Space>
+            <BookOpen size={16} />
+            技能
+          </Space>
+        }
         extra={
           <Space>
-            <Button size="small" icon={<RefreshCw size={14} />} loading={syncing} onClick={syncBuiltin}>刷新内置</Button>
-            <Button size="small" type="primary" icon={<FilePlus size={14} />} onClick={openCreate}>新建技能</Button>
+            <Button
+              size="small"
+              icon={<RefreshCw size={14} />}
+              loading={syncing}
+              onClick={syncBuiltin}
+            >
+              刷新内置
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              icon={<FilePlus size={14} />}
+              onClick={openCreate}
+            >
+              新建技能
+            </Button>
           </Space>
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
-          <Button size="small" type={source === "all" ? "primary" : "default"} onClick={() => setSource("all")}>全部 {stats.total}</Button>
-          <Button size="small" type={source === "user" ? "primary" : "default"} onClick={() => setSource("user")}>用户 {stats.user}</Button>
-          <Button size="small" type={source === "builtin" ? "primary" : "default"} onClick={() => setSource("builtin")}>内置 {stats.builtin}</Button>
+          <Button
+            size="small"
+            type={source === "all" ? "primary" : "default"}
+            onClick={() => setSource("all")}
+          >
+            全部 {stats.total}
+          </Button>
+          <Button
+            size="small"
+            type={source === "user" ? "primary" : "default"}
+            onClick={() => setSource("user")}
+          >
+            用户 {stats.user}
+          </Button>
+          <Button
+            size="small"
+            type={source === "builtin" ? "primary" : "default"}
+            onClick={() => setSource("builtin")}
+          >
+            内置 {stats.builtin}
+          </Button>
           <Input
             allowClear
             prefix={<Search size={14} />}
@@ -492,7 +626,9 @@ function SkillTab() {
             expandedRowRender: (record) => (
               <Space direction="vertical" size={8}>
                 <div>{scopeTags(record.scopes)}</div>
-                <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                <Typography.Paragraph
+                  style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}
+                >
                   {record.content.slice(0, 600)}
                   {record.content.length > 600 ? "..." : ""}
                 </Typography.Paragraph>
@@ -507,24 +643,51 @@ function SkillTab() {
         width={760}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        extra={<Space><Button onClick={() => setDrawerOpen(false)}>取消</Button><Button type="primary" onClick={saveSkill}>保存</Button></Space>}
+        extra={
+          <Space>
+            <Button onClick={() => setDrawerOpen(false)}>取消</Button>
+            <Button type="primary" onClick={saveSkill}>
+              保存
+            </Button>
+          </Space>
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="id" hidden><Input /></Form.Item>
-          <Form.Item label="来源">
-            <Tag color={editing?.builtin ? "blue" : "green"}>{editing?.builtin ? "内置" : "用户"}</Tag>
-            {editing?.builtin ? <Typography.Text type="secondary"> 内置内容可覆盖，不能删除。</Typography.Text> : null}
+          <Form.Item name="id" hidden>
+            <Input />
           </Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
+          <Form.Item label="来源">
+            <Tag color={editing?.builtin ? "blue" : "green"}>
+              {editing?.builtin ? "内置" : "用户"}
+            </Tag>
+            {editing?.builtin ? (
+              <Typography.Text type="secondary">
+                {" "}
+                内置内容可覆盖，不能删除。
+              </Typography.Text>
+            ) : null}
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, message: "请输入名称" }]}
+          >
             <Input />
           </Form.Item>
           <Form.Item name="skillKey" label="Skill Key">
-            <Input disabled={Boolean(editing?.builtin)} placeholder="留空时按名称自动生成" />
+            <Input
+              disabled={Boolean(editing?.builtin)}
+              placeholder="留空时按名称自动生成"
+            />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input />
           </Form.Item>
-          <Form.Item name="scopes" label="作用域" rules={[{ required: true, message: "请选择作用域" }]}>
+          <Form.Item
+            name="scopes"
+            label="作用域"
+            rules={[{ required: true, message: "请选择作用域" }]}
+          >
             <Select mode="multiple" options={scopeOptions} />
           </Form.Item>
           <Space style={{ width: "100%" }} size={12} align="start">
@@ -534,18 +697,39 @@ function SkillTab() {
             <Form.Item name="enabled" label="启用" valuePropName="checked">
               <Switch />
             </Form.Item>
-            <Form.Item name="allowMcp" label="允许 MCP 使用" valuePropName="checked">
+            <Form.Item
+              name="allowMcp"
+              label="允许 MCP 使用"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
           </Space>
           <Form.Item name="triggerWords" label="触发词">
-            <Select mode="tags" tokenSeparators={[",", "，", "、"]} open={false} placeholder="输入后回车" />
+            <Select
+              mode="tags"
+              tokenSeparators={[",", "，", "、"]}
+              open={false}
+              placeholder="输入后回车"
+            />
           </Form.Item>
           <Form.Item name="tags" label="标签">
-            <Select mode="tags" tokenSeparators={[",", "，", "、"]} open={false} placeholder="输入后回车" />
+            <Select
+              mode="tags"
+              tokenSeparators={[",", "，", "、"]}
+              open={false}
+              placeholder="输入后回车"
+            />
           </Form.Item>
-          <Form.Item name="content" label="Skill 内容" rules={[{ required: true, message: "请输入 Skill 内容" }]}>
-            <Input.TextArea rows={14} style={{ fontFamily: "var(--font-mono)" }} />
+          <Form.Item
+            name="content"
+            label="Skill 内容"
+            rules={[{ required: true, message: "请输入 Skill 内容" }]}
+          >
+            <Input.TextArea
+              rows={14}
+              style={{ fontFamily: "var(--font-mono)" }}
+            />
           </Form.Item>
           <Collapse
             items={[
@@ -554,7 +738,9 @@ function SkillTab() {
                 label: "Prompt 预览",
                 children: (
                   <Space direction="vertical" style={{ width: "100%" }}>
-                    <Button loading={previewLoading} onClick={previewPrompt}>生成预览</Button>
+                    <Button loading={previewLoading} onClick={previewPrompt}>
+                      生成预览
+                    </Button>
                     <Input.TextArea
                       rows={8}
                       readOnly
@@ -595,7 +781,18 @@ function ExperienceTab() {
   }, [keyword]);
 
   function edit(record?: AiExperience) {
-    form.setFieldsValue(record ?? { title: "", symptom: "", cause: "", solution: "", scenario: "", source: "user", tags: [], enabled: true });
+    form.setFieldsValue(
+      record ?? {
+        title: "",
+        symptom: "",
+        cause: "",
+        solution: "",
+        scenario: "",
+        source: "user",
+        tags: [],
+        enabled: true,
+      },
+    );
     setOpen(true);
   }
 
@@ -613,41 +810,99 @@ function ExperienceTab() {
   return (
     <Card
       title="经验库"
-      extra={<Space><Input allowClear prefix={<Search size={14} />} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜经验" /><Button type="primary" onClick={() => edit()}>新建</Button></Space>}
+      extra={
+        <Space>
+          <Input
+            allowClear
+            prefix={<Search size={14} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜经验"
+          />
+          <Button type="primary" onClick={() => edit()}>
+            新建
+          </Button>
+        </Space>
+      }
     >
       <Table
         rowKey="id"
         loading={loading}
         dataSource={items}
-        locale={{ emptyText: <Empty description="还没有经验沉淀。AI 经 MCP recall_experience 工具会查这里；先写几条最近的踩坑记。" /> }}
+        locale={{
+          emptyText: (
+            <Empty description="还没有经验沉淀。AI 经 MCP recall_experience 工具会查这里；先写几条最近的踩坑记。" />
+          ),
+        }}
         columns={[
           { title: "标题", dataIndex: "title" },
           { title: "场景", dataIndex: "scenario", width: 160 },
           { title: "来源", dataIndex: "source", width: 100 },
-          { title: "标签", width: 220, render: (_, record) => record.tags.map((tag) => <Tag key={tag}>{tag}</Tag>) },
+          {
+            title: "标签",
+            width: 220,
+            render: (_, record) =>
+              record.tags.map((tag) => <Tag key={tag}>{tag}</Tag>),
+          },
           { title: "更新时间", dataIndex: "updatedAt", width: 170 },
           {
             title: "操作",
             width: 120,
             render: (_, record) => (
               <Space>
-                <Button size="small" onClick={() => edit(record)}>编辑</Button>
-                <Button size="small" danger onClick={() => aiSkillApi.deleteExperience(record.id).then(load)}>删除</Button>
+                <Button size="small" onClick={() => edit(record)}>
+                  编辑
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() =>
+                    aiSkillApi.deleteExperience(record.id).then(load)
+                  }
+                >
+                  删除
+                </Button>
               </Space>
             ),
           },
         ]}
       />
-      <Drawer title="经验" width={680} open={open} onClose={() => setOpen(false)} extra={<Button type="primary" onClick={save}>保存</Button>}>
+      <Drawer
+        title="经验"
+        width={680}
+        open={open}
+        onClose={() => setOpen(false)}
+        extra={
+          <Button type="primary" onClick={save}>
+            保存
+          </Button>
+        }
+      >
         <Form form={form} layout="vertical">
-          <Form.Item name="id" hidden><Input /></Form.Item>
-          <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="scenario" label="适用场景"><Input /></Form.Item>
-          <Form.Item name="symptom" label="问题现象"><Input.TextArea rows={3} /></Form.Item>
-          <Form.Item name="cause" label="根因"><Input.TextArea rows={3} /></Form.Item>
-          <Form.Item name="solution" label="解决方案"><Input.TextArea rows={5} /></Form.Item>
-          <Form.Item name="tags" label="标签"><Select mode="tags" open={false} /></Form.Item>
-          <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item name="title" label="标题" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="scenario" label="适用场景">
+            <Input />
+          </Form.Item>
+          <Form.Item name="symptom" label="问题现象">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="cause" label="根因">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="solution" label="解决方案">
+            <Input.TextArea rows={5} />
+          </Form.Item>
+          <Form.Item name="tags" label="标签">
+            <Select mode="tags" open={false} />
+          </Form.Item>
+          <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
         </Form>
       </Drawer>
     </Card>
@@ -686,7 +941,15 @@ function RunbookTab() {
         description: "",
         scenario: "",
         tags: [],
-        steps: [{ id: crypto.randomUUID(), title: "", stepType: "note", content: "", riskLevel: "low" }],
+        steps: [
+          {
+            id: crypto.randomUUID(),
+            title: "",
+            stepType: "note",
+            content: "",
+            riskLevel: "low",
+          },
+        ],
         enabled: true,
         allowMcp: false,
       },
@@ -726,28 +989,74 @@ function RunbookTab() {
   return (
     <Card
       title="Runbook"
-      extra={<Space><Input allowClear prefix={<Search size={14} />} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜 Runbook" /><Button type="primary" onClick={() => edit()}>新建</Button></Space>}
+      extra={
+        <Space>
+          <Input
+            allowClear
+            prefix={<Search size={14} />}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜 Runbook"
+          />
+          <Button type="primary" onClick={() => edit()}>
+            新建
+          </Button>
+        </Space>
+      }
     >
       <Table
         rowKey="id"
         loading={loading}
         dataSource={items}
-        locale={{ emptyText: <Empty description="还没有固化的多步操作。可在本页执行，也可通过 MCP run_runbook 调用。" /> }}
+        locale={{
+          emptyText: (
+            <Empty description="还没有固化的多步操作。可在本页执行，也可通过 MCP run_runbook 调用。" />
+          ),
+        }}
         columns={[
           { title: "名称", dataIndex: "name" },
           { title: "场景", dataIndex: "scenario", width: 160 },
-          { title: "步骤", width: 90, render: (_, record) => record.steps.length },
-          { title: "允许 MCP", width: 100, render: (_, record) => (record.allowMcp ? "是" : "否") },
+          {
+            title: "步骤",
+            width: 90,
+            render: (_, record) => record.steps.length,
+          },
+          {
+            title: "允许 MCP",
+            width: 100,
+            render: (_, record) => (record.allowMcp ? "是" : "否"),
+          },
           { title: "更新时间", dataIndex: "updatedAt", width: 170 },
           {
             title: "操作",
             width: 240,
             render: (_, record) => (
               <Space>
-                <Button size="small" loading={runningId === record.id} onClick={() => run(record, true)}>预演</Button>
-                <Button size="small" type="primary" loading={runningId === record.id} onClick={() => run(record, false)}>执行</Button>
-                <Button size="small" onClick={() => edit(record)}>编辑</Button>
-                <Button size="small" danger onClick={() => aiSkillApi.deleteRunbook(record.id).then(load)}>删除</Button>
+                <Button
+                  size="small"
+                  loading={runningId === record.id}
+                  onClick={() => run(record, true)}
+                >
+                  预演
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={runningId === record.id}
+                  onClick={() => run(record, false)}
+                >
+                  执行
+                </Button>
+                <Button size="small" onClick={() => edit(record)}>
+                  编辑
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() => aiSkillApi.deleteRunbook(record.id).then(load)}
+                >
+                  删除
+                </Button>
               </Space>
             ),
           },
@@ -758,14 +1067,20 @@ function RunbookTab() {
         width={920}
         open={runModalOpen}
         onCancel={() => setRunModalOpen(false)}
-        footer={<Button type="primary" onClick={() => setRunModalOpen(false)}>关闭</Button>}
+        footer={
+          <Button type="primary" onClick={() => setRunModalOpen(false)}>
+            关闭
+          </Button>
+        }
       >
         {runResult ? (
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             <Space wrap>
               <Typography.Text strong>{runResult.runbook.name}</Typography.Text>
               {runbookStatusTag(runResult.status)}
-              <Typography.Text type="secondary">{runResult.message}</Typography.Text>
+              <Typography.Text type="secondary">
+                {runResult.message}
+              </Typography.Text>
             </Space>
             <Table
               size="small"
@@ -783,10 +1098,25 @@ function RunbookTab() {
                 { title: "步骤", dataIndex: "title", width: 180 },
                 { title: "类型", dataIndex: "stepType", width: 130 },
                 { title: "风险", dataIndex: "riskLevel", width: 90 },
-                { title: "状态", dataIndex: "status", width: 100, render: (status) => runbookStatusTag(status) },
+                {
+                  title: "状态",
+                  dataIndex: "status",
+                  width: 100,
+                  render: (status) => runbookStatusTag(status),
+                },
                 { title: "说明", dataIndex: "message" },
-                { title: "审批 ID", dataIndex: "approvalId", width: 90, render: (value) => value ?? "-" },
-                { title: "耗时", dataIndex: "durationMs", width: 90, render: (value) => `${value} ms` },
+                {
+                  title: "审批 ID",
+                  dataIndex: "approvalId",
+                  width: 90,
+                  render: (value) => value ?? "-",
+                },
+                {
+                  title: "耗时",
+                  dataIndex: "durationMs",
+                  width: 90,
+                  render: (value) => `${value} ms`,
+                },
               ]}
             />
           </Space>
@@ -794,32 +1124,105 @@ function RunbookTab() {
           <Empty description="暂无执行结果" />
         )}
       </Modal>
-      <Drawer title="Runbook" width={760} open={open} onClose={() => setOpen(false)} extra={<Button type="primary" onClick={save}>保存</Button>}>
+      <Drawer
+        title="Runbook"
+        width={760}
+        open={open}
+        onClose={() => setOpen(false)}
+        extra={
+          <Button type="primary" onClick={save}>
+            保存
+          </Button>
+        }
+      >
         <Form form={form} layout="vertical">
-          <Form.Item name="id" hidden><Input /></Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="描述"><Input /></Form.Item>
-          <Form.Item name="scenario" label="适用场景"><Input /></Form.Item>
-          <Form.Item name="tags" label="标签"><Select mode="tags" open={false} /></Form.Item>
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input />
+          </Form.Item>
+          <Form.Item name="scenario" label="适用场景">
+            <Input />
+          </Form.Item>
+          <Form.Item name="tags" label="标签">
+            <Select mode="tags" open={false} />
+          </Form.Item>
           <Space>
-            <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
-            <Form.Item name="allowMcp" label="允许 MCP 调用" valuePropName="checked"><Switch /></Form.Item>
+            <Form.Item name="enabled" label="启用" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="allowMcp"
+              label="允许 MCP 调用"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
           </Space>
           <Form.List name="steps">
             {(fields, { add, remove }) => (
               <Space direction="vertical" style={{ width: "100%" }}>
-                <Button onClick={() => add({ id: crypto.randomUUID(), title: "", stepType: "note", content: "", riskLevel: "low" } satisfies AiRunbookStep)}>
+                <Button
+                  onClick={() =>
+                    add({
+                      id: crypto.randomUUID(),
+                      title: "",
+                      stepType: "note",
+                      content: "",
+                      riskLevel: "low",
+                    } satisfies AiRunbookStep)
+                  }
+                >
                   添加步骤
                 </Button>
                 {fields.map((field, index) => (
-                  <Card size="small" key={field.key} title={`步骤 ${index + 1}`} extra={<Button danger size="small" onClick={() => remove(field.name)}>删除</Button>}>
-                    <Form.Item name={[field.name, "id"]} hidden><Input /></Form.Item>
-                    <Form.Item name={[field.name, "title"]} label="标题" rules={[{ required: true }]}><Input /></Form.Item>
+                  <Card
+                    size="small"
+                    key={field.key}
+                    title={`步骤 ${index + 1}`}
+                    extra={
+                      <Button
+                        danger
+                        size="small"
+                        onClick={() => remove(field.name)}
+                      >
+                        删除
+                      </Button>
+                    }
+                  >
+                    <Form.Item name={[field.name, "id"]} hidden>
+                      <Input />
+                    </Form.Item>
+                    <Form.Item
+                      name={[field.name, "title"]}
+                      label="标题"
+                      rules={[{ required: true }]}
+                    >
+                      <Input />
+                    </Form.Item>
                     <Space style={{ width: "100%" }} align="start">
-                      <Form.Item name={[field.name, "stepType"]} label="类型" style={{ width: 180 }}><Select options={stepTypeOptions} /></Form.Item>
-                      <Form.Item name={[field.name, "riskLevel"]} label="风险" style={{ width: 140 }}><Select options={riskOptions} /></Form.Item>
+                      <Form.Item
+                        name={[field.name, "stepType"]}
+                        label="类型"
+                        style={{ width: 180 }}
+                      >
+                        <Select options={stepTypeOptions} />
+                      </Form.Item>
+                      <Form.Item
+                        name={[field.name, "riskLevel"]}
+                        label="风险"
+                        style={{ width: 140 }}
+                      >
+                        <Select options={riskOptions} />
+                      </Form.Item>
                     </Space>
-                    <Form.Item name={[field.name, "content"]} label="内容"><Input.TextArea rows={4} /></Form.Item>
+                    <Form.Item name={[field.name, "content"]} label="内容">
+                      <Input.TextArea rows={4} />
+                    </Form.Item>
                   </Card>
                 ))}
               </Space>

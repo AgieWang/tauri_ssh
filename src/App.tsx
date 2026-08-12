@@ -14,8 +14,9 @@ function App() {
   const appTheme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);
   const [resolved, setResolved] = useState<"light" | "dark">(
-    resolveTheme(appTheme)
+    resolveTheme(appTheme),
   );
+  const [startupTasksReady, setStartupTasksReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -55,12 +56,16 @@ function App() {
 
   useEffect(() => {
     const applyInputTextBehavior = () => {
-      document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach((element) => {
-        element.setAttribute("autocapitalize", "none");
-        element.setAttribute("autocorrect", "off");
-        element.setAttribute("autocomplete", "off");
-        element.spellcheck = false;
-      });
+      document
+        .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          "input, textarea",
+        )
+        .forEach((element) => {
+          element.setAttribute("autocapitalize", "none");
+          element.setAttribute("autocorrect", "off");
+          element.setAttribute("autocomplete", "off");
+          element.spellcheck = false;
+        });
     };
 
     applyInputTextBehavior();
@@ -69,12 +74,22 @@ function App() {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    // 更新检查和一次性提示不参与首屏展示，延后挂载以免与工作台数据争用 IPC。
+    const timer = window.setTimeout(() => setStartupTasksReady(true), 1_500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <ConfigProvider locale={zhCN} theme={getAntdTheme(resolved)}>
       <ErrorBoundary>
         <AppRouter />
-        <StartupAutoLaunchPrompt />
-        <StartupUpdateChecker />
+        {startupTasksReady ? (
+          <>
+            <StartupAutoLaunchPrompt />
+            <StartupUpdateChecker />
+          </>
+        ) : null}
       </ErrorBoundary>
     </ConfigProvider>
   );

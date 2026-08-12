@@ -1,6 +1,38 @@
 import { invoke } from "@tauri-apps/api/core";
 
-const DEV_API_BASE_URL = "http://127.0.0.1:17321/dev-api";
+const DEFAULT_DEV_API_BASE_URL = "http://127.0.0.1:17321/dev-api";
+
+/**
+ * 浏览器验收可覆盖本地 API 端口，以便与正在运行的正式版并行；生产构建忽略该变量，
+ * 且仅接受回环 HTTP 地址，避免将 Dev API 请求导向局域网或公网。
+ */
+export function resolveDevApiBaseUrl(value?: string): string {
+  if (!value) {
+    return DEFAULT_DEV_API_BASE_URL;
+  }
+  try {
+    const url = new URL(value);
+    const path = url.pathname.replace(/\/$/, "");
+    if (
+      url.protocol !== "http:" ||
+      !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+      path !== "/dev-api" ||
+      url.search ||
+      url.hash
+    ) {
+      return DEFAULT_DEV_API_BASE_URL;
+    }
+    return `${url.origin}${path}`;
+  } catch {
+    return DEFAULT_DEV_API_BASE_URL;
+  }
+}
+
+export const devApiBaseUrl = resolveDevApiBaseUrl(
+  import.meta.env.DEV
+    ? import.meta.env.VITE_TAURI_SSH_DEV_API_BASE_URL
+    : undefined,
+);
 
 /** 后端结构化错误响应 */
 export interface CommandError {
@@ -73,7 +105,7 @@ export async function devApiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${DEV_API_BASE_URL}${path}`, {
+  const response = await fetch(`${devApiBaseUrl}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",

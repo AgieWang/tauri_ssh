@@ -1,146 +1,107 @@
 ---
 name: bug-detective
 description: |
-  排查已发生的问题、定位 Bug 原因。
+  用于复现已发生的故障、收集证据并定位根因；诊断本身不授权修改代码。
 
   触发场景：
-  - 代码运行报错，需要定位原因
-  - 功能不正常，需要排查
-  - Tauri Command 返回错误，需要分析
-  - 日志分析、调试代码
+  - 功能行为与预期不一致，需要定位根因
+  - Tauri IPC、页面、数据库或远程链路出现运行时故障
+  - 需要结合日志、调用链、数据和部署版本解释问题
+  - 测试或构建失败且原因尚不明确，需要先诊断
 
-  触发词：Bug、报错、不工作、调试、排查、为什么、出问题、失败、不生效、无效、找不到原因、定位问题
+  触发词：故障排查、定位根因、运行时报错、功能不生效、日志分析、调用链排查、复现问题、先诊断不要修改
 ---
 
-# Bug 排查指南
+# Bug 证据化诊断
 
-## 排查方法论
+## 能力边界
 
-### 1. 复现问题
-- 确认问题的具体表现
-- 收集错误信息（终端日志、浏览器控制台、Rust panic 信息）
-- 确认问题的触发条件
-- 确认问题出现在哪个平台（Windows/macOS/Linux）
+本 Skill 的目标是形成可复现、可证伪的根因结论。用户只要求“排查、诊断、解释”时，不修改代码、配置、数据库或外部状态。
 
-### 2. 缩小范围
-- 前端 (React) or 后端 (Rust)？
-- IPC 通信层的问题？
-- 权限 (Capabilities) 不足？
-- 哪个 Command/组件？
-- 什么时候开始出现？
+- 用户明确要求修复后，才进入对应领域 Skill 的实现流程。
+- 实现错误传播、`AppError` 或 `ErrorBoundary` 使用 `error-handler`。
+- 纯 Rust 所有权、借用、生命周期、trait、Send/Sync 编译语义使用 `rust-fundamentals`。
+- 新增或调试测试本身使用 `test-development`。
+- 专用构建 resolver 可用时，纯构建错误优先交给对应 resolver。
 
-### 3. 定位根因
-- 阅读相关 Rust/TypeScript 代码
-- 检查终端日志（Rust println!/log）
-- 检查浏览器 DevTools 控制台
-- 添加 `dbg!()` 宏（Rust）或 `console.log`（TS）
-- 对比正常 vs 异常的数据
+## 诊断原则
 
-### 4. 验证修复
-- 修复后验证问题已解决
-- 在所有目标平台上测试
-- 确认没有引入新问题
+1. 先复现和固定症状，再提出根因。
+2. 区分观察事实、相关性、假设和已证实因果。
+3. 从用户可见现象向下追踪完整链路，不在第一处异常日志停止。
+4. 静态代码、构建通过、HTTP 200 或任务状态都只是证据，不等于运行验收。
+5. 不为方便排查执行破坏性动作，不泄露凭据，不清理其他会话的进程或工作区。
 
----
+## 证据顺序
 
-## 常见问题分类
+### 1. 复现
 
-### Rust 后端常见问题
+- 记录精确操作、输入、环境、时间、预期和实际结果。
+- 保存完整错误文本、堆栈、请求标识与关键日志上下文。
+- 判断是否稳定复现，并建立最小复现路径。
 
-| 症状 | 可能原因 | 排查方法 |
-|------|---------|---------|
-| Command 调用无响应 | 函数名未在 `generate_handler!` 注册 | 检查 `lib.rs` 的 handler 列表 |
-| `invoke` 返回错误 | Rust 侧 panic 或返回 Err | 检查终端 Rust 错误输出 |
-| 类型序列化失败 | struct 缺少 Serialize/Deserialize derive | 添加 `#[derive(Serialize, Deserialize)]` |
-| State 获取失败 | 未在 Builder 中 `.manage()` 注册 | 检查 Builder 链式调用 |
-| 编译错误 | 所有权/借用/生命周期问题 | 阅读 Rust 编译器错误提示 |
-| 插件功能不可用 | Capabilities 未声明权限 | 检查 `capabilities/default.json` |
-| 批量/高频写入时文件名互相覆盖（用 timestamp+纳秒拼名） | Windows 系统时钟分辨率在极短间隔内可能给出相同值，多次调用拼出相同文件名 | 加进程内 `AtomicU64` 计数器拼到文件名末尾：`{ts}_{nanos}_{seq:06}.{ext}` 作为防冲突兜底 |
+### 2. 运行时与日志
 
-### React 前端常见问题
+- 检查浏览器控制台、网络/IPC 结果、Rust 终端和应用日志。
+- 保留第一个异常及其上游输入，避免只看最终包装错误。
+- 核对时间、环境、端口、配置源和启动方式。
 
-| 症状 | 可能原因 | 排查方法 |
-|------|---------|---------|
-| 页面空白 | JS 错误 | 打开 DevTools 控制台 (F12) |
-| invoke 调用报错 | Command 名称拼写错误 | 确认 snake_case 函数名 |
-| 状态不更新 | useState 闭包陷阱 | 使用函数式更新 `setState(prev => ...)` |
-| 事件监听不生效 | 未清理旧监听器 | 在 useEffect 中返回 unlisten |
-| 样式不生效 | CSS 冲突或选择器错误 | 使用 DevTools Elements 面板 |
-| 页内拖拽光标显示 🚫、onDrop 不触发（antd Tree/react-dnd 等） | Tauri 窗口 `dragDropEnabled` 默认 true，WebView 吞掉 HTML5 dragover/drop | `tauri.conf.json` 窗口配置加 `"dragDropEnabled": false`，重启 dev |
-| 右键菜单 Dropdown（`trigger={['contextMenu']}`）包裹节点后 antd Tree 拖不动 | rc-trigger ref 转发 + mousedown 拦截破坏原生 drag 绑定 | 改用 Tree 级 `onRightClick` + 全局定位 Dropdown（幻影锚点） |
-| AntD Modal 编辑/克隆时表单全空（新建正常） | `destroyOnClose` + 在 `open=false` 时 `setFieldsValue`；此时 Form.Item 尚未挂载到 form 实例，赋值丢失 | 用 `key={formKey}` + `initialValues={pendingValues}` 让 Form 每次打开重挂载吃 initialValues，不依赖 setFieldsValue 时序 |
-| VitePress 首页自由 md 内容被夹在中间、外部 CSS 怎么写都改不动 | `index.md` 手写了 `<div class="vp-doc" style="max-width: 960px; ...">` 包裹；inline style 优先级最高，外部选择器 + !important 都压不过 | 直接删掉 `index.md` 里手写的 wrapper，让 VitePress 默认 `.vp-doc.container` 自动处理（和 Hero/Features 宽度对齐） |
-| `@tanstack/react-virtual` 列表一条也不渲染 | 滚动容器只设 `maxHeight` 没给 `height`，又叠了 `contain: strict`（含 `contain: size`），浏览器把容器计算成 0 高度 → virtualizer 算不出可见行 | 去掉 `contain: strict` 或换成 `contain: content`（= layout paint style，不含 size），也可以直接给明确的 `height` |
-| AntD `<Sider>` 的 `style={{display:'flex'}}` 无效、子元素还是纵向堆叠 | AntD Sider 内部把 children 包了一层 `.ant-layout-sider-children` 默认 block 布局，Sider 上的 flex 作用在 aside 外层，不传递到 children | 在 Sider 内包一层自己的 flex `<div style={{display:'flex',height:'100%'}}>` 再放 children |
+### 3. 调用链
 
-### IPC 通信常见问题
+- 前端：页面/组件 -> Hook/Store -> `src/lib/api/`。
+- IPC：`invoke` 名称、参数命名、DTO、Command 注册与返回类型。
+- 后端：Command -> Service -> Database/系统能力。
+- 追踪错误转换、异步边界、状态生命周期与权限检查。
 
-| 症状 | 可能原因 | 排查方法 |
-|------|---------|---------|
-| invoke 超时 | Rust 侧阻塞主线程 | 改用 async Command |
-| 参数传递失败 | 参数类型不匹配 (camelCase vs snake_case) | 检查前后端参数名映射 |
-| 返回值为空 | Rust 函数签名返回 `()` | 确认返回 `Result<T, String>` |
+### 4. 数据与配置
 
-### 开发环境 / 本地脚本常见问题
+- 核对 schema、真实字段类型、可空性、枚举值和历史数据。
+- 涉及 DDL 或数据格式时，读取配置并通过 Tauri SSH MCP 查询真实数据库。
+- 不用样例替代字段说明或真实数据，不对生产数据做试探性写入。
 
-| 症状 | 可能原因 | 排查方法 |
-|------|---------|---------|
-| `curl http://localhost:xxxx/` 返回 502 但服务明明在跑 | 本机设置了 http_proxy/https_proxy，curl 把 localhost 请求也走代理去外网 | 加 `--noproxy '*'`（或 `NO_PROXY=localhost,127.0.0.1`）；Node fetch 同理，用 `{ proxy: false }` |
-| Node.js 脚本 `fs.readFileSync('/tmp/xx.json')` 在 Windows 报 `ENOENT E:\tmp\xx.json` | Node 在 Windows 下把 Unix 路径 `/tmp` 解析成当前盘根 `E:\tmp`（不存在） | 用 `os.tmpdir()` 或放在项目内的相对路径，别硬写 `/tmp` |
-| `pnpm dev` 输出了 `Port 5173 in use, trying 5174`，后续自动化脚本 curl 5173 永远 404 | 上一次 dev 进程未退，Vite 自动换端口 | 读 dev 日志确认实际端口；或 `npx kill-port 5173` 后重启 |
-| Windows 下 `bash -c "set VAR=val && cmd"` 或 `$env:VAR='val'; cmd` 没生效 | Codex 的 Bash 跑在 Git Bash (MSYS2)，用 bash 语法 `export VAR=val && cmd`，不是 CMD/PowerShell | 统一 `export VAR=val && cmd`，或在子进程里用 env: `{}` 传 |
-| Android APK 每个新版本都被系统拦截「与已安装应用签名不同」，必须先卸载旧版才能升级 | CI workflow 没配 `ANDROID_KEYSTORE_BASE64` secret，gradle 用 runner 临时生成的 `debug.keystore` 签名，每次 build 签名都不同 | 本地一次性生成稳定 release keystore + 4 个 secret 注入 CI；workflow 加 `if: env.HAS_KEYSTORE == 'true'` 防 step 静默 skip；用 `apksigner verify --print-certs` 比对 SHA-256 指纹后再发布。详见 `release-publish` skill 移动端章节 |
-| 移动端「检查更新」永远报「已是最新版本」，但下载页确实有新版 | `parseSemver` 没剥 `mobile-` 前缀，`mobile-vX.Y.Z` 经 `replace(/^v/, "")` 不变（以 m 开头）→ 正则不匹配 → 返回 null → `compareSemver` 视为同版本 | 解析前先 `s.replace(/^mobile-/, "").replace(/^v/, "")`；老用户必须从下载页手动拉一次新版才能恢复 |
+### 5. 部署与版本
 
----
+- 核对本地源码、构建产物、运行进程和部署 revision 是否一致。
+- 检查功能开关、Capabilities、环境配置、迁移版本和缓存。
+- 说明证据来自哪个环境，避免把本地结论冒充目标环境事实。
 
-## 调试工具
+### 6. 真实 UI
 
-### Rust 调试
-```rust
-// println! 输出到终端
-println!("Debug: {:?}", variable);
+- 页面问题必须使用 Codex 内置浏览器或 Control Chrome 复现。
+- 同时检查用户可见状态、控制台和真实 API/IPC 数据。
+- 截图只证明某一时刻的显示，不替代交互链路验证。
 
-// dbg! 宏（输出文件名/行号/值）
-dbg!(&my_variable);
+## 假设验证
 
-// 使用 log crate
-log::info!("Processing: {}", data);
-log::error!("Failed: {}", err);
-```
+对每个主要假设写清：
 
-### TypeScript 调试
-```typescript
-// 浏览器控制台
-console.log("invoke result:", result);
-console.error("invoke failed:", error);
+- 支持证据和反证。
+- 最小只读验证动作。
+- 预期观察结果。
+- 若不成立，下一条分支是什么。
 
-// 检查 invoke 调用
-try {
-  const result = await invoke("my_command", { arg1 });
-  console.log("Success:", result);
-} catch (e) {
-  console.error("Failed:", e);
-}
-```
+优先运行能区分多个假设的检查；不要无目标地加日志或同时改变多个变量。
 
-### DevTools 开启
-```
-// 开发模式自动开启 DevTools
-// 生产模式可通过配置开启:
-// tauri.conf.json → app.windows[0].devtools = true
-```
+## 诊断输出
 
----
+结论应包含：
 
-## 常见错误
+1. 症状与复现范围。
+2. 根因结论及置信度。
+3. 端到端证据链和关键文件/数据位置。
+4. 已排除的主要假设及证据。
+5. 影响范围、风险和仍未知内容。
+6. 建议修复方向与验证方式，但不在未授权时实施。
 
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不看 Rust 编译器错误提示 | Rust 编译器提示非常详细，先仔细阅读 |
-| 不区分前端/后端/IPC 问题 | 先确定问题在哪个层，再深入排查 |
-| 不检查 Capabilities | 插件功能不可用时首先检查权限声明 |
-| 只在一个平台测试 | 跨平台问题需在所有目标平台验证 |
-| 在中文路径下编译 Tauri Mobile (Android) | `mobile-tauri/.cargo/config.toml` 设 `target-dir = "C:/cargo-target/<project>"` 强制移到 ASCII 目录（NDK ld.lld 不识别中文） |
-| Mobile 子项目 vite build 报 `Rollup failed to resolve "@/..."` | re-export 链中**不要用 `@/` 别名**，改成相对路径；vite/rollup 在 CI 对 re-export 链的别名解析特别敏感 |
-| 桌面应用内嵌 frpc/easytier 等隧道二进制被杀软误报为木马 | 改为**引导用户自配反向代理**（应用只绑定本地端口） |
+## 按需参考
+
+- 需要按症状快速分流 Tauri、React、IPC、SQLite 或测试问题时，读取 [references/symptom-playbook.md](references/symptom-playbook.md)。
+- 症状符合项目历史上的拖拽、Ant Design、虚拟列表、代理/端口、Windows 或移动端特定模式时，读取 [references/known-failure-patterns.md](references/known-failure-patterns.md)。历史模式只能作为假设，必须用当前运行时证据验证。
+
+## 完成条件
+
+- 症状可复现，或已明确说明无法复现所缺证据。
+- 根因通过至少一项直接证据确认，而非只凭代码猜测。
+- 结论覆盖运行时、调用链、数据/配置和版本中的相关层。
+- 页面故障有真实浏览器证据；数据库问题有真实 schema/数据证据。
+- 未经用户授权没有修改实现或外部状态。

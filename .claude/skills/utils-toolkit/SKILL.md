@@ -1,134 +1,65 @@
 ---
 name: utils-toolkit
 description: |
-  Tauri 项目工具函数和常用 crate 技能，提供 Rust 和 TypeScript 的实用工具集。
+  用于设计跨模块复用的 Rust/TypeScript 工具函数，或评估项目通用 crate 与公共库边界。
 
   触发场景：
-  - 需要常用工具函数
-  - 需要选择合适的 Rust crate
-  - 需要封装通用功能
-  - 需要日期/文件/字符串处理工具
+  - 多个模块重复日期、字符串、路径或格式化逻辑，需要提取公共函数
+  - 设计稳定、可测试的 Rust 或 TypeScript 工具模块 API
+  - 为明确通用能力评估是否引入新 crate 或 npm 包
+  - 重构现有公共工具以减少重复且保持行为一致
 
-  触发词：工具、工具函数、crate、工具类、日期处理、文件处理、字符串处理、通用
+  不应触发：单个函数内的一次性辅助逻辑、应用文件系统功能、普通依赖安装、仅因出现“工具/通用”字样。
+
+  触发词：公共工具函数、共享 utility、utils 模块、crate 选型、日期工具库、字符串工具库、跨模块复用
 ---
 
-# 工具函数与常用 Crate
+# 可复用工具与依赖选择
 
-## Rust 常用 Crate 推荐
+## 适用边界
 
-### 核心 Crate
+本 Skill 只在能力确实会跨模块复用或需要形成稳定公共 API 时使用。单次局部辅助函数优先留在调用模块附近，避免提前抽象。文件系统访问交给 `file-storage`，JSON 契约交给 `json-serialization`，错误模型交给 `error-handler`。
 
-| Crate | 版本 | 用途 | Cargo.toml |
-|-------|------|------|-----------|
-| `serde` | 1.x | 序列化/反序列化 | `serde = { version = "1", features = ["derive"] }` |
-| `serde_json` | 1.x | JSON 处理 | `serde_json = "1"` |
-| `thiserror` | 1.x | 错误类型定义 | `thiserror = "1"` |
-| `anyhow` | 1.x | 简化错误处理 | `anyhow = "1"` |
-| `tokio` | 1.x | 异步运行时 | `tokio = { version = "1", features = ["full"] }` |
-| `log` | 0.4 | 日志接口 | `log = "0.4"` |
+## 提取判断
 
-### 常用功能 Crate
+同时满足下列多数条件再提取：
 
-| Crate | 用途 | 示例 |
-|-------|------|------|
-| `chrono` | 日期时间 | `chrono::Local::now()` |
-| `uuid` | UUID 生成 | `Uuid::new_v4().to_string()` |
-| `reqwest` | HTTP 客户端 | `reqwest::get(url).await?` |
-| `regex` | 正则表达式 | `Regex::new(r"pattern")?` |
-| `dirs` | 系统目录 | `dirs::home_dir()` |
-| `walkdir` | 递归遍历目录 | `WalkDir::new(path)` |
-| `sha2` | 哈希计算 | `Sha256::digest(data)` |
-| `base64` | Base64 编解码 | `base64::encode(data)` |
+- 至少两个真实调用方共享同一语义，而不只是代码外形相似。
+- 输入、输出、错误和边界可以用小型 API 清晰表达。
+- 逻辑与具体页面、Command 或业务实体无强耦合。
+- 能编写独立单元测试，且抽取后没有隐藏全局状态。
 
-### Tauri 插件
+否则保留局部实现，并等待第二个真实用例。
 
-| 插件 | 用途 | 安装 |
-|------|------|------|
-| `tauri-plugin-sql` | SQLite/MySQL/PostgreSQL | `tauri-plugin-sql = "2"` |
-| `tauri-plugin-store` | 键值存储 | `tauri-plugin-store = "2"` |
-| `tauri-plugin-fs` | 文件系统 | `tauri-plugin-fs = "2"` |
-| `tauri-plugin-dialog` | 对话框 | `tauri-plugin-dialog = "2"` |
-| `tauri-plugin-notification` | 系统通知 | `tauri-plugin-notification = "2"` |
-| `tauri-plugin-clipboard-manager` | 剪贴板 | `tauri-plugin-clipboard-manager = "2"` |
-| `tauri-plugin-shell` | 执行系统命令 | `tauri-plugin-shell = "2"` |
-| `tauri-plugin-http` | HTTP 请求 | `tauri-plugin-http = "2"` |
-| `tauri-plugin-updater` | 应用更新 | `tauri-plugin-updater = "2"` |
-| `tauri-plugin-log` | 日志系统 | `tauri-plugin-log = "2"` |
+## 工具函数规则
 
----
+1. 使用明确类型和领域中性的命名，禁止 `any`、魔法默认值和静默吞错。
+2. 纯函数优先；时间、环境、文件、网络等副作用通过参数或专用适配层隔离。
+3. 路径函数返回 `PathBuf`/规范化结果，不手工拼接平台分隔符。
+4. 日期函数明确时区、输入格式和无效值行为。
+5. 字符串工具明确 Unicode、大小写、空白和长度单位。
+6. 公共 API 变更前搜索全部调用方，保持兼容或同步迁移。
 
-## 常用工具函数
+## 依赖选择规则
 
-### Rust 工具函数
+- 先检查 `Cargo.toml`、`package.json` 和现有工具，避免重复能力。
+- 再比较维护状态、许可证、安全记录、平台支持、编译/包体成本和 API 范围。
+- 不为一个简单函数引入大型依赖；也不自行实现密码学、复杂解析等高风险能力。
+- 版本以当前项目和最新文档为准，不照搬 Skill 中的历史版本号。
+- 引入 Tauri 插件时转由 `tauri-plugins` 并联动 Capabilities。
 
-```rust
-// 日期格式化
-use chrono::Local;
-fn now_string() -> String {
-    Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-}
+常见 crate、工具函数模板和测试要点见 [reusable-utilities.md](references/reusable-utilities.md)。
 
-// UUID 生成
-use uuid::Uuid;
-fn new_id() -> String {
-    Uuid::new_v4().to_string()
-}
+## 不应触发示例
 
-// 文件读写
-fn read_json<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
-}
+- “在当前组件写一个仅用一次的 `formatLabel`”。
+- “实现文件导出”——使用 `file-storage`。
+- “修复某个函数报错”——先按具体故障和领域处理。
+- “安装 tauri-plugin-notification”——使用 `tauri-plugins`/`notification-system`。
 
-fn write_json<T: serde::Serialize>(path: &str, data: &T) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
-}
-```
+## 完成条件
 
-### TypeScript 工具函数
-
-```typescript
-import { invoke } from "@tauri-apps/api/core";
-
-// 通用 Command 调用封装
-async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<[T | null, string | null]> {
-  try {
-    const result = await invoke<T>(cmd, args);
-    return [result, null];
-  } catch (e) {
-    return [null, String(e)];
-  }
-}
-
-// 防抖
-function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
-  let timer: ReturnType<typeof setTimeout>;
-  return ((...args: unknown[]) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  }) as T;
-}
-
-// 格式化文件大小
-function formatFileSize(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) {
-    bytes /= 1024;
-    i++;
-  }
-  return `${bytes.toFixed(1)} ${units[i]}`;
-}
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 重新实现已有 crate 的功能 | 先搜索 crates.io 看是否有现成方案 |
-| 使用过大的 crate 只为一个小功能 | 权衡编译时间，考虑轻量替代品 |
-| 不考虑跨平台 | 路径操作用 `std::path::Path`，避免硬编码分隔符 |
-| 前端直接操作系统资源 | 通过 Rust Command 或 Tauri 插件 |
+- 已证明复用需求，公共边界小而明确，不产生循环依赖。
+- 边界值、Unicode/时区/平台差异和错误路径有测试。
+- 新依赖有必要性与成本证据，未复制已有能力。
+- Rust/TypeScript 格式化、聚焦测试、类型检查及 `git diff --check` 通过。

@@ -1,349 +1,81 @@
 ---
 name: database-ops
 description: |
-  Tauri 本地数据库操作技能，使用 rusqlite 进行 SQLite 数据库操作。
+  用于 Tauri Rust 后端通过 rusqlite 设计、迁移、查询和验证本地 SQLite 数据库。
 
   触发场景：
-  - 需要在桌面应用中持久化数据
-  - 需要使用 SQLite 数据库
-  - 需要设计本地数据表结构
-  - 需要执行 CRUD 数据库操作
+  - 修改 src-tauri/src/database/ 下的 SQLite DAO 或查询映射
+  - 新增或升级 PRAGMA user_version Schema 迁移
+  - 设计本地 SQLite 表、索引、事务、软删除或并发访问
+  - 核验数据库 DDL、真实数据格式、迁移兼容性或查询结果
 
-  触发词：数据库、SQLite、SQL、持久化、存储、表、查询、CRUD、数据
+  不应触发：远程 MySQL/PostgreSQL 的普通业务查询、前端状态持久化、业务字段“状态/数据”讨论。
+
+  触发词：rusqlite、SQLite、PRAGMA user_version、schema migration、SQLite DAO、SQLite transaction、本地数据库迁移
 ---
 
-# Tauri 本地数据库操作
+# Tauri 本地 SQLite 操作
 
-## 核心架构
+## 适用边界
 
-本项目采用 **三层架构**，数据库操作在最底层：
+本 Skill 只处理 `src-tauri/src/database/` 中由 `rusqlite` 管理的本地 SQLite。远程数据库连接、业务数据排查或数据库工作台功能，不因为出现“SQL、表、数据、查询”就自动使用本 Skill；它们仍须遵守项目的数据库访问与凭据规则。
 
-```
-┌────────────────────────────────────────────┐
-│  Commands (commands/*.rs)                  │  ← 前端调用
-│    ↓ 调用                                   │
-│  Services (services/*.rs)                  │  ← 业务逻辑
-│    ↓ 调用                                   │
-│  Database (database/mod.rs)                │  ← 数据访问
-│    - Mutex<Connection>                     │
-│    - get_all_config()                      │
-│    - set_config()                          │
-└────────────────────────────────────────────┘
+本项目固定分层：
+
+```text
+Command（IPC 参数与返回）→ Service（业务规则）→ Database（rusqlite/SQL）
 ```
 
----
+- Command 不直接写 SQL。
+- Database 返回 `Result<T, AppError>`，锁失败必须显式转换，禁止 `unwrap()`。
+- SQL 值必须参数化；只有经过白名单校验的表名、列名等标识符才能拼接。
+- 数据库路径通过 Tauri path API 解析，不硬编码用户目录。
 
-## 技术方案：rusqlite (推荐)
+## 开始前必须核验
 
-本项目使用 **rusqlite**（Rust 原生 SQLite 绑定），而非 tauri-plugin-sql。
+1. 阅读 `src-tauri/src/database/mod.rs`、`schema.rs` 及同领域 DAO，确认真实连接、当前 `SCHEMA_VERSION`、软删除和时间字段约定。
+2. DDL 或数据格式会影响实现时，不凭示例推断：读取项目配置和 schema；需要核对外部数据源时，按项目规则通过 Tauri SSH MCP 做只读查询。
+3. 明确旧库版本、目标版本、数据量、唯一约束、空值、时间格式和回滚/恢复路径。
+4. 先确认工作区已有数据库改动，避免覆盖其他会话的迁移编号或未提交 SQL。
 
-### 为什么选择 rusqlite？
+## 实施流程
 
-| 特性 | rusqlite | tauri-plugin-sql |
-|------|----------|------------------|
-| **调用位置** | Rust 后端 | 前端 TypeScript |
-| **类型安全** | 编译时检查 | 运行时检查 |
-| **性能** | 无 IPC 开销 | 每次查询都走 IPC |
-| **事务** | 原生支持 | 复杂场景支持差 |
-| **安全性** | SQL 注入保护完善 | 依赖前端参数化 |
-| **复杂查询** | 任意 SQL | 受插件 API 限制 |
+### Schema 迁移
 
-### 安装依赖
+- 新迁移从当前版本严格递增，不复用、重排或删除历史迁移。
+- 每一步只完成一个明确版本跃迁，并在成功后更新 `user_version`。
+- 多条相互依赖的 DDL/DML 使用事务；升级中断后必须可再次启动或明确失败恢复方式。
+- 迁移前检查 SQLite 版本能力；不能假设生产旧库支持新语法。
+- 详细模式见 [schema-migrations.md](references/schema-migrations.md)。
 
-```toml
-# Cargo.toml
-[dependencies]
-rusqlite = { version = "0.31", features = ["bundled"] }
-```
+### DAO 与事务
 
----
+- 查询显式列名，按列顺序或列名稳定映射；`Option<T>` 必须对应可空列。
+- 遵循目标表现有软删除语义；不能把“所有表都软删除”当作通用规则。
+- 连接使用项目现有 `Mutex<Connection>`、WAL 和 `busy_timeout` 约定。
+- 详情见 [dao-and-transactions.md](references/dao-and-transactions.md)。
 
-## Database 结构设计
+### 真实验证
 
-### 核心模式：`Mutex<Connection>`
+- 至少覆盖新库初始化、当前库升级、相关旧版本升级和失败回滚/重试。
+- 对新增约束、索引和查询执行真实数据格式核验；性能任务还需真实 `EXPLAIN` 与耗时证据。
+- 验证清单见 [database-verification.md](references/database-verification.md)。
 
-```rust
-// src-tauri/src/database/mod.rs
-use std::sync::Mutex;
-use rusqlite::Connection;
-use crate::error::AppError;
+## 高风险数据规则（不得下沉或省略）
 
-pub struct Database {
-    conn: Mutex<Connection>,  // 线程安全的连接
-}
+1. 未获得明确授权，不执行删除、清空、覆盖、不可逆迁移或远程写入。
+2. 写操作前先用只读查询解析精确连接、库、表、条件和影响行数；禁止使用模糊目标、宽泛 glob 或未验证环境变量。
+3. 结构变化必须有升级路径和恢复策略；不能以“本机新库可运行”替代旧库升级验证。
+4. 不输出数据库密码、连接串或凭据；Git、服务器与数据库访问优先使用 Tauri SSH MCP。
+5. 不用拼接用户输入生成 SQL；动态标识符采用固定白名单。
+6. 软删除、审计字段和时间格式必须以目标表现有 DDL/DAO 为准，不凭通用模板强加。
 
-impl Database {
-    /// 初始化数据库（自动迁移）
-    pub fn init(db_path: &str) -> Result<Self, AppError> {
-        let conn = Connection::open(db_path)?;
+发现现有 DAO 吞错、拼接 SQL 或迁移不原子时，单独记录并在本次授权范围内修正或报告，不把风险继续复制到新代码。
 
-        // 启用 WAL 模式提升并发性能
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+## 完成条件
 
-        // 执行 Schema 迁移
-        schema::migrate(&conn)?;
-
-        Ok(Self {
-            conn: Mutex::new(conn),
-        })
-    }
-}
-```
-
----
-
-## Schema 迁移（PRAGMA user_version）
-
-### 迁移模式
-
-```rust
-// src-tauri/src/database/schema.rs
-use rusqlite::Connection;
-use crate::error::AppError;
-
-pub fn migrate(conn: &Connection) -> Result<(), AppError> {
-    let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-
-    if version < 1 {
-        // ────────── 版本 1: 初始化 ──────────
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS app_config (
-                key TEXT PRIMARY KEY NOT NULL,
-                value TEXT NOT NULL,
-                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-                updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
-            );"
-        )?;
-        conn.pragma_update(None, "user_version", 1)?;
-    }
-
-    if version < 2 {
-        // ────────── 版本 2: 新增表 ──────────
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL,
-                created_at DATETIME DEFAULT (datetime('now', 'localtime'))
-            );"
-        )?;
-        conn.pragma_update(None, "user_version", 2)?;
-    }
-
-    Ok(())
-}
-```
-
-### 迁移规则
-
-| 规则 | 说明 |
-|------|------|
-| `PRAGMA user_version` | 当前 Schema 版本号 |
-| `if version < N` | 递增式迁移 |
-| 永久保留 | 不删除旧版本代码 |
-| 幂等性 | 使用 `IF NOT EXISTS` |
-
----
-
-## CRUD 操作模式
-
-### 查询（Read）
-
-```rust
-/// 获取所有配置
-pub fn get_all_config(&self) -> Result<Vec<AppConfig>, AppError> {
-    let conn = self.conn.lock()
-        .map_err(|e| AppError::Custom(e.to_string()))?;
-
-    let mut stmt = conn.prepare("SELECT key, value FROM app_config ORDER BY key")?;
-
-    let configs = stmt
-        .query_map([], |row| {
-            Ok(AppConfig {
-                key: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(configs)
-}
-```
-
-### 单条查询
-
-```rust
-/// 获取单个配置（返回 Option）
-pub fn get_config(&self, key: &str) -> Result<Option<String>, AppError> {
-    let conn = self.conn.lock()
-        .map_err(|e| AppError::Custom(e.to_string()))?;
-
-    let mut stmt = conn.prepare("SELECT value FROM app_config WHERE key = ?1")?;
-
-    let result = stmt
-        .query_row([key], |row| row.get::<_, String>(0))
-        .ok();  // 转换为 Option
-
-    Ok(result)
-}
-```
-
-### Upsert（Insert or Update）
-
-```rust
-/// 设置配置（如存在则更新）
-pub fn set_config(&self, key: &str, value: &str) -> Result<(), AppError> {
-    let conn = self.conn.lock()
-        .map_err(|e| AppError::Custom(e.to_string()))?;
-
-    conn.execute(
-        "INSERT INTO app_config (key, value, updated_at)
-         VALUES (?1, ?2, datetime('now', 'localtime'))
-         ON CONFLICT(key) DO UPDATE SET
-           value = excluded.value,
-           updated_at = excluded.updated_at",
-        [key, value],
-    )?;
-
-    Ok(())
-}
-```
-
-### 删除（Delete）
-
-```rust
-/// 删除配置（返回是否删除成功）
-pub fn delete_config(&self, key: &str) -> Result<bool, AppError> {
-    let conn = self.conn.lock()
-        .map_err(|e| AppError::Custom(e.to_string()))?;
-
-    let affected = conn.execute("DELETE FROM app_config WHERE key = ?1", [key])?;
-    Ok(affected > 0)
-}
-```
-
----
-
-## 调用链示例（三层架构）
-
-### 1. Database 层（数据访问）
-
-```rust
-// database/mod.rs
-impl Database {
-    pub fn get_all_config(&self) -> Result<Vec<AppConfig>, AppError> {
-        // SQL 查询...
-    }
-}
-```
-
-### 2. Service 层（业务逻辑）
-
-```rust
-// services/config_service.rs
-impl ConfigService {
-    pub fn get_all(&self, db: &Database) -> Result<Vec<AppConfig>, AppError> {
-        // 可以在这里添加业务逻辑（如缓存、验证）
-        db.get_all_config()
-    }
-}
-```
-
-### 3. Command 层（IPC 接口）
-
-```rust
-// commands/config.rs
-use tauri::State;
-
-#[tauri::command]
-pub fn get_all_config(db: State<'_, Database>) -> Result<Vec<AppConfig>, String> {
-    db.get_all_config()
-        .map_err(|e| e.to_string())
-}
-```
-
-### 4. 前端调用
-
-```typescript
-// src/lib/api/index.ts
-import { invoke } from "@tauri-apps/api/core";
-
-export const configApi = {
-  getAll: () => invoke<AppConfig[]>("get_all_config"),
-  set: (key: string, value: string) =>
-    invoke<void>("set_config", { key, value }),
-};
-
-// 组件中使用
-const configs = await configApi.getAll();
-```
-
----
-
-## 数据库设计规范
-
-### 建表模板
-
-```sql
-CREATE TABLE IF NOT EXISTS {table_name} (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-
-    -- 业务字段
-    name        TEXT NOT NULL,
-    status      INTEGER DEFAULT 1,  -- 0: 禁用, 1: 正常
-
-    -- 审计字段
-    created_at  DATETIME DEFAULT (datetime('now', 'localtime')),
-    updated_at  DATETIME DEFAULT (datetime('now', 'localtime'))
-);
-```
-
-### SQLite 类型映射
-
-| SQLite 类型 | Rust 类型 | TypeScript 类型 |
-|------------|-----------|----------------|
-| INTEGER | `i32` / `i64` | `number` |
-| TEXT | `String` | `string` |
-| REAL | `f64` | `number` |
-| BOOLEAN | `bool` (存为 0/1) | `boolean` |
-| DATETIME | `String` | `string` |
-| BLOB | `Vec<u8>` | `Uint8Array` |
-
----
-
-## 线程安全与错误处理
-
-### Mutex 安全加锁
-
-```rust
-// ✅ 正确：map_err 转换错误
-let conn = self.conn.lock()
-    .map_err(|e| AppError::Custom(e.to_string()))?;
-
-// ❌ 错误：unwrap 会 panic
-let conn = self.conn.lock().unwrap();  // 永远不要这样做
-```
-
-### SQL 注入防护
-
-```rust
-// ✅ 正确：使用 ? 占位符
-conn.execute("SELECT * FROM users WHERE id = ?1", [id])?;
-
-// ❌ 错误：字符串拼接（SQL 注入风险）
-let sql = format!("SELECT * FROM users WHERE id = {}", id);
-conn.execute(&sql, [])?;
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 在前端直接操作数据库 | 所有数据库操作在 Rust 后端 |
-| 使用 `unwrap()` 处理 Mutex | 使用 `map_err` 转换错误 |
-| 字符串拼接 SQL | 始终使用 `?` 占位符防注入 |
-| 不做数据库迁移 | 使用 `PRAGMA user_version` 管理版本 |
-| 数据库文件用绝对路径 | 使用 `app_data_dir()` 获取路径 |
-| 忘记 WAL 模式 | `pragma_update(None, "journal_mode", "WAL")` |
+- 分层、错误传播、参数化查询和迁移版本链正确。
+- DDL 与 Rust/TypeScript 字段类型已按真实来源对齐。
+- 相关迁移/DAO 测试、`cargo fmt`、聚焦 `cargo test` 或 `cargo check` 通过。
+- 若改变真实查询行为，已核对结果、索引/计划和边界数据。
+- UTF-8 无 BOM，`git diff --check` 通过，未触碰任务外文件。

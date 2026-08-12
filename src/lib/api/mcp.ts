@@ -1,5 +1,9 @@
 import { devApiFetch, hasTauriRuntime, invoke } from "./client";
-import type { ConfigureMcpClientInput, ConfigureMcpClientResult, McpOverview } from "@/types";
+import type {
+  ConfigureMcpClientInput,
+  ConfigureMcpClientResult,
+  McpOverview,
+} from "@/types";
 
 export const mcpApi = {
   overview: () =>

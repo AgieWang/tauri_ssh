@@ -1,117 +1,57 @@
 ---
 name: notification-system
 description: |
-  Tauri 系统通知技能，使用 tauri-plugin-notification 发送原生系统通知。
+  用于通过 tauri-plugin-notification 发送原生桌面通知。
 
   触发场景：
-  - 需要发送系统级通知
-  - 需要在后台任务完成时提醒用户
-  - 需要实现消息提示功能
-  - 需要处理通知的点击和交互
+  - 发送 macOS、Windows 或 Linux 系统通知
+  - 后台任务在应用不聚焦时提醒用户
+  - 配置通知权限、频率、点击行为和 Capabilities
 
-  触发词：通知、notification、提醒、消息、toast、系统通知、桌面通知
+  不应触发：Ant Design message/notification、页面 Toast、表单反馈、Tauri emit/listen 事件。
+
+  触发词：tauri-plugin-notification、系统通知、桌面通知、原生通知、notification permission、sendNotification、NotificationExt
 ---
 
-# Tauri 系统通知
+# Tauri 原生系统通知
 
-## 安装
+## 适用边界
 
-```toml
-# Cargo.toml
-tauri-plugin-notification = "2"
-```
+本 Skill 只处理系统通知中心可见的通知。页面反馈使用 Ant Design，由 `ui-frontend` 处理；进程/窗口通信使用 `tauri-events`。
 
-```bash
-pnpm add @tauri-apps/plugin-notification
-```
+| 需求 | 归属 |
+|---|---|
+| 保存成功、表单错误、页面提示 | `ui-frontend` + Ant Design message/notification |
+| Rust 向前端推送进度 | `tauri-events` |
+| 应用退到后台后提醒任务完成 | 本 Skill |
+| 定时业务提醒且显示在系统通知中心 | 本 Skill |
 
-## 注册插件
+## 强制流程
 
-```rust
-tauri::Builder::default()
-    .plugin(tauri_plugin_notification::init())
-```
+1. 仅对重要、用户可理解且低频的事件使用原生通知。
+2. 读取当前插件注册和 `capabilities/*.json`，使用最小 `notification` 权限。
+3. 发送前检查权限；只在清晰的用户操作中请求，并处理拒绝/不可用。
+4. 锁屏正文不得包含密码、令牌、连接串、敏感路径或业务敏感信息。
+5. 为重复任务设置去重、节流或聚合规则，避免通知风暴。
+6. 通知失败不能阻断核心业务；记录错误并提供应用内反馈。
 
-## Capabilities
+插件注册、权限检查、TypeScript/Rust 发送模式见 [native-notification-patterns.md](references/native-notification-patterns.md)。
 
-```json
-{ "permissions": ["notification:default"] }
-```
+## 平台要求
 
----
+- 浏览器不能证明原生通知可用；需在目标桌面系统验证。
+- 点击或深链只允许白名单目标，并验证未启动、后台和前台状态。
+- 通知遵循 i18n；测试不得向真实用户无限发送。
 
-## TypeScript 使用
+## 不应触发示例
 
-### 基础通知
+- “保存后显示一条 antd message.success”。
+- “页面右上角显示 notification.open”。
+- “Rust emit 进度给 React”。
 
-```typescript
-import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
+## 完成条件
 
-async function notify(title: string, body: string) {
-  let permissionGranted = await isPermissionGranted();
-  if (!permissionGranted) {
-    const permission = await requestPermission();
-    permissionGranted = permission === "granted";
-  }
-
-  if (permissionGranted) {
-    sendNotification({ title, body });
-  }
-}
-
-// 使用
-await notify("任务完成", "文件导出已完成！");
-```
-
----
-
-## Rust 侧发送通知
-
-```rust
-use tauri_plugin_notification::NotificationExt;
-
-#[tauri::command]
-fn send_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-        .map_err(|e| e.to_string())
-}
-```
-
----
-
-## 应用内 Toast 提示
-
-对于不需要系统级通知的简单提示，使用前端 Toast 组件：
-
-```bash
-pnpm add react-hot-toast
-```
-
-```tsx
-import toast, { Toaster } from "react-hot-toast";
-
-function App() {
-  return (
-    <div>
-      <Toaster position="top-right" />
-      <button onClick={() => toast.success("保存成功！")}>保存</button>
-      <button onClick={() => toast.error("操作失败")}>测试错误</button>
-    </div>
-  );
-}
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不检查通知权限 | 先 `isPermissionGranted()` 再发送 |
-| 频繁发送通知打扰用户 | 控制通知频率，重要事项才通知 |
-| 用系统通知做简单提示 | 简单提示用 Toast，重要事项用系统通知 |
-| 通知标题太长 | 标题简短，详情放 body |
+- 插件注册、Capabilities、权限申请与拒绝路径完整。
+- 频率、去重、敏感内容和平台差异已处理。
+- 桌面环境已验证允许、拒绝、前台、后台、失败和页面降级。
+- Rust/TypeScript 格式化、聚焦测试与 `git diff --check` 通过。

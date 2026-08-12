@@ -1,0 +1,179 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]: Tauri SSH
+      - menu [ref=e9]:
+        - menuitem "工作台" [ref=e10] [cursor=pointer]
+        - menuitem "资产" [expanded] [ref=e17] [cursor=pointer]
+        - menu [ref=e22]:
+          - menuitem "服务器" [ref=e23] [cursor=pointer]
+          - menuitem "凭据保险库" [ref=e28] [cursor=pointer]
+        - menuitem "安全" [expanded] [ref=e33] [cursor=pointer]
+        - menu [ref=e39]:
+          - menuitem "概览" [ref=e40] [cursor=pointer]
+          - menuitem "凭证库" [ref=e47] [cursor=pointer]
+          - menuitem "Git 工作区" [ref=e52] [cursor=pointer]
+          - menuitem "代码审核" [ref=e58] [cursor=pointer]
+          - menuitem "会话" [ref=e65] [cursor=pointer]
+          - menuitem "MCP 接入" [ref=e70] [cursor=pointer]
+          - menuitem "审计" [ref=e78] [cursor=pointer]
+          - menuitem "策略" [ref=e83] [cursor=pointer]
+        - menuitem "运维" [expanded] [ref=e86] [cursor=pointer]
+        - menu [ref=e90]:
+          - menuitem "终端 + AI" [ref=e91] [cursor=pointer]
+          - menuitem "日志监听" [ref=e95] [cursor=pointer]
+          - menuitem "SFTP 文件" [ref=e98] [cursor=pointer]
+          - menuitem "数据库管理" [ref=e105] [cursor=pointer]
+          - menuitem "资源监控" [ref=e111] [cursor=pointer]
+          - menuitem "自动部署" [ref=e115] [cursor=pointer]
+          - menuitem "Jenkins" [ref=e122] [cursor=pointer]
+        - menuitem "AI / MCP" [expanded] [ref=e128] [cursor=pointer]
+        - menu [ref=e133]:
+          - menuitem "AI Provider" [ref=e134] [cursor=pointer]
+          - menuitem "MCP Server" [ref=e139] [cursor=pointer]
+          - menuitem "Skill 管理" [ref=e147] [cursor=pointer]
+          - menuitem "团队知识库" [ref=e151] [cursor=pointer]
+          - menuitem "堡垒机会话" [ref=e155] [cursor=pointer]
+        - menuitem "治理" [expanded] [ref=e159] [cursor=pointer]
+        - menu [ref=e164]:
+          - menuitem "审计日志" [ref=e165] [cursor=pointer]
+          - menuitem "审批队列" [ref=e170] [cursor=pointer]
+          - menuitem "系统设置" [ref=e175] [cursor=pointer]
+  - generic [ref=e180]:
+    - banner [ref=e181]:
+      - button [ref=e183] [cursor=pointer]:
+        - img "menu-fold" [ref=e185]
+      - generic [ref=e189]:
+        - button "sync v0.2.5 DEV" [ref=e190] [cursor=pointer]:
+          - img "sync" [ref=e192]
+          - generic [ref=e196]: v0.2.5 DEV
+        - button "AI 放行 关" [ref=e197] [cursor=pointer]:
+          - generic [ref=e202]: AI 放行
+          - generic [ref=e203]: 关
+        - button [ref=e204] [cursor=pointer]
+        - button [ref=e208] [cursor=pointer]:
+          - img "setting" [ref=e210]
+        - generic [ref=e213]:
+          - button "最小化" [ref=e214] [cursor=pointer]
+          - button "最大化" [ref=e216] [cursor=pointer]
+          - button "关闭" [ref=e219] [cursor=pointer]
+    - main [ref=e223]:
+      - generic [ref=e224]:
+        - generic [ref=e225]:
+          - generic [ref=e226]:
+            - heading "工作台" [level=2] [ref=e227]
+            - text: 集中展示真实服务器资产、待审批请求、近期审计、AI Provider 与 MCP Server 状态。
+          - generic [ref=e229]:
+            - button "loading 刷新" [ref=e231]:
+              - img "loading" [ref=e233]
+              - generic [ref=e236]: 刷新
+            - button "新建 SSH 会话" [ref=e238] [cursor=pointer]
+        - generic [ref=e240]:
+          - generic [ref=e242]:
+            - text: 服务器资产
+            - generic [ref=e243]: "0"
+            - text: 0 台启用，0 台在线
+          - generic [ref=e245]:
+            - text: 待审批请求
+            - generic [ref=e246]: "0"
+            - text: 暂无待处理审批
+          - generic [ref=e248]:
+            - text: 近期审计
+            - generic [ref=e249]: "0"
+            - text: 展示最近 10 条操作记录
+          - generic [ref=e251]:
+            - text: AI Provider
+            - generic [ref=e252]: "0"
+            - text: 共 0 个 Provider，MCP 工具 0 个
+        - generic [ref=e253]:
+          - generic [ref=e255]:
+            - generic [ref=e256]: 服务器快捷入口
+            - button "管理服务器" [ref=e258] [cursor=pointer]
+          - generic [ref=e262]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - table:
+                      - rowgroup:
+                        - row "别名 分组 地址 AI 权限 状态 最近连接 操作":
+                          - columnheader "别名"
+                          - columnheader "分组"
+                          - columnheader "地址"
+                          - columnheader "AI 权限"
+                          - columnheader "状态"
+                          - columnheader "最近连接"
+                          - columnheader "操作"
+                      - rowgroup:
+                        - row "暂无数据 暂无数据":
+                          - cell "暂无数据 暂无数据":
+                            - generic:
+                              - generic:
+                                - img "暂无数据"
+                              - generic: 暂无数据
+        - generic [ref=e270]:
+          - generic [ref=e272]:
+            - generic [ref=e273]: 待审批
+            - button "进入审批队列" [ref=e275] [cursor=pointer]
+          - generic [ref=e279]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - table:
+                      - rowgroup:
+                        - row "编号 来源 服务器 动作 风险 摘要 创建时间":
+                          - columnheader "编号"
+                          - columnheader "来源"
+                          - columnheader "服务器"
+                          - columnheader "动作"
+                          - columnheader "风险"
+                          - columnheader "摘要"
+                          - columnheader "创建时间"
+                      - rowgroup:
+                        - row "暂无数据 暂无数据":
+                          - cell "暂无数据 暂无数据":
+                            - generic:
+                              - generic:
+                                - img "暂无数据"
+                              - generic: 暂无数据
+        - generic [ref=e287]:
+          - generic [ref=e289]:
+            - generic [ref=e290]: 近期审计
+            - button "查看审计日志" [ref=e292] [cursor=pointer]
+          - generic [ref=e296]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - table:
+                      - rowgroup:
+                        - row "时间 来源 服务器 动作 结果 摘要":
+                          - columnheader "时间"
+                          - columnheader "来源"
+                          - columnheader "服务器"
+                          - columnheader "动作"
+                          - columnheader "结果"
+                          - columnheader "摘要"
+                      - rowgroup:
+                        - row "暂无数据 暂无数据":
+                          - cell "暂无数据 暂无数据":
+                            - generic:
+                              - generic:
+                                - img "暂无数据"
+                              - generic: 暂无数据
+        - generic [ref=e304]:
+          - generic [ref=e305]: 运行状态
+          - generic [ref=e313]:
+            - generic [ref=e315]:
+              - generic [ref=e316]: MCP Server
+              - generic [ref=e317]: 未加载
+            - generic [ref=e319]:
+              - generic [ref=e320]: Agent 客户端
+              - generic [ref=e321]: 0/0 已配置
+            - generic [ref=e323]:
+              - generic [ref=e324]: 堡垒机会话
+              - generic [ref=e325]: 0 个可用引用
+            - separator [ref=e327]
+            - generic [ref=e328]: 工作台数据来自本机 SQLite 与 Tauri 后端 Command。可从这里快速进入服务器连接、审批处理和审计追踪。
+            - generic [ref=e330]: MCP Server 地址将在后端启动后显示

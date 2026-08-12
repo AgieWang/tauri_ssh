@@ -1,4 +1,4 @@
-import { devApiFetch, hasTauriRuntime, invoke } from "./client";
+import { devApiBaseUrl, devApiFetch, hasTauriRuntime, invoke } from "./client";
 import type {
   TerminalCommandInput,
   TerminalCommandResult,
@@ -9,7 +9,7 @@ import type {
   TerminalSessionWriteInput,
 } from "@/types";
 
-const DEV_TERMINAL_WS_BASE_URL = "ws://127.0.0.1:17321/dev-api/terminal/ws";
+const DEV_TERMINAL_WS_BASE_URL = `${devApiBaseUrl.replace(/^http/, "ws")}/terminal/ws`;
 
 export const terminalApi = {
   execute: (input: TerminalCommandInput) =>

@@ -1,197 +1,47 @@
 ---
 name: tauri-events
 description: |
-  Tauri 事件系统技能,实现前后端双向事件通信。
+  用于实现 Tauri `emit`/`listen`、`Emitter`、`EventTarget`、窗口定向事件和 IPC 进度事件；仅对 Tauri 发布订阅通信触发。
 
-  触发场景:
-  - 需要从 Rust 向前端推送数据
-  - 需要实现实时数据更新
-  - 需要窗口间通信
-  - 需要监听系统事件
+  触发场景：
+  - Rust 使用 `Emitter` 向 WebView 推送进度或状态
+  - 前端使用 Tauri `listen`/`emit` 订阅或发送事件
+  - 在多个 Tauri Window/WebviewWindow 之间定向通信
+  - 设计事件载荷、生命周期、取消订阅和错误传播
 
-  触发词: 事件、event、emit、listen、推送、实时更新、通知、窗口通信
+  触发词：tauri::Emitter、@tauri-apps/api/event、emit_to、EventTarget、Tauri listen、窗口事件、IPC 进度事件、unlisten
 ---
 
-# Tauri 事件系统
+# Tauri 事件通信
 
-## 事件 vs Command
+## 边界
 
-| 特性 | Command (invoke) | Event (emit/listen) |
-|------|-----------------|-------------------|
-| 方向 | 前端 → Rust | 双向(Rust ↔ 前端) |
-| 模式 | 请求-响应 | 发布-订阅 |
-| 场景 | 主动查询/操作 | 被动通知/推送 |
-| 返回值 | 有 | 无(单向广播) |
+本技能处理 Tauri 发布订阅事件。请求—响应接口和类型契约使用 `api-development`；Command 高级注入使用 `tauri-commands`；macOS/Windows 原生桌面通知使用 `notification-system`；普通 React state 更新、Ant Design message 和浏览器 DOM 事件不应触发。
 
----
+## 强制规则
 
-## Rust → 前端(推送数据)
+1. 先确认事件是否必要：需要返回值或明确失败语义时优先 Command；事件用于进度、广播和异步通知。
+2. 事件名使用稳定、可检索的 kebab-case；载荷定义 Rust/TypeScript 对齐的明确类型，禁止 `any`。
+3. Rust `emit` 失败必须传播、记录或按业务语义处理，禁止 `unwrap()` 和静默丢弃。
+4. React 监听必须保存并调用 `unlisten`；处理组件卸载、重复订阅和异步竞态。
+5. 默认使用最窄目标：明确窗口时用定向事件，只有确需所有监听者时才广播。
+6. 载荷视为跨进程输入，涉及敏感信息或外部数据时同时应用 `security-permissions`。
 
-### Rust 发送事件
+## 执行流程
 
-```rust
-use tauri::Emitter;
+1. 定义方向、触发者、接收者、事件名、载荷、频率和结束/取消语义。
+2. 对照现有事件模式与 TypeScript 类型，避免同义事件或不兼容载荷。
+3. 实现发送、订阅、清理、错误与背压/节流；高频事件避免无界广播。
+4. 测试一次、重复、取消、窗口关闭、发送失败和乱序场景。
+5. 页面相关变更使用 Codex 内置浏览器或 Control Chrome 验证实际交互。
 
-// 在 Command 中发送事件
-#[tauri::command]
-async fn start_monitoring(window: tauri::Window) -> Result<(), String> {
-    tokio::spawn(async move {
-        loop {
-            let cpu_usage = get_cpu_usage();
-            window.emit("system-stats", cpu_usage).unwrap();
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    });
-    Ok(())
-}
+## 按需参考
 
-// 在 setup 中发送事件
-fn main() {
-    tauri::Builder::default()
-        .setup(|app| {
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                loop {
-                    handle.emit("heartbeat", "alive").unwrap();
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                }
-            });
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
+需要 Rust/前端双向示例、窗口通信或进度模式时读取 [references/event-patterns.md](references/event-patterns.md)。不要为普通通知或状态更新加载该长参考。
 
-### 前端监听事件
+## 完成条件
 
-```typescript
-import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
-
-function SystemMonitor() {
-  const [cpuUsage, setCpuUsage] = useState(0);
-
-  useEffect(() => {
-    const setupListener = async () => {
-      const unlisten = await listen<number>("system-stats", (event) => {
-        setCpuUsage(event.payload);
-      });
-
-      // 清理监听器
-      return unlisten;
-    };
-
-    let cleanup: (() => void) | undefined;
-    setupListener().then(fn => { cleanup = fn; });
-
-    return () => { cleanup?.(); };
-  }, []);
-
-  return <div>CPU: {cpuUsage}%</div>;
-}
-```
-
----
-
-## 前端 → Rust(发送事件)
-
-```typescript
-import { emit } from "@tauri-apps/api/event";
-
-// 前端发送
-await emit("user-action", { action: "click", target: "button" });
-```
-
-```rust
-use tauri::Listener;
-
-// Rust 监听
-fn main() {
-    tauri::Builder::default()
-        .setup(|app| {
-            app.listen("user-action", |event| {
-                println!("收到前端事件: {:?}", event.payload());
-            });
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error");
-}
-```
-
----
-
-## 窗口间通信
-
-```typescript
-// 窗口 A 发送
-import { emit } from "@tauri-apps/api/event";
-await emit("data-updated", { id: 1, name: "new" });
-
-// 窗口 B 监听
-import { listen } from "@tauri-apps/api/event";
-const unlisten = await listen("data-updated", (event) => {
-  console.log("数据更新:", event.payload);
-  refreshData();
-});
-```
-
----
-
-## 进度回报模式
-
-```rust
-#[tauri::command]
-async fn process_files(window: tauri::Window, paths: Vec<String>) -> Result<(), String> {
-    let total = paths.len();
-    for (i, path) in paths.iter().enumerate() {
-        // 处理文件...
-        process_file(path).map_err(|e| e.to_string())?;
-
-        // 回报进度
-        window.emit("progress", serde_json::json!({
-            "current": i + 1,
-            "total": total,
-            "file": path,
-        })).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-```
-
-```tsx
-function FileProcessor() {
-  const [progress, setProgress] = useState({ current: 0, total: 0, file: "" });
-
-  async function startProcessing(paths: string[]) {
-    const unlisten = await listen<{ current: number; total: number; file: string }>(
-      "progress", (e) => setProgress(e.payload)
-    );
-
-    try {
-      await invoke("process_files", { paths });
-    } finally {
-      unlisten();
-    }
-  }
-
-  return (
-    <div>
-      <progress value={progress.current} max={progress.total} />
-      <p>{progress.current}/{progress.total} - {progress.file}</p>
-    </div>
-  );
-}
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不清理事件监听器 | 在 useEffect cleanup 中调用 unlisten |
-| 用 Command 轮询数据 | 用事件从 Rust 推送数据 |
-| 事件名拼写不一致 | 定义常量统一管理事件名 |
-| 不处理事件 payload 类型 | 使用泛型 `listen<T>()` 声明类型 |
+- 事件边界、类型、目标和生命周期明确。
+- 无 `unwrap()`、泄漏监听器、重复订阅或敏感载荷泄露。
+- Rust/TypeScript 检查、聚焦测试、构建及真实页面/窗口验证通过。
+- UTF-8 无 BOM，`git diff --check` 通过。

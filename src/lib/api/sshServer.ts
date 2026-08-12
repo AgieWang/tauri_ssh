@@ -27,7 +27,9 @@ export const sshServerApi = {
         }),
   importSshConfig: (path?: string | null) =>
     hasTauriRuntime()
-      ? invoke<SshConfigImportResult>("import_ssh_config", { path: path ?? null })
+      ? invoke<SshConfigImportResult>("import_ssh_config", {
+          path: path ?? null,
+        })
       : devApiFetch<SshConfigImportResult>("/ssh-servers/import", {
           method: "POST",
           body: JSON.stringify(path ?? null),

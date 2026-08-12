@@ -1,7 +1,26 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Layout, Button, Modal, Tooltip, message, notification, theme as antdTheme } from "antd";
-import { MenuFoldOutlined, MenuUnfoldOutlined, SettingOutlined, SyncOutlined } from "@ant-design/icons";
+import {
+  Layout,
+  Button,
+  Modal,
+  Tooltip,
+  message,
+  notification,
+  theme as antdTheme,
+} from "antd";
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  SettingOutlined,
+  SyncOutlined,
+} from "@ant-design/icons";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { ShieldAlert } from "lucide-react";
@@ -10,7 +29,14 @@ import { Sidebar } from "./Sidebar";
 import { WindowControls } from "./WindowControls";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { UpdateModal } from "@/components/ui/UpdateModal";
-import { approvalApi, getErrorMessage, hasTauriRuntime, systemApi, systemSettingsApi, updaterApi } from "@/lib/api";
+import {
+  approvalApi,
+  getErrorMessage,
+  hasTauriRuntime,
+  systemApi,
+  systemSettingsApi,
+  updaterApi,
+} from "@/lib/api";
 import type { AiUnrestrictedState, ApprovalRequest } from "@/types";
 import packageJson from "../../../package.json";
 
@@ -74,9 +100,12 @@ function AiUnrestrictedButton() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const startupTimer = window.setTimeout(() => void refresh(), 600);
     const timer = window.setInterval(() => void refresh(), 30_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(startupTimer);
+      window.clearInterval(timer);
+    };
   }, [refresh]);
 
   const enable = () => {
@@ -87,14 +116,19 @@ function AiUnrestrictedButton() {
       okButtonProps: { danger: true },
       content: (
         <div>
-          <p>开启后会立即确认当前审批队列中的全部待审批项；30 分钟内新建的审批也会自动确认，并保留审批记录。</p>
+          <p>
+            开启后会立即确认当前审批队列中的全部待审批项；30
+            分钟内新建的审批也会自动确认，并保留审批记录。
+          </p>
           <p>终端服务自身的硬性安全拦截不属于审批队列，仍会在执行前阻止。</p>
         </div>
       ),
       async onOk() {
         setLoading(true);
         try {
-          const next = await systemSettingsApi.enableAiUnrestrictedMode({ minutes: 30 });
+          const next = await systemSettingsApi.enableAiUnrestrictedMode({
+            minutes: 30,
+          });
           setState(next);
           message.warning("AI 临时放行已开启 30 分钟");
         } catch (error) {
@@ -120,7 +154,13 @@ function AiUnrestrictedButton() {
   };
 
   return (
-    <Tooltip title={state.active ? "点击关闭 AI 临时放行" : "确认队列中全部待审批项，并在 30 分钟内自动确认新审批"}>
+    <Tooltip
+      title={
+        state.active
+          ? "点击关闭 AI 临时放行"
+          : "确认队列中全部待审批项，并在 30 分钟内自动确认新审批"
+      }
+    >
       <Button
         danger={state.active}
         type={state.active ? "primary" : "default"}
@@ -131,8 +171,12 @@ function AiUnrestrictedButton() {
         onClick={state.active ? () => void disable() : enable}
       >
         <span className="header-pill-toggle-dot" />
-        <span>{state.active ? formatRemaining(state.remainingSeconds) : "AI 放行"}</span>
-        <span className="header-pill-toggle-state">{state.active ? "开" : "关"}</span>
+        <span>
+          {state.active ? formatRemaining(state.remainingSeconds) : "AI 放行"}
+        </span>
+        <span className="header-pill-toggle-state">
+          {state.active ? "开" : "关"}
+        </span>
       </Button>
     </Tooltip>
   );
@@ -146,11 +190,14 @@ function HeaderUpdateButton() {
   const versionLabel = `v${appVersion}${import.meta.env.DEV ? " DEV" : ""}`;
 
   useEffect(() => {
-    systemApi
-      .getSystemInfo()
-      .then((info) => setAppVersion(info.appVersion || packageJson.version))
-      // 浏览器调试没有 Tauri IPC，保留 package.json 版本作为兜底。
-      .catch(() => {});
+    const timer = window.setTimeout(() => {
+      systemApi
+        .getSystemInfo()
+        .then((info) => setAppVersion(info.appVersion || packageJson.version))
+        // 浏览器调试没有 Tauri IPC，保留 package.json 版本作为兜底。
+        .catch(() => {});
+    }, 600);
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function checkUpdate() {
@@ -217,7 +264,10 @@ function ApprovalQueueMonitor({ onOpenQueue }: { onOpenQueue: () => void }) {
       }
       refreshingRef.current = true;
       try {
-        const pendingRows = await approvalApi.list({ status: "pending", limit: 200 });
+        const pendingRows = await approvalApi.list({
+          status: "pending",
+          limit: 200,
+        });
         if (disposed) {
           return;
         }
@@ -227,17 +277,26 @@ function ApprovalQueueMonitor({ onOpenQueue }: { onOpenQueue: () => void }) {
         if (knownPendingIds === null) {
           return;
         }
-        const newestRows = pendingRows.filter((row) => !knownPendingIds.has(row.id));
+        const newestRows = pendingRows.filter(
+          (row) => !knownPendingIds.has(row.id),
+        );
         if (newestRows.length === 0) {
           return;
         }
         const latest = newestRows[0] as ApprovalRequest;
         notification.warning({
           key: "new-approval-request",
-          message: newestRows.length === 1 ? "收到新的审批请求" : `收到 ${newestRows.length} 条新的审批请求`,
+          message:
+            newestRows.length === 1
+              ? "收到新的审批请求"
+              : `收到 ${newestRows.length} 条新的审批请求`,
           description: latest.summary || latest.reason || latest.action,
           duration: 0,
-          btn: <Button type="primary" size="small" onClick={onOpenQueue}>前往处理</Button>,
+          btn: (
+            <Button type="primary" size="small" onClick={onOpenQueue}>
+              前往处理
+            </Button>
+          ),
         });
       } catch (error) {
         // 队列监控不能干扰正常页面操作，下一轮自动重试即可。
@@ -293,7 +352,14 @@ export function AppLayout({ headerExtra }: AppLayoutProps) {
             borderBottom: `1px solid var(--border)`,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: 16 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              paddingLeft: 16,
+            }}
+          >
             <Button
               type="text"
               icon={

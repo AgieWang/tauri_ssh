@@ -1,6 +1,6 @@
 mod commands;
 mod database;
-mod dev_server;
+pub(crate) mod dev_server;
 mod error;
 mod models;
 mod remote;
@@ -9,11 +9,25 @@ pub mod shared;
 mod state;
 mod tray;
 
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+
 use state::AppState;
-use tauri::{Manager, WindowEvent};
+use tauri::{webview::PageLoadEvent, Manager, WindowEvent};
+
+const STARTUP_WINDOW_FALLBACK_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 正常首屏完成和超时兜底共享一次性展示状态，避免用户主动隐藏后被定时任务重新打开。
+    let startup_window_shown = Arc::new(AtomicBool::new(false));
+    let page_load_window_shown = Arc::clone(&startup_window_shown);
+
     tauri::Builder::default()
         // ─── 插件注册 ───────────────────────────────
         .plugin(tauri_plugin_dialog::init())
@@ -36,8 +50,52 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // 主窗口初始隐藏，等 HTML、样式和首屏脚本加载完成后再显示，避免暴露 WebView 白底。
+        // 即使 React 执行失败，index.html 内联的启动占位也会随 Finished 事件显示。
+        .on_page_load(move |webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), PageLoadEvent::Finished)
+                && page_load_window_shown
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                match webview.window().show() {
+                    Ok(()) => log::info!("主窗口首屏加载完成并已显示"),
+                    Err(error) => {
+                        page_load_window_shown.store(false, Ordering::Release);
+                        log::warn!("主窗口首屏加载后显示失败: {}", error);
+                    }
+                }
+            }
+        })
         // ─── 应用初始化 ─────────────────────────────
-        .setup(|app| {
+        .setup(move |app| {
+            let setup_started = Instant::now();
+
+            // 页面加载异常时不能让初始隐藏的窗口永久不可见。正常启动由 on_page_load 立即显示，
+            // 这里的有界兜底只在 WebView 未进入 Finished 时触发，show 调用本身是幂等的。
+            let startup_window_app = app.handle().clone();
+            let fallback_window_shown = Arc::clone(&startup_window_shown);
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(STARTUP_WINDOW_FALLBACK_TIMEOUT).await;
+                if fallback_window_shown
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    if let Some(window) = startup_window_app.get_webview_window("main") {
+                        match window.show() {
+                            Ok(()) => log::warn!("主窗口首屏加载超时，已执行可见性兜底"),
+                            Err(error) => {
+                                fallback_window_shown.store(false, Ordering::Release);
+                                log::warn!("主窗口超时兜底显示失败: {}", error);
+                            }
+                        }
+                    } else {
+                        fallback_window_shown.store(false, Ordering::Release);
+                    }
+                }
+            });
+
             // 初始化数据库（存放在应用数据目录）
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -52,14 +110,48 @@ pub fn run() {
             let db_path = data_dir.join(db_filename);
             let db_path_str = db_path.to_string_lossy().to_string();
 
+            let database_started = Instant::now();
             let db = database::Database::init(&db_path_str)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-            log::info!("数据库初始化完成: {}", db_path_str);
+            log::info!(
+                "数据库初始化完成: {}，耗时 {} ms",
+                db_path_str,
+                database_started.elapsed().as_millis()
+            );
 
-            if let Err(err) = services::ai_skill::AiSkillService::sync_builtin(app.handle(), &db) {
-                log::warn!("内置 Skill 同步失败: {}", err);
+            let recovery_started = Instant::now();
+            match services::knowledge::KnowledgeService::recover_interrupted_jobs(&db) {
+                Ok(count) if count > 0 => {
+                    log::info!("已恢复 {} 个中断的知识任务，等待用户重试", count);
+                }
+                Ok(_) => {}
+                Err(error) => log::warn!("知识任务启动恢复失败: {}", error),
             }
+            match services::knowledge_domain::analysis::KnowledgeAnalysisService::recover_interrupted_state(&db) {
+                Ok(count) if count > 0 => {
+                    log::info!("已恢复 {} 个中断的 AI 分析状态", count);
+                }
+                Ok(_) => {}
+                Err(error) => log::warn!("AI 分析启动恢复失败: {}", error),
+            }
+            log::info!(
+                "启动状态恢复检查完成，耗时 {} ms",
+                recovery_started.elapsed().as_millis()
+            );
+
+            // 内置 Skill 是业务调用的基础数据，必须在 AppState 对外可用前完成同步，
+            // 避免首次安装或资源升级时读到空集合、旧版本或部分更新状态。
+            let skill_sync_started = Instant::now();
+            if let Err(error) =
+                services::ai_skill::AiSkillService::sync_builtin(app.handle(), &db)
+            {
+                log::warn!("内置 Skill 同步失败: {}", error);
+            }
+            log::info!(
+                "内置 Skill 同步完成，耗时 {} ms",
+                skill_sync_started.elapsed().as_millis()
+            );
 
             // 注册全局状态
             app.manage(AppState::new(db));
@@ -78,11 +170,18 @@ pub fn run() {
                 }
             });
 
+            // Dev API 仅用于浏览器开发验收，不能随正式安装包启动；仅监听回环也不能阻止
+            // 同机恶意进程复用已配置的 AI Provider 或调用本地写接口。
+            #[cfg(debug_assertions)]
             dev_server::start(app.handle().clone());
 
             // 初始化系统托盘
+            let tray_started = Instant::now();
             tray::setup_tray(app)?;
-            log::info!("系统托盘初始化完成");
+            log::info!(
+                "系统托盘初始化完成，耗时 {} ms",
+                tray_started.elapsed().as_millis()
+            );
 
             // 开发模式下给窗口标题加 [DEV] 后缀，避免与生产版本混淆
             #[cfg(debug_assertions)]
@@ -92,6 +191,10 @@ pub fn run() {
                 }
             }
 
+            log::info!(
+                "应用同步初始化完成，总耗时 {} ms",
+                setup_started.elapsed().as_millis()
+            );
             Ok(())
         })
         // ─── Command 注册 ───────────────────────────
@@ -192,6 +295,134 @@ pub fn run() {
             commands::git_workspace::list_git_workspace_branches,
             commands::git_workspace::switch_git_workspace_branch,
             commands::git_workspace::merge_git_workspace_branch,
+            // 团队知识库模块
+            commands::knowledge::analyze_knowledge_query,
+            commands::knowledge::search_knowledge_fts,
+            commands::knowledge::search_knowledge_hybrid,
+            commands::knowledge::preview_knowledge_rag_context,
+            commands::knowledge::ask_knowledge,
+            commands::knowledge::run_fixed_knowledge_retrieval_evaluation,
+            commands::knowledge::build_knowledge_local_embedding_batch,
+            commands::knowledge::build_knowledge_remote_embedding_batch,
+            commands::knowledge::get_knowledge_remote_embedding_enabled,
+            commands::knowledge::upsert_knowledge_relation,
+            commands::knowledge::list_knowledge_relations,
+            commands::knowledge::confirm_knowledge_relation,
+            commands::knowledge::import_knowledge_document_relations,
+            commands::knowledge::import_knowledge_commit_relations,
+            commands::knowledge_domain::catalog::list_knowledge_project_repository_bindings,
+            commands::knowledge_domain::catalog::replace_knowledge_project_repository_bindings,
+            commands::knowledge_domain::catalog::unlink_knowledge_project_repository_binding,
+            commands::knowledge_domain::catalog::inspect_knowledge_project_repository_binding,
+            commands::knowledge_domain::catalog::create_knowledge_project_version_manifest,
+            commands::knowledge_domain::catalog::get_knowledge_project_version_manifest,
+            commands::knowledge_domain::catalog::get_knowledge_project_version_completeness,
+            commands::knowledge_domain::search::search_knowledge_catalog,
+            commands::knowledge_domain::terminology::list_knowledge_project_terms,
+            commands::knowledge_domain::terminology::upsert_knowledge_project_term,
+            commands::knowledge_domain::terminology::delete_knowledge_project_term,
+            commands::knowledge_domain::qa::ask_knowledge_scoped_question,
+            commands::knowledge_domain::qa::list_knowledge_qa_sessions,
+            commands::knowledge_domain::qa::get_knowledge_qa_session,
+            commands::knowledge_domain::qa::persist_knowledge_qa_round,
+            commands::knowledge_domain::qa::delete_knowledge_qa_session,
+            commands::knowledge_domain::qa::save_knowledge_qa_markdown,
+            commands::knowledge_domain::analysis::list_knowledge_analysis_code_sources,
+            commands::knowledge_domain::analysis::list_knowledge_analysis_code_snapshots,
+            commands::knowledge_domain::analysis::capture_knowledge_analysis_git_snapshot,
+            commands::knowledge_domain::analysis::analyze_knowledge_analysis_snapshot,
+            commands::knowledge_domain::analysis::generate_knowledge_analysis_documents,
+            commands::knowledge_domain::analysis::create_knowledge_analysis_ai_draft,
+            commands::knowledge_domain::analysis::confirm_knowledge_analysis_ai_draft,
+            commands::knowledge_domain::graph::build_knowledge_project_graph,
+            commands::knowledge_domain::graph::query_knowledge_project_graph,
+            commands::knowledge_domain::documents::save_knowledge_document_draft,
+            commands::knowledge_domain::documents::commit_knowledge_document_draft,
+            commands::knowledge_domain::documents::restore_knowledge_document_version_to_draft,
+            commands::knowledge_domain::documents::list_deleted_knowledge_documents,
+            commands::knowledge_domain::documents::preview_knowledge_document_deletion,
+            commands::knowledge_domain::documents::restore_knowledge_document,
+            commands::knowledge_domain::documents::get_knowledge_document_image_preview,
+            commands::knowledge_domain::ingestion::prepare_knowledge_upload_file,
+            commands::knowledge_domain::ingestion::prepare_knowledge_upload_directory,
+            commands::knowledge_domain::ingestion::create_knowledge_document_upload,
+            commands::knowledge_domain::ingestion::create_knowledge_document_upload_batch,
+            commands::knowledge::list_knowledge_projects,
+            commands::knowledge::list_zentao_connections,
+            commands::knowledge::upsert_zentao_connection,
+            commands::knowledge::delete_zentao_connection,
+            commands::knowledge::probe_zentao_connection,
+            commands::knowledge::discover_zentao_remote_scopes,
+            commands::knowledge::upsert_zentao_project_mapping,
+            commands::knowledge::list_zentao_project_mappings,
+            commands::knowledge::sync_zentao_mapping,
+            commands::knowledge::generate_zentao_fact_documents,
+            commands::knowledge::generate_zentao_ai_summary,
+            commands::knowledge::import_knowledge_ai_experiences,
+            commands::knowledge::upsert_knowledge_project,
+            commands::knowledge::delete_knowledge_project,
+            commands::knowledge::list_knowledge_releases,
+            commands::knowledge::upsert_knowledge_release,
+            commands::knowledge::delete_knowledge_release,
+            commands::knowledge::discover_knowledge_git_refs,
+            commands::knowledge::capture_knowledge_git_snapshot,
+            commands::knowledge::capture_knowledge_dirty_worktree_snapshot,
+            commands::knowledge::capture_knowledge_local_directory_snapshot,
+            commands::knowledge::analyze_knowledge_code_snapshot,
+            commands::knowledge::generate_knowledge_code_documents,
+            commands::knowledge::search_knowledge_code_symbols,
+            commands::knowledge::list_knowledge_code_files,
+            commands::knowledge::get_knowledge_code_file_content,
+            commands::knowledge::get_knowledge_code_call_graph,
+            commands::knowledge::compare_knowledge_code_snapshots,
+            commands::knowledge::analyze_knowledge_code_impact,
+            commands::knowledge::list_knowledge_code_snapshots,
+            commands::knowledge::list_knowledge_sources,
+            commands::knowledge::list_knowledge_code_sources,
+            commands::knowledge::upsert_knowledge_source,
+            commands::knowledge::upsert_knowledge_sources_atomically,
+            commands::knowledge::upsert_knowledge_code_source,
+            commands::knowledge::delete_knowledge_source,
+            commands::knowledge::preview_knowledge_source_scope,
+            commands::knowledge::preview_knowledge_code_source_scope,
+            commands::knowledge::sync_knowledge_git_source,
+            commands::knowledge::sync_knowledge_local_source,
+            commands::knowledge::sync_knowledge_experience_source,
+            commands::knowledge::start_knowledge_source_sync,
+            commands::knowledge::get_knowledge_job,
+            commands::knowledge::list_knowledge_jobs,
+            commands::knowledge::cancel_knowledge_job,
+            commands::knowledge::retry_knowledge_job,
+            commands::knowledge::list_knowledge_documents,
+            commands::knowledge::get_knowledge_document_detail,
+            commands::knowledge::list_knowledge_document_versions,
+            commands::knowledge::list_knowledge_document_chunks,
+            commands::knowledge::compare_knowledge_document_versions,
+            commands::knowledge::get_knowledge_citation_detail,
+            commands::knowledge::preview_knowledge_parse_and_chunk,
+            commands::knowledge::parse_and_index_knowledge_document_version,
+            commands::knowledge::calculate_knowledge_embedding_fingerprint,
+            commands::knowledge::list_knowledge_embedding_profiles,
+            commands::knowledge::upsert_knowledge_embedding_profile,
+            commands::knowledge::get_knowledge_local_embedding_runtime_status,
+            commands::knowledge::import_knowledge_local_embedding_model,
+            commands::knowledge::download_knowledge_local_embedding_model,
+            commands::knowledge::generate_knowledge_local_embeddings,
+            commands::knowledge::test_knowledge_local_embedding_profile,
+            commands::knowledge::test_knowledge_remote_embedding_profile,
+            commands::knowledge::remove_knowledge_local_embedding_model,
+            commands::knowledge::estimate_knowledge_embedding_rebuild,
+            commands::knowledge::begin_knowledge_embedding_profile_rebuild,
+            commands::knowledge::validate_knowledge_embedding_profile_rebuild,
+            commands::knowledge::complete_knowledge_embedding_profile_rebuild,
+            commands::knowledge::activate_knowledge_embedding_profile_rebuild,
+            commands::knowledge::rollback_knowledge_embedding_profile_rebuild,
+            commands::knowledge::retire_knowledge_embedding_profile_rebuild,
+            commands::knowledge::search_active_knowledge_vectors,
+            commands::knowledge::upsert_knowledge_document,
+            commands::knowledge::delete_knowledge_document,
+            commands::knowledge::ensure_knowledge_fts,
+            commands::knowledge::rebuild_knowledge_fts,
             // 代码审核模块
             commands::code_review::list_code_review_tasks,
             commands::code_review::get_code_review_task,

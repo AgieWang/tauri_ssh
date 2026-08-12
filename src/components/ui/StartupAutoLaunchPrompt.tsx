@@ -1,6 +1,11 @@
 import { useEffect } from "react";
 import { Modal, message } from "antd";
-import { configApi, getErrorMessage, hasTauriRuntime, systemSettingsApi } from "@/lib/api";
+import {
+  configApi,
+  getErrorMessage,
+  hasTauriRuntime,
+  systemSettingsApi,
+} from "@/lib/api";
 
 const AUTO_LAUNCH_PROMPTED_KEY = "settings.launch_on_startup_prompted";
 
@@ -39,7 +44,8 @@ export function StartupAutoLaunchPrompt() {
 
         Modal.confirm({
           title: "是否开启开机自启动？",
-          content: "开启后，Tauri SSH 会在系统登录后自动启动，便于接收运维提醒和快速进入工作台。",
+          content:
+            "开启后，Tauri SSH 会在系统登录后自动启动，便于接收运维提醒和快速进入工作台。",
           okText: "开启",
           cancelText: "暂不开启",
           async onOk() {

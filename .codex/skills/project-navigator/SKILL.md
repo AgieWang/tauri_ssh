@@ -1,138 +1,109 @@
 ---
 name: project-navigator
 description: |
-  Tauri 项目导航技能，快速定位代码、理解项目结构、找到关键文件。
+  用于理解仓库结构、寻找功能入口或追踪 React 到 Rust/数据库的真实调用链。
 
   触发场景：
-  - 需要了解项目整体结构
-  - 需要快速找到某个功能的代码位置
-  - 需要理解 Rust 和 React 代码的关系
-  - 新加入项目需要熟悉代码
+  - 用户需要了解项目或模块的目录结构与职责
+  - 不知道功能代码位置，需要寻找入口和相关文件
+  - 需要追踪页面、API、Command、Service、Database 的调用链
+  - 接手陌生模块，需要建立只读事实地图
 
-  触发词：项目结构、在哪里、怎么找、代码位置、目录、文件、导航、定位
+  触发词：仓库结构、功能入口、代码位置、调用链追踪、模块导航、从页面追后端、定位实现文件
 ---
 
 # Tauri 项目导航
 
-## 项目结构速查
+## 能力边界
 
-### 关键入口文件
+本 Skill 负责只读定位和结构理解，不负责提出架构重构或直接实现功能。
 
-| 文件 | 用途 | 何时修改 |
-|------|------|---------|
-| `src-tauri/src/lib.rs` | Rust Builder 统一注册（插件/状态/Commands） | 添加新模块/插件/状态 |
-| `src-tauri/src/commands/mod.rs` | Command 模块导出 | 添加新 Command 模块 |
-| `src-tauri/src/commands/system.rs` | 系统命令（greet/get_system_info） | 添加系统级 Command |
-| `src-tauri/src/commands/config.rs` | 配置 CRUD 命令 | 添加配置相关 Command |
-| `src-tauri/src/services/config.rs` | 配置业务逻辑 | 修改业务规则 |
-| `src-tauri/src/database/mod.rs` | Database 结构体 | 修改数据库连接/操作 |
-| `src-tauri/src/database/schema.rs` | Schema 迁移 | 添加/修改数据库表 |
-| `src-tauri/src/state.rs` | AppState 定义 | 添加全局状态字段 |
-| `src-tauri/src/error.rs` | thiserror 错误类型 | 添加新错误类型 |
-| `src-tauri/src/models/mod.rs` | 数据模型 | 添加/修改数据结构 |
-| `src-tauri/src/main.rs` | Rust 进程入口 | 极少修改 |
-| `src/main.tsx` | React 入口 | 添加全局 Provider |
-| `src/App.tsx` | 根组件（ConfigProvider + Router） | 修改全局配置 |
-| `src/Router.tsx` | React Router 配置 | 添加新路由/页面 |
-| `src/store/index.ts` | Zustand 全局状态 | 添加全局状态 |
-| `src/lib/api/index.ts` | API 类型安全封装 | 添加新 Command 调用 |
-| `src-tauri/tauri.conf.json` | Tauri 核心配置 | 修改窗口/打包/安全 |
-| `src-tauri/Cargo.toml` | Rust 依赖 | 添加 Rust crate |
-| `package.json` | 前端依赖 | 添加 npm 包 |
+- 用户已给出精确文件路径且只要求局部修改时，通常不额外加载。
+- 模块边界或依赖方向设计使用 `architecture-design`。
+- 故障根因定位使用 `bug-detective`；本 Skill 可为其提供调用链事实。
+- 应用文件系统功能使用 `file-storage`，普通仓库文件查找不使用它。
 
-### 关键目录
+## 导航原则
 
-| 目录 | 内容 | 文件类型 |
-|------|------|---------|
-| `src/` | React 前端源码 | `.tsx`, `.ts`, `.css` |
-| `src/components/layout/` | 主布局和侧边栏导航 | `.tsx` |
-| `src/components/ui/` | 通用 UI 组件（ErrorBoundary 等） | `.tsx` |
-| `src/hooks/` | 自定义 Hooks（useCommand 等） | `.ts` |
-| `src/lib/api/` | API 类型安全封装 | `.ts` |
-| `src/pages/` | 页面组件（home/settings/about） | `.tsx` |
-| `src/store/` | Zustand 全局状态 | `.ts` |
-| `src/styles/` | TailwindCSS 全局样式 | `.css` |
-| `src/types/` | TypeScript 类型定义 | `.ts` |
-| `src-tauri/src/` | Rust 后端源码 | `.rs` |
-| `src-tauri/src/commands/` | Layer 1: IPC 入口（Command 定义） | `.rs` |
-| `src-tauri/src/services/` | Layer 2: 业务逻辑 | `.rs` |
-| `src-tauri/src/database/` | Layer 3: 数据访问（rusqlite） | `.rs` |
-| `src-tauri/src/models/` | 数据模型 | `.rs` |
-| `src-tauri/capabilities/` | Tauri 权限声明 | `.json` |
-| `src-tauri/icons/` | 应用图标 | `.png`, `.ico`, `.icns` |
-| `public/` | 静态资源 | `.svg`, `.png` 等 |
-| `docs/` | 项目文档 | `.md` |
+1. 先用 `rg --files` 和 `rg` 搜索符号、路由、命令名、表名和配置键。
+2. 从真实入口向下追踪，不只根据目录名称猜测职责。
+3. 同时查定义、注册、调用、类型、持久化和测试，避免只找到其中一层。
+4. 区分当前事实与可能影响；导航阶段不做未经证据支持的设计结论。
+5. 保留其他会话未提交改动，不写文件、不切分支、不执行清理动作。
+6. 目录图只是导航假设；每次使用都动态读取当前树，不能固化旧的 `index.ts`、`mod.rs` 或单文件结构。
 
----
+## 标准追踪流程
 
-## 功能定位指南
+### 1. 确定用户入口
 
-### "我想添加一个新功能"
+- 页面：从 `src/Router.tsx`、侧边栏或页面组件定位路由和交互。
+- API：从 `src/lib/api/` 查封装方法与 `invoke` 名称。
+- 后端：从 `#[tauri::command]` 和 `generate_handler!` 查定义与注册。
+- 数据：从 Service 追到 Database、schema、迁移和 Model。
+- 共享基础设施：检查 `src-tauri/src/shared/` 及其导出，不把跨域基础能力误归入单个 Service。
+- 系统能力：追到插件注册、Capabilities、配置和资源文件。
 
-```
-1. 定义数据模型 → src-tauri/src/models/mod.rs
-2. 实现数据访问 → src-tauri/src/database/ (Layer 3)
-3. 实现业务逻辑 → src-tauri/src/services/ (Layer 2, 新建或修改 .rs 文件)
-4. 实现 Command → src-tauri/src/commands/ (Layer 1, 新建或修改 .rs 文件)
-5. 注册 Command → src-tauri/src/lib.rs 的 generate_handler![]
-6. 声明权限 → src-tauri/capabilities/default.json (如使用插件)
-7. 定义 TS 接口 → src/types/index.ts
-8. 添加 API 封装 → src/lib/api/index.ts
-9. 实现页面组件 → src/pages/ 下新建页面目录
-10. 添加路由 → src/Router.tsx
-11. 添加导航入口 → src/components/layout/Sidebar.tsx
+### 2. 双向搜索
+
+- 向下：入口 -> 调用 -> 实现 -> 数据/外部能力。
+- 向上：被修改符号 -> 所有调用者 -> 用户可见行为。
+- 横向：类型定义、测试、配置、日志和相似实现。
+
+### 3. 核对契约
+
+- Rust/TypeScript DTO 字段、命名、可空性和枚举值；当前 `src/types/`、`src/store/`、`src/lib/api/` 已按领域拆分，应追踪领域文件和聚合出口两处。
+- Command 名称、参数转换、返回类型和错误约定；当前结构化错误链为 Rust `CommandError { code, message }` 与前端 `parseCommandError/getErrorCode/getErrorMessage`。
+- SQLite 表、迁移版本、查询条件和真实数据格式。
+- Capabilities、插件权限与窗口作用域。
+
+### 4. 记录影响面
+
+按“直接入口、核心实现、数据/配置、调用者、测试/验收”分组列出文件。对每个文件说明为什么相关，避免只输出一串路径。
+
+## 常用搜索模式
+
+```bash
+# 文件清单与模块入口
+rg --files src src-tauri
+
+# Tauri Command 定义、注册和调用
+rg -n '#\[tauri::command\]|generate_handler!' src-tauri/src
+rg -n 'invoke\(|command_name' src
+
+# 数据库表、迁移和模型
+rg -n 'CREATE TABLE|ALTER TABLE|user_version|table_name' src-tauri/src
+
+# 路由、导航和页面
+rg -n 'path:|Route|navigate\(|menu' src
 ```
 
-### "我想添加一个 Tauri 插件"
+搜索范围和符号应替换为当前任务的真实名称；`rg` 不可用时再选择替代工具。
 
-```
-1. Cargo.toml 添加依赖 → src-tauri/Cargo.toml
-2. package.json 添加 JS 绑定 → package.json (如有)
-3. 注册插件 → src-tauri/src/lib.rs 的 Builder.plugin()
-4. 声明权限 → src-tauri/capabilities/default.json
-5. 前端调用 → import from "@tauri-apps/plugin-xxx"
-```
+## 输出格式
 
-### "我想修改窗口配置"
+事实地图至少包含：
 
-```
-→ src-tauri/tauri.conf.json 的 app.windows 部分
-```
+1. 用户可见入口与触发动作。
+2. 前端组件、状态与 API 封装。
+3. Command 注册、Service 和 Database 调用链。
+4. Model/DTO、schema、配置和权限。
+5. 现有测试、运行方式与相似实现。
+6. 直接影响文件、间接影响文件和仍未知项。
 
-### "我想修改打包配置"
+## 不应触发示例
 
-```
-→ src-tauri/tauri.conf.json 的 bundle 部分
-```
+- “修改 `/exact/path/file.ts` 第 20 行的文案。”
+- “实现文件选择和导入功能。”
+- “重新设计知识模块的分层职责。”
+- “这个页面为什么加载失败？”
 
----
+## 按需参考
 
-## 代码搜索技巧
+需要完整项目目录图、文件职责和功能定位速查时，读取 [references/repository-map.md](references/repository-map.md)。该图只记录当前模块化模式，目录可能继续演进；每次使用前必须以 `rg --files` 和当前导出关系验证。
 
-| 想找什么 | 搜索方法 |
-|---------|---------|
-| 某个 Command 的定义 | Grep `#\[tauri::command\]` in `src-tauri/src/commands/` |
-| 某个 Command 的调用 | Grep `invoke\("command_name"` in `src/lib/api/` |
-| 所有注册的 Command | 查看 `src-tauri/src/lib.rs` 的 `generate_handler![]` 列表 |
-| 某个业务逻辑 | 查看 `src-tauri/src/services/` 对应模块 |
-| 数据库操作 | 查看 `src-tauri/src/database/` |
-| 数据模型 | 查看 `src-tauri/src/models/mod.rs` |
-| 所有插件 | Grep `.plugin(` in `src-tauri/src/lib.rs` |
-| 所有权限声明 | 读取 `src-tauri/capabilities/*.json` |
-| 全局状态定义 | 读取 `src-tauri/src/state.rs`（Rust）或 `src/store/index.ts`（前端） |
-| 错误类型定义 | 读取 `src-tauri/src/error.rs` |
-| 路由配置 | 读取 `src/Router.tsx` |
-| API 封装 | 读取 `src/lib/api/index.ts` |
-| Rust 依赖 | 读取 `src-tauri/Cargo.toml` |
-| 前端依赖 | 读取 `package.json` |
+## 完成条件
 
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不知道代码在哪就开始写 | 先用导航指南定位相关文件 |
-| 只改前端忘记后端 | Tauri 功能通常涉及前后端两侧 |
-| 忘记注册新 Command | 添加到 `generate_handler![]` |
-| 忘记声明权限 | 使用插件 API 前检查 Capabilities |
+- 已找到入口、注册、实现、数据和调用者，而非孤立文件。
+- 每个相关文件都有基于源码的关联理由。
+- 当前事实、推测和未知项被清楚区分。
+- 输出足以支持后续诊断、设计或实现，但导航阶段没有擅自修改文件。

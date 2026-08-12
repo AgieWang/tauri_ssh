@@ -1,180 +1,90 @@
 ---
 name: architecture-design
 description: |
-  Tauri 架构设计技能，指导双进程架构下的模块拆分和代码组织。
+  用于设计或重构 Tauri 应用的模块边界、分层职责与跨进程协作关系。
 
   触发场景：
-  - 需要设计新模块的架构
-  - 需要重构现有代码结构
-  - 需要决定功能放在 Rust 还是 React 侧
-  - 需要设计插件集成方案
+  - 需要划分 React、IPC、Rust Service、Database 的职责边界
+  - 需要拆分或合并模块并评估依赖方向
+  - 需要设计跨进程数据流、状态归属或扩展点
+  - 需要审查重构是否破坏既有架构约束
 
-  触发词：架构、设计、模块、拆分、重构、组织、结构
+  触发词：模块边界、分层职责、架构重构、跨进程职责、依赖方向、数据流架构、模块拆分
 ---
 
 # Tauri 架构设计
 
-## 核心原则
+## 能力边界
 
-### 前后端分工原则
+本 Skill 负责回答“职责放在哪里、模块如何依赖、数据如何跨层流动”。它不负责无约束发散，也不替用户形成正式技术决策记录。
 
-| 放在 Rust 侧 | 放在 React 侧 |
-|-------------|--------------|
-| 文件系统操作 | UI 渲染和交互 |
-| 系统 API 调用 | 表单处理 |
-| 数据库操作 | 状态管理（UI 状态） |
-| 网络请求（安全原因） | 路由导航 |
-| 计算密集型任务 | 动画和视觉效果 |
-| 安全敏感操作 | 用户输入验证（前置） |
-| 后台任务/定时器 | 国际化文本 |
+- 只有探索多个可能方向时，使用 `brainstorm`。
+- 需要形成可追踪的方案取舍时，使用 `tech-decision`。
+- 已确定架构后的具体编码，使用对应领域 Skill。
+- 普通“怎么做”“给个方案”或局部函数调整，不应仅凭“设计”一词触发本 Skill。
 
-### 关键决策：哪些逻辑该放在哪里？
+## 不可破坏的架构约束
 
-```
-用户点击 → React 处理交互
-需要系统资源? → Rust Command
-纯 UI 逻辑? → React 组件
-需要持久化? → Rust (文件/数据库)
-需要安全? → Rust (不暴露给 WebView)
-```
+1. Tauri 2.x 保持 WebView 与 Rust Core 双进程边界。
+2. Rust 后端遵守 `Command -> Service -> Database`：Command 只做 IPC 参数与结果转换，Service 承载业务规则，Database 负责持久化。
+3. React 不直接访问本地数据库、系统能力或 Node.js API；通过 `src/lib/api/` 封装的 Tauri IPC 调用 Rust。
+4. Rust/TypeScript DTO、字段命名、可空性和序列化规则必须对齐。
+5. 全局 UI 状态使用 Zustand；业务持久数据由 Rust/SQLite 管理；不要把二者混为同一层。
+6. 插件能力必须在 Builder 注册，并按 Tauri 2 Capabilities 声明最小权限。
+7. 新架构必须沿用仓库已有模式；先读相邻模块，不凭通用模板覆盖真实实现。
 
----
+## 架构分析流程
 
-## 当前项目结构（三层架构）
+### 1. 建立事实地图
 
-```
-src/                              # React 前端
-├── components/
-│   ├── layout/
-│   │   ├── AppLayout.tsx        # 主布局（Ant Design Layout）
-│   │   └── Sidebar.tsx          # 侧边栏导航
-│   └── ui/
-│       └── ErrorBoundary.tsx    # 错误边界
-├── hooks/
-│   └── useCommand.ts           # invoke 封装
-├── lib/
-│   └── api/
-│       └── index.ts            # API 类型安全封装
-├── pages/
-│   ├── home/index.tsx           # 首页
-│   ├── settings/index.tsx       # 设置页
-│   └── about/index.tsx          # 关于页
-├── store/
-│   └── index.ts                # Zustand 全局状态
-├── styles/
-│   ├── variables.css           # CSS 设计令牌（双主题颜色/间距/阴影）
-│   └── global.css              # TailwindCSS + 全局样式
-├── theme/
-│   └── antdTheme.ts            # Ant Design 主题（darkTheme/lightTheme）
-├── types/
-│   └── index.ts                # TS 类型
-├── App.tsx                      # 根组件（ConfigProvider + Router）
-├── Router.tsx                   # React Router 配置
-└── main.tsx                     # 入口
+- 查找当前入口、调用者、被调用者与数据存储位置。
+- 追踪 React 页面 -> API 封装 -> Command -> Service -> Database 的真实链路。
+- 记录现有依赖方向、状态所有者、线程/异步边界和错误传播路径。
+- 涉及 DDL 或数据格式时，按项目规则读取配置并查询真实数据库。
 
-src-tauri/src/                    # Rust 后端（三层架构）
-├── commands/                    # Layer 1: IPC 入口
-│   ├── mod.rs
-│   ├── system.rs               # 系统命令（greet/get_system_info）
-│   └── config.rs               # 配置 CRUD 命令
-├── services/                    # Layer 2: 业务逻辑
-│   ├── mod.rs
-│   └── config.rs               # 配置服务
-├── database/                    # Layer 3: 数据访问
-│   ├── mod.rs                  # Database 结构体
-│   └── schema.rs               # Schema 迁移
-├── models/
-│   └── mod.rs                  # 数据模型
-├── error.rs                     # thiserror 错误类型
-├── state.rs                     # AppState 定义
-├── lib.rs                       # Builder 统一注册
-└── main.rs                      # 进程入口
-```
+### 2. 明确变化压力
 
-### 三层架构职责
+- 说明为什么现有边界不足，以及哪些业务变化会继续施压。
+- 区分领域规则、基础设施、UI 交互和跨进程契约。
+- 明确兼容性、迁移、性能、安全和回滚约束。
 
-| 层级 | 目录 | 职责 | 依赖方向 |
-|------|------|------|---------|
-| Layer 1: Commands | `commands/` | IPC 入口，参数校验，调用 Service | 向下调用 Service |
-| Layer 2: Services | `services/` | 业务逻辑，事务编排 | 向下调用 Database |
-| Layer 3: Database | `database/` | 数据访问，SQL 执行，Schema 迁移 | 直接操作 rusqlite |
+### 3. 设计最小边界调整
 
----
+- 给出模块职责、公开接口、依赖方向和数据所有权。
+- 说明同步/异步方式、生命周期、错误边界与事务边界。
+- 优先复用现有抽象；只有证据证明职责混杂或变化频繁时才新增层。
+- 避免万能 Service、跨层直连、循环依赖和重复 DTO。
 
-## 三层架构 Command 注册
+### 4. 评估影响面
 
-### lib.rs 统一注册示例
+至少覆盖：
 
-```rust
-mod commands;
-mod services;
-mod database;
-mod models;
-mod state;
-mod error;
+- React 页面、Hook、Store 与 API 封装。
+- Rust Command、Service、Database、Model 与 State。
+- SQLite schema/迁移、Capabilities、配置及资源文件。
+- 既有数据迁移、并发访问、失败恢复和兼容策略。
+- 单元、集成、运行时和浏览器验收路径。
 
-use state::AppState;
+## 输出要求
 
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_log::Builder::new().build())
-        .manage(AppState::new())  // 包含 Database 实例
-        .invoke_handler(tauri::generate_handler![
-            // 系统模块
-            commands::system::greet,
-            commands::system::get_system_info,
-            // 配置模块
-            commands::config::get_config,
-            commands::config::set_config,
-            commands::config::list_configs,
-            commands::config::delete_config,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
+架构方案必须包含：
 
-### 调用链路
+1. 当前事实与问题，不把推测写成现状。
+2. 目标模块及其单一职责。
+3. 依赖方向和端到端数据流。
+4. 需要修改的真实文件及每个文件的职责变化。
+5. 兼容、迁移、安全、性能与回滚风险。
+6. 与影响面匹配的验证矩阵。
+7. 未决问题与需要进一步取证的内容。
 
-```
-前端 invoke("get_config", { key })
-  → commands/config.rs::get_config()     // Layer 1: 参数校验
-    → services/config.rs::get()          // Layer 2: 业务逻辑
-      → database/mod.rs::query()         // Layer 3: SQL 执行
-```
+## 按需参考
 
----
+需要项目架构速查、放置决策表或完整数据流示例时，读取 [references/architecture-patterns.md](references/architecture-patterns.md)。不要为了局部架构问题默认加载全部示例。
 
-## 状态管理架构
+## 完成条件
 
-```
-全局状态 (Rust tauri::State<AppState>)
-├── Database (rusqlite) → 持久化结构化数据
-├── tauri-plugin-store → 键值持久化（设置/偏好）
-└── 运行时状态（进程级 Mutex<T>）
-
-UI 状态 (React)
-├── 组件内 useState
-├── 全局状态 Zustand (src/store/index.ts)
-└── API 封装 src/lib/api/index.ts
-
-样式/主题 (CSS 变量 + Ant Design)
-├── src/styles/variables.css → 设计令牌（通过 data-theme 切换 dark/light）
-├── src/theme/antdTheme.ts  → Ant Design 主题配置（与 CSS 变量同步）
-├── src/store/app.ts        → 主题状态管理（dark/light/system 三态）
-└── src/App.tsx              → data-theme 写入 DOM + ConfigProvider 主题选择
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 前端直接操作文件/网络 | 通过 Rust Command 代理 |
-| 所有代码堆在 lib.rs | 按三层架构拆分（commands/services/database） |
-| Command 中直接写 SQL | Command 调用 Service，Service 调用 Database |
-| 不考虑跨平台差异 | 路径/API 使用跨平台方案 |
-| 前端直接 invoke 不封装 | 通过 `src/lib/api/index.ts` 统一封装 |
+- 模块边界能由现有源码和配置证据支持。
+- 每项职责只有明确所有者，依赖方向无循环和跨层直连。
+- 跨进程契约、错误路径、状态与数据所有权均已说明。
+- 文件影响面、迁移和验证方式足以指导实现。
+- 若需要正式选型结论，已转交 `tech-decision`，而非在本 Skill 内伪造 ADR。

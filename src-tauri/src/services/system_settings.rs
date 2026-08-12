@@ -146,16 +146,26 @@ impl SystemSettingsService {
         app: &tauri::AppHandle,
         mut input: UpdateSystemSettingsInput,
     ) -> Result<SystemSettings, AppError> {
+        let previous_mcp_enabled = Self::is_mcp_enabled(db)?;
         input.launch_on_startup = Self::set_launch_on_startup(app, input.launch_on_startup)?;
-        Self::update(db, input)
+        let settings = Self::update(db, input)?;
+        if previous_mcp_enabled != settings.mcp_enabled {
+            crate::dev_server::restart(app.clone());
+        }
+        Ok(settings)
     }
 
     pub fn reset_with_autostart(
         db: &Database,
         app: &tauri::AppHandle,
     ) -> Result<SystemSettings, AppError> {
+        let previous_mcp_enabled = Self::is_mcp_enabled(db)?;
         Self::set_launch_on_startup(app, false)?;
-        Self::reset(db)
+        let settings = Self::reset(db)?;
+        if previous_mcp_enabled != settings.mcp_enabled {
+            crate::dev_server::restart(app.clone());
+        }
+        Ok(settings)
     }
 
     pub fn is_mcp_enabled(db: &Database) -> Result<bool, AppError> {

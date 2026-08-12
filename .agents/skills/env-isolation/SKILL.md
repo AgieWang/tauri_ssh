@@ -111,7 +111,7 @@ let db_dir = if let Some(id) = instance_id {
 ## 哪些数据不做隔离？
 
 **共享的**（刻意设计，不要隔离）：
-- 操作系统级凭证（如 `~/.Codex`、`~/.codex` 这类 CLI 工具配置） — 让 dev 调试也能复用用户已有登录态
+- 操作系统级凭证（如 `~/.claude`、`~/.codex` 这类 CLI 工具配置） — 让 dev 调试也能复用用户已有登录态
 - `tauri-plugin-store` 的默认 store 文件（会和生产共用）— 如果这会造成污染，需要在 store 路径上也加 `dev-` 前缀
 
 **必须隔离的**（本技能范围）：

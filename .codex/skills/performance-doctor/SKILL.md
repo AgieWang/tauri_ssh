@@ -1,150 +1,49 @@
 ---
 name: performance-doctor
 description: |
-  Tauri 性能诊断技能，覆盖 Rust 编译优化、前端性能和应用体积优化。
+  用于基于测量诊断 Tauri 应用运行性能、内存、CPU、启动、前端渲染、安装包体积或 Rust 编译性能；Skill/提示词优化和普通代码整理明确不触发。
 
   触发场景：
-  - 应用启动慢或运行卡顿
-  - 需要优化 Rust 编译时间
-  - 需要减小安装包体积
-  - 需要分析前端渲染性能
+  - 应用启动慢、界面卡顿、CPU 异常或内存持续增长
+  - 需要采样 React 渲染、Rust 热点、IPC 频率或 I/O 阻塞
+  - 需要测量和优化 Tauri 安装包/前端 bundle 体积
+  - 需要分析 Cargo 编译时间、链接时间或增量构建退化
 
-  触发词：性能、优化、慢、卡顿、编译时间、体积、内存、CPU、profiling、启动速度
+  触发词：运行性能、CPU profiling、内存泄漏、启动耗时、React Profiler、cargo build timings、bundle 体积、卡顿采样、性能基线
 ---
 
 # Tauri 性能诊断
 
-## 性能维度
+## 边界与排除
 
-| 维度 | 典型问题 | 工具 |
-|------|---------|------|
-| **Rust 编译时间** | 首次编译 5-15 分钟 | `cargo build --timings` |
-| **应用启动速度** | 窗口打开慢 | Tauri DevTools |
-| **前端渲染** | UI 卡顿/不流畅 | Chrome DevTools Performance |
-| **内存使用** | 内存持续增长 | 任务管理器 / Chrome DevTools Memory |
-| **安装包体积** | 包太大 | `cargo bloat` / Vite 分析 |
+只有存在应用运行、资源占用、启动、体积或编译性能目标时使用本技能。以下请求不得触发：Skill 优化、提示词优化、token 优化、工作流提效、代码精简、文档压缩、一般性“优化方案”。
 
----
+功能错误优先 `bug-detective`；普通安装包生成使用 `tauri-packaging`；仅做代码风格重构使用对应领域技能。
 
-## Rust 编译优化
+## 强制规则
 
-### 加速开发编译
+1. 先定义指标、设备/平台、数据集、操作路径与可接受阈值，再修改代码。
+2. 获取可复现基线和 profile/trace；禁止仅凭直觉添加缓存、并发、memo 或 release profile 参数。
+3. 一次只验证一个主要假设，保留前后相同条件的数据和功能正确性对照。
+4. 不以牺牲数据一致性、安全、错误可见性、可访问性或跨平台行为换取数字改善。
+5. 编译和体积优化要评估开发/发布 profile、CI、本地缓存和最终产物的不同影响。
+6. 没有可比数据时只能报告诊断发现，不能宣称性能已提升。
 
-```toml
-# src-tauri/Cargo.toml
+## 执行流程
 
-# 开发模式优化（减少编译时间）
-[profile.dev]
-opt-level = 0           # 不优化（编译最快）
-incremental = true      # 增量编译
+1. 复现并记录基线：耗时、CPU、内存、帧、bundle 或编译阶段。
+2. 用最贴近问题的工具定位 Rust、React、IPC、SQLite、网络或构建瓶颈。
+3. 排序假设，实施最小、可回滚的改动。
+4. 在相同条件重测，并运行功能测试、构建和目标平台验收。
+5. 报告原始值、新值、波动、限制和仍未验证的风险。
 
-# 仅优化依赖（不优化本地代码，加快重编译）
-[profile.dev.package."*"]
-opt-level = 2
+## 按需参考
 
-# 发布模式优化（最小体积 + 最佳性能）
-[profile.release]
-opt-level = "z"         # 最小体积
-lto = true              # 链接时优化
-codegen-units = 1       # 单代码生成单元
-strip = true            # 剥离调试信息
-panic = "abort"         # panic 时直接 abort
-```
+需要 Cargo profile、链接器、React/Vite、`cargo bloat` 或具体调优示例时读取 [references/profiling-and-tuning.md](references/profiling-and-tuning.md)。未建立基线前不要直接套用其中配置。
 
-### 减少编译时间
+## 完成条件
 
-```toml
-# .cargo/config.toml（项目级）
-[build]
-# 使用 mold 链接器（Linux）
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
-# 使用 lld 链接器（Windows）
-# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
-```
-
----
-
-## 前端性能优化
-
-### React 优化
-
-```tsx
-// 1. useMemo 缓存计算
-const filteredItems = useMemo(() =>
-  items.filter(item => item.name.includes(search)),
-  [items, search]
-);
-
-// 2. useCallback 缓存回调
-const handleClick = useCallback((id: number) => {
-  invoke("delete_item", { id });
-}, []);
-
-// 3. React.memo 避免不必要的重渲染
-const ListItem = React.memo(({ item }: { item: Item }) => (
-  <div>{item.name}</div>
-));
-
-// 4. 虚拟列表（大量数据）
-// pnpm add @tanstack/react-virtual
-import { useVirtualizer } from "@tanstack/react-virtual";
-```
-
-### Vite 构建优化
-
-```typescript
-// vite.config.ts
-export default defineConfig({
-  build: {
-    minify: "terser",
-    terserOptions: {
-      compress: { drop_console: true },
-    },
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-        },
-      },
-    },
-  },
-});
-```
-
----
-
-## 安装包体积优化
-
-### 分析体积
-
-```bash
-# Rust 依赖体积
-cargo install cargo-bloat
-cd src-tauri && cargo bloat --release
-
-# 前端依赖体积
-pnpm add -D rollup-plugin-visualizer
-```
-
-### 优化策略
-
-| 策略 | 效果 | 方法 |
-|------|------|------|
-| Rust LTO + strip | -30~50% | Cargo.toml profile.release |
-| 前端 tree-shaking | -10~20% | Vite 自动处理 |
-| 移除 console.log | -1~5% | terser drop_console |
-| 压缩图标 | -1~3% | 使用优化后的 PNG/ICO |
-| UPX 压缩 | -30~50% | `upx --best target/release/app` |
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不配置 release profile | 添加 LTO + strip + opt-level |
-| 同步 Command 做耗时操作 | 使用 async Command 或 tokio::spawn |
-| 大列表不用虚拟化 | 100+ 项使用 @tanstack/react-virtual |
-| 不分析打包体积 | 使用 cargo bloat + Vite 分析器 |
-| 每次 invoke 都建新连接 | 复用 State 中的数据库连接 |
+- 瓶颈有 profile/trace 或可重复测量证据。
+- 改动前后数据可比，功能正确性和安全边界未回归。
+- 相关测试、构建和目标平台验证通过。
+- UTF-8 无 BOM，`git diff --check` 通过。

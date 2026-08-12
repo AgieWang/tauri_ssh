@@ -1,6 +1,7 @@
 export type JumpServerProtocol = "web_ssh" | "web_sftp" | "jumpserver_asset";
 export type JumpServerAiMode = "suggest_only" | "disabled";
-export type JumpServerStatus = "unknown" | "available" | "opened" | "expired" | "disabled";
+export type JumpServerStatus =
+  "unknown" | "available" | "opened" | "expired" | "disabled";
 
 export interface JumpServerSession {
   key: string;

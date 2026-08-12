@@ -4,8 +4,8 @@
 // 网关骨架见 src-tauri/src/remote/，详细文档见 .claude/skills/remote-gateway/skill.md。
 
 export interface RemoteEndpoint {
-  baseUrl: string;       // 例如 "http://192.168.1.100:7800/v1" 或反代后的 "https://example.com/v1"
-  token: string | null;  // 桌面端首次启动生成，由用户配到手机端
+  baseUrl: string; // 例如 "http://192.168.1.100:7800/v1" 或反代后的 "https://example.com/v1"
+  token: string | null; // 桌面端首次启动生成，由用户配到手机端
 }
 
 const STORAGE_KEY = "mobile.endpoint";
@@ -58,7 +58,11 @@ export async function apiFetch<T = unknown>(
   if (resp.status === 204) return undefined as T;
 
   const ct = resp.headers.get("Content-Type") ?? "";
-  return (ct.includes("application/json") ? await resp.json() : ((await resp.text()) as unknown)) as T;
+  return (
+    ct.includes("application/json")
+      ? await resp.json()
+      : ((await resp.text()) as unknown)
+  ) as T;
 }
 
 /** 健康探测 */

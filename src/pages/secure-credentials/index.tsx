@@ -35,7 +35,13 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { getErrorMessage, gitWorkspaceApi, hasTauriRuntime, mcpApi, secureCredentialApi } from "@/lib/api";
+import {
+  getErrorMessage,
+  gitWorkspaceApi,
+  hasTauriRuntime,
+  mcpApi,
+  secureCredentialApi,
+} from "@/lib/api";
 import type {
   GitWorkspace,
   GitWorkspaceBranch,
@@ -207,10 +213,15 @@ const credentialTypeOptions = [
   { label: "会话引用", value: "session_reference" },
 ];
 
-const scopeLabelMap = Object.values(scopeOptionsByProvider).reduce<Record<string, string>>((mapping, groups) => {
+const scopeLabelMap = Object.values(scopeOptionsByProvider).reduce<
+  Record<string, string>
+>((mapping, groups) => {
   groups.forEach((group) => {
     group.options.forEach((option) => {
-      mapping[option.value] = trimScopeValueFromLabel(option.label, option.value);
+      mapping[option.value] = trimScopeValueFromLabel(
+        option.label,
+        option.value,
+      );
     });
   });
   return mapping;
@@ -286,7 +297,9 @@ const sessionStatusMeta: Record<string, { label: string; color: string }> = {
 };
 
 function providerLabel(provider: string) {
-  return providerOptions.find((item) => item.value === provider)?.label ?? provider;
+  return (
+    providerOptions.find((item) => item.value === provider)?.label ?? provider
+  );
 }
 
 function statusTag(status: string) {
@@ -299,20 +312,24 @@ function sessionStatusTag(status: string) {
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
-const gitWorkspaceStatusMeta: Record<string, { label: string; color: string }> = {
-  clean: { label: "clean", color: "green" },
-  dirty: { label: "有改动", color: "orange" },
-  ahead: { label: "待推送", color: "blue" },
-  behind: { label: "需拉取", color: "purple" },
-  diverged: { label: "分叉", color: "red" },
-  unknown: { label: "unknown", color: "default" },
-};
+const gitWorkspaceStatusMeta: Record<string, { label: string; color: string }> =
+  {
+    clean: { label: "clean", color: "green" },
+    dirty: { label: "有改动", color: "orange" },
+    ahead: { label: "待推送", color: "blue" },
+    behind: { label: "需拉取", color: "purple" },
+    diverged: { label: "分叉", color: "red" },
+    unknown: { label: "unknown", color: "default" },
+  };
 
 function gitWorkspaceStatusTag(status: string) {
   if (!status || status === "unknown") {
     return null;
   }
-  const meta = gitWorkspaceStatusMeta[status] ?? { label: status || "unknown", color: "default" };
+  const meta = gitWorkspaceStatusMeta[status] ?? {
+    label: status || "unknown",
+    color: "default",
+  };
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
@@ -353,10 +370,19 @@ function createDefaultPolicySettings(): SecureCredentialPolicySettings {
   };
 }
 
-const secureCredentialMcpToolPrefixes = ["secure_", "github_", "gitlab_", "gitcode_", "gitee_", "http_api_"];
+const secureCredentialMcpToolPrefixes = [
+  "secure_",
+  "github_",
+  "gitlab_",
+  "gitcode_",
+  "gitee_",
+  "http_api_",
+];
 
 function isSecureCredentialMcpTool(toolName: string) {
-  return secureCredentialMcpToolPrefixes.some((prefix) => toolName.startsWith(prefix));
+  return secureCredentialMcpToolPrefixes.some((prefix) =>
+    toolName.startsWith(prefix),
+  );
 }
 
 function OverviewCards({ overview }: { overview: SecureCredentialOverview }) {
@@ -379,7 +405,9 @@ function OverviewCards({ overview }: { overview: SecureCredentialOverview }) {
 }
 
 function useSecureCredentialData() {
-  const [overview, setOverview] = useState<SecureCredentialOverview>(createEmptyOverview());
+  const [overview, setOverview] = useState<SecureCredentialOverview>(
+    createEmptyOverview(),
+  );
   const [items, setItems] = useState<SecureCredential[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -438,7 +466,11 @@ export function SecureCredentialOverviewPage() {
         title="安全凭证"
         description="为 AI/MCP 提供受控凭证会话，凭证明文只在本机后端内部使用。"
         actions={
-          <Button icon={<RefreshCw size={14} />} onClick={() => void load()} loading={loading}>
+          <Button
+            icon={<RefreshCw size={14} />}
+            onClick={() => void load()}
+            loading={loading}
+          >
             刷新
           </Button>
         }
@@ -453,7 +485,11 @@ export function SecureCredentialOverviewPage() {
             pagination={false}
             columns={[
               { title: "Key", dataIndex: "credentialKey" },
-              { title: "Provider", dataIndex: "provider", render: providerLabel },
+              {
+                title: "Provider",
+                dataIndex: "provider",
+                render: providerLabel,
+              },
               { title: "状态", dataIndex: "status", render: statusTag },
               { title: "最后更新", dataIndex: "updatedAt" },
             ]}
@@ -465,7 +501,8 @@ export function SecureCredentialOverviewPage() {
             <Text>授权成功率：{overview.successRate.toFixed(1)}%</Text>
             <Text>禁用凭证：{overview.disabled}</Text>
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              当前阶段已实现本地凭证加密存储和治理页面骨架。会话代理、Provider Adapter 和 MCP 工具按后续阶段继续接入。
+              当前阶段已实现本地凭证加密存储和治理页面骨架。会话代理、Provider
+              Adapter 和 MCP 工具按后续阶段继续接入。
             </Paragraph>
           </Space>
         </Card>
@@ -477,7 +514,8 @@ export function SecureCredentialOverviewPage() {
 export function SecureCredentialVaultPage() {
   const { overview, items, loading, load } = useSecureCredentialData();
   const [form] = Form.useForm<UpsertSecureCredentialInput>();
-  const selectedProvider = Form.useWatch("provider", form) as SecureCredentialProvider | undefined;
+  const selectedProvider = Form.useWatch("provider", form) as
+    SecureCredentialProvider | undefined;
   const [keyword, setKeyword] = useState("");
   const [provider, setProvider] = useState<SecureCredentialProvider | "">("");
   const [editing, setEditing] = useState<SecureCredential | null>(null);
@@ -583,7 +621,10 @@ export function SecureCredentialVaultPage() {
 
   async function toggleEnabled(item: SecureCredential, enabled: boolean) {
     try {
-      await secureCredentialApi.setEnabled({ credentialKey: item.credentialKey, enabled });
+      await secureCredentialApi.setEnabled({
+        credentialKey: item.credentialKey,
+        enabled,
+      });
       message.success(enabled ? "已启用" : "已禁用");
       await load();
     } catch (error) {
@@ -594,7 +635,9 @@ export function SecureCredentialVaultPage() {
   async function testProvider(item: SecureCredential) {
     setTestingKey(item.credentialKey);
     try {
-      const result = await secureCredentialApi.testProvider({ credentialKey: item.credentialKey });
+      const result = await secureCredentialApi.testProvider({
+        credentialKey: item.credentialKey,
+      });
       Modal.info({
         title: result.ok ? "连接测试成功" : "连接测试失败",
         width: 720,
@@ -604,7 +647,10 @@ export function SecureCredentialVaultPage() {
             <Text>账号：{result.account || "-"}</Text>
             <Text>状态码：{result.statusCode ?? "-"}</Text>
             <Text>耗时：{result.latencyMs} ms</Text>
-            <pre className="prototype-code" style={{ maxHeight: 280, overflow: "auto" }}>
+            <pre
+              className="prototype-code"
+              style={{ maxHeight: 280, overflow: "auto" }}
+            >
               {JSON.stringify(result.detail, null, 2)}
             </pre>
           </Space>
@@ -660,7 +706,12 @@ export function SecureCredentialVaultPage() {
         </Space>
       ),
     },
-    { title: "Provider", dataIndex: "provider", width: 110, render: providerLabel },
+    {
+      title: "Provider",
+      dataIndex: "provider",
+      width: 110,
+      render: providerLabel,
+    },
     { title: "关联账号", dataIndex: "accountName", width: 140 },
     { title: "类型", dataIndex: "credentialType", width: 130 },
     {
@@ -674,15 +725,26 @@ export function SecureCredentialVaultPage() {
       title: "MCP",
       dataIndex: "allowMcp",
       width: 80,
-      render: (value: boolean) => (value ? <Tag color="blue">允许</Tag> : <Tag>关闭</Tag>),
+      render: (value: boolean) =>
+        value ? <Tag color="blue">允许</Tag> : <Tag>关闭</Tag>,
     },
     {
       title: "密钥",
       dataIndex: "hasSecret",
       width: 90,
-      render: (value: boolean) => (value ? <Tag color="green">已保存</Tag> : <Tag color="orange">未保存</Tag>),
+      render: (value: boolean) =>
+        value ? (
+          <Tag color="green">已保存</Tag>
+        ) : (
+          <Tag color="orange">未保存</Tag>
+        ),
     },
-    { title: "最后使用", dataIndex: "lastUsedAt", width: 150, render: (value) => value ?? "-" },
+    {
+      title: "最后使用",
+      dataIndex: "lastUsedAt",
+      width: 150,
+      render: (value) => value ?? "-",
+    },
     {
       title: "操作",
       width: 260,
@@ -703,10 +765,16 @@ export function SecureCredentialVaultPage() {
           <Button size="small" onClick={() => setRotating(item)}>
             轮换
           </Button>
-          <Button size="small" onClick={() => void toggleEnabled(item, !item.enabled)}>
+          <Button
+            size="small"
+            onClick={() => void toggleEnabled(item, !item.enabled)}
+          >
             {item.enabled ? "禁用" : "启用"}
           </Button>
-          <Popconfirm title="确认删除该安全凭证？" onConfirm={() => void deleteItem(item)}>
+          <Popconfirm
+            title="确认删除该安全凭证？"
+            onConfirm={() => void deleteItem(item)}
+          >
             <Button size="small" danger>
               删除
             </Button>
@@ -723,10 +791,18 @@ export function SecureCredentialVaultPage() {
         description="保存 GitHub、GitLab、GitCode、Gitee、HTTP API 和自定义凭证，前端只展示脱敏元数据。"
         actions={
           <Space>
-            <Button icon={<RefreshCw size={14} />} onClick={() => void load()} loading={loading}>
+            <Button
+              icon={<RefreshCw size={14} />}
+              onClick={() => void load()}
+              loading={loading}
+            >
               刷新
             </Button>
-            <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={openCreate}
+            >
               新增凭证
             </Button>
           </Space>
@@ -747,7 +823,9 @@ export function SecureCredentialVaultPage() {
             placeholder="Provider"
             value={provider || undefined}
             options={providerOptions}
-            onChange={(value) => setProvider((value ?? "") as SecureCredentialProvider | "")}
+            onChange={(value) =>
+              setProvider((value ?? "") as SecureCredentialProvider | "")
+            }
             style={{ width: 160 }}
           />
         </Space>
@@ -773,30 +851,55 @@ export function SecureCredentialVaultPage() {
         }
       >
         <Form layout="vertical" form={form}>
-          <Form.Item name="credentialKey" label="凭证 Key" rules={[{ required: true }]}>
+          <Form.Item
+            name="credentialKey"
+            label="凭证 Key"
+            rules={[{ required: true }]}
+          >
             <Input disabled={Boolean(editing)} placeholder="github-main" />
           </Form.Item>
-          <Form.Item name="displayName" label="显示名称" rules={[{ required: true }]}>
+          <Form.Item
+            name="displayName"
+            label="显示名称"
+            rules={[{ required: true }]}
+          >
             <Input placeholder="GitHub 主账号" />
           </Form.Item>
-          <Form.Item name="provider" label="Provider" rules={[{ required: true }]}>
+          <Form.Item
+            name="provider"
+            label="Provider"
+            rules={[{ required: true }]}
+          >
             <Select
               options={providerOptions}
               onChange={(value: SecureCredentialProvider) => {
-                const currentScopes = (form.getFieldValue("scopes") ?? []) as string[];
-                const previousDefaultScopes = Object.values(defaultScopesByProvider).flat();
+                const currentScopes = (form.getFieldValue("scopes") ??
+                  []) as string[];
+                const previousDefaultScopes = Object.values(
+                  defaultScopesByProvider,
+                ).flat();
                 const shouldReplaceScopes =
-                  currentScopes.length === 0 || currentScopes.every((scope) => previousDefaultScopes.includes(scope));
+                  currentScopes.length === 0 ||
+                  currentScopes.every((scope) =>
+                    previousDefaultScopes.includes(scope),
+                  );
                 if (shouldReplaceScopes) {
                   form.setFieldValue("scopes", defaultScopesByProvider[value]);
                 }
               }}
             />
           </Form.Item>
-          <Form.Item name="credentialType" label="凭证类型" rules={[{ required: true }]}>
+          <Form.Item
+            name="credentialType"
+            label="凭证类型"
+            rules={[{ required: true }]}
+          >
             <Select options={credentialTypeOptions} />
           </Form.Item>
-          <Form.Item name="secret" label={editing ? "Secret（留空表示保留原密钥）" : "Secret"}>
+          <Form.Item
+            name="secret"
+            label={editing ? "Secret（留空表示保留原密钥）" : "Secret"}
+          >
             <Input.Password placeholder="只写入后端密文，不会回显" />
           </Form.Item>
           <Form.Item name="accountName" label="关联账号">
@@ -830,7 +933,11 @@ export function SecureCredentialVaultPage() {
           <Form.Item name="expiresAt" label="过期时间">
             <Input placeholder="例如 2026-12-31 23:59:59，留空表示不设置" />
           </Form.Item>
-          <Form.Item name="allowMcp" label="允许 MCP 使用" valuePropName="checked">
+          <Form.Item
+            name="allowMcp"
+            label="允许 MCP 使用"
+            valuePropName="checked"
+          >
             <Switch />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
@@ -865,26 +972,46 @@ export function SecureCredentialVaultPage() {
 }
 
 export function SecureCredentialSessionsPage() {
-  const { items, loading: credentialLoading, load: loadCredentials } = useSecureCredentialData();
-  const { sessions, loading: sessionLoading, load: loadSessions } = useSecureCredentialSessions();
+  const {
+    items,
+    loading: credentialLoading,
+    load: loadCredentials,
+  } = useSecureCredentialData();
+  const {
+    sessions,
+    loading: sessionLoading,
+    load: loadSessions,
+  } = useSecureCredentialSessions();
   const [form] = Form.useForm();
-  const selectedCredentialKey = Form.useWatch("credentialKey", form) as string | undefined;
+  const selectedCredentialKey = Form.useWatch("credentialKey", form) as
+    string | undefined;
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
 
   const usableCredentials = useMemo(
-    () => items.filter((item) => item.enabled && item.allowMcp && item.status === "active" && item.hasSecret),
+    () =>
+      items.filter(
+        (item) =>
+          item.enabled &&
+          item.allowMcp &&
+          item.status === "active" &&
+          item.hasSecret,
+      ),
     [items],
   );
 
   const filteredSessions = useMemo(
-    () => sessions.filter((item) => !statusFilter || item.status === statusFilter),
+    () =>
+      sessions.filter((item) => !statusFilter || item.status === statusFilter),
     [sessions, statusFilter],
   );
 
   const selectedSessionCredential = useMemo(
-    () => usableCredentials.find((item) => item.credentialKey === selectedCredentialKey),
+    () =>
+      usableCredentials.find(
+        (item) => item.credentialKey === selectedCredentialKey,
+      ),
     [selectedCredentialKey, usableCredentials],
   );
 
@@ -958,7 +1085,12 @@ export function SecureCredentialSessionsPage() {
       width: 220,
       render: (value: string) => <Text code>{value}</Text>,
     },
-    { title: "Provider", dataIndex: "provider", width: 110, render: providerLabel },
+    {
+      title: "Provider",
+      dataIndex: "provider",
+      width: 110,
+      render: providerLabel,
+    },
     { title: "凭证 Key", dataIndex: "credentialKey", width: 180 },
     { title: "调用方", dataIndex: "caller", width: 130 },
     {
@@ -967,7 +1099,12 @@ export function SecureCredentialSessionsPage() {
       width: 180,
       render: scopeTags,
     },
-    { title: "状态", dataIndex: "status", width: 100, render: sessionStatusTag },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 100,
+      render: sessionStatusTag,
+    },
     { title: "过期时间", dataIndex: "expiresAt", width: 170 },
     { title: "调用次数", dataIndex: "callCount", width: 90 },
     {
@@ -979,7 +1116,10 @@ export function SecureCredentialSessionsPage() {
           <Button size="small" onClick={() => void checkStatus(item)}>
             校验
           </Button>
-          <Popconfirm title="确认吊销该会话？" onConfirm={() => void revoke(item)}>
+          <Popconfirm
+            title="确认吊销该会话？"
+            onConfirm={() => void revoke(item)}
+          >
             <Button size="small" disabled={item.status === "revoked"} danger>
               吊销
             </Button>
@@ -996,10 +1136,18 @@ export function SecureCredentialSessionsPage() {
         description="管理 AI/MCP 使用安全凭证时创建的短期受控会话。"
         actions={
           <Space>
-            <Button icon={<RefreshCw size={14} />} loading={sessionLoading} onClick={() => void refresh()}>
+            <Button
+              icon={<RefreshCw size={14} />}
+              loading={sessionLoading}
+              onClick={() => void refresh()}
+            >
               刷新
             </Button>
-            <Button type="primary" icon={<Plus size={14} />} onClick={openCreateSession}>
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={openCreateSession}
+            >
               创建会话
             </Button>
           </Space>
@@ -1020,7 +1168,8 @@ export function SecureCredentialSessionsPage() {
             onChange={(value) => setStatusFilter(value ?? "")}
           />
           <Text type="secondary">
-            只显示 session 句柄，不暴露 GitHub / GitLab / GitCode / Gitee / HTTP API 的真实密钥。
+            只显示 session 句柄，不暴露 GitHub / GitLab / GitCode / Gitee / HTTP
+            API 的真实密钥。
           </Text>
         </Space>
         <Table
@@ -1041,7 +1190,11 @@ export function SecureCredentialSessionsPage() {
         onCancel={() => setModalOpen(false)}
       >
         <Form layout="vertical" form={form}>
-          <Form.Item name="credentialKey" label="凭证" rules={[{ required: true }]}>
+          <Form.Item
+            name="credentialKey"
+            label="凭证"
+            rules={[{ required: true }]}
+          >
             <Select
               loading={credentialLoading}
               options={usableCredentials.map((item) => ({
@@ -1050,7 +1203,9 @@ export function SecureCredentialSessionsPage() {
               }))}
               placeholder="请选择已启用且允许 MCP 使用的凭证"
               onChange={(value) => {
-                const credential = usableCredentials.find((item) => item.credentialKey === value);
+                const credential = usableCredentials.find(
+                  (item) => item.credentialKey === value,
+                );
                 form.setFieldValue("scopes", credential?.scopes ?? []);
               }}
             />
@@ -1072,7 +1227,8 @@ export function SecureCredentialSessionsPage() {
         </Form>
         {usableCredentials.length === 0 ? (
           <Paragraph type="secondary">
-            当前没有可创建会话的凭证。请先在凭证库保存密钥、启用凭证，并打开“允许 MCP 使用”。
+            当前没有可创建会话的凭证。请先在凭证库保存密钥、启用凭证，并打开“允许
+            MCP 使用”。
           </Paragraph>
         ) : null}
       </Modal>
@@ -1081,7 +1237,8 @@ export function SecureCredentialSessionsPage() {
 }
 
 export function SecureCredentialGitWorkspacesPage() {
-  const { items: credentials, load: loadCredentials } = useSecureCredentialData();
+  const { items: credentials, load: loadCredentials } =
+    useSecureCredentialData();
   const [form] = Form.useForm();
   const [cloneForm] = Form.useForm();
   const [items, setItems] = useState<GitWorkspace[]>([]);
@@ -1093,18 +1250,23 @@ export function SecureCredentialGitWorkspacesPage() {
   const [scanProgress, setScanProgress] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingCredential, setEditingCredential] = useState<GitWorkspace | null>(null);
+  const [editingCredential, setEditingCredential] =
+    useState<GitWorkspace | null>(null);
   const [credentialSaving, setCredentialSaving] = useState(false);
   const [committingKey, setCommittingKey] = useState("");
   const [pullingKey, setPullingKey] = useState("");
   const [pushingKey, setPushingKey] = useState("");
-  const [branchModalWorkspace, setBranchModalWorkspace] = useState<GitWorkspace | null>(null);
+  const [branchModalWorkspace, setBranchModalWorkspace] =
+    useState<GitWorkspace | null>(null);
   const [branchOptions, setBranchOptions] = useState<GitWorkspaceBranch[]>([]);
   const [branchLoading, setBranchLoading] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState(false);
   const [targetBranch, setTargetBranch] = useState("");
-  const [mergeModalWorkspace, setMergeModalWorkspace] = useState<GitWorkspace | null>(null);
-  const [mergeBranchOptions, setMergeBranchOptions] = useState<GitWorkspaceBranch[]>([]);
+  const [mergeModalWorkspace, setMergeModalWorkspace] =
+    useState<GitWorkspace | null>(null);
+  const [mergeBranchOptions, setMergeBranchOptions] = useState<
+    GitWorkspaceBranch[]
+  >([]);
   const [mergeSourceBranch, setMergeSourceBranch] = useState("");
   const [mergeTargetBranch, setMergeTargetBranch] = useState("");
   const [mergeBranchLoading, setMergeBranchLoading] = useState(false);
@@ -1161,12 +1323,16 @@ export function SecureCredentialGitWorkspacesPage() {
       const selected = await dialog.open({ directory: true, multiple: false });
       if (typeof selected === "string") {
         form.setFieldValue("repoPath", selected);
-        const name = selected.split(/[\\/]/).filter(Boolean).pop() ?? "git-workspace";
+        const name =
+          selected.split(/[\\/]/).filter(Boolean).pop() ?? "git-workspace";
         if (!form.getFieldValue("name")) {
           form.setFieldValue("name", name);
         }
         if (!form.getFieldValue("workspaceKey")) {
-          form.setFieldValue("workspaceKey", name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_"));
+          form.setFieldValue(
+            "workspaceKey",
+            name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_"),
+          );
         }
       }
     } catch (error) {
@@ -1241,7 +1407,8 @@ export function SecureCredentialGitWorkspacesPage() {
       });
       message.success("Git 工作区已保存");
       setDrawerOpen(false);
-      await Promise.all([load(), loadCredentials()]);
+      // 保存已完成后立即返回列表；后台刷新失败或变慢不能阻塞用户继续登记其他仓库。
+      void Promise.all([load(), loadCredentials()]);
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -1344,7 +1511,9 @@ export function SecureCredentialGitWorkspacesPage() {
         return;
       }
       for (const [index, workspace] of workspaces.entries()) {
-        setScanStatusText(`正在刷新第 ${index + 1}/${workspaces.length} 个工作区：${workspace.name}`);
+        setScanStatusText(
+          `正在刷新第 ${index + 1}/${workspaces.length} 个工作区：${workspace.name}`,
+        );
         try {
           await gitWorkspaceApi.refresh(workspace.workspaceKey);
           success += 1;
@@ -1417,8 +1586,12 @@ export function SecureCredentialGitWorkspacesPage() {
     }
     setCommittingKey(item.workspaceKey);
     try {
-      const result = await gitWorkspaceApi.aiCommit({ workspaceKey: item.workspaceKey });
-      const title = result.commitMessage.split("\n").find((line) => line.trim()) ?? "AI 提交完成";
+      const result = await gitWorkspaceApi.aiCommit({
+        workspaceKey: item.workspaceKey,
+      });
+      const title =
+        result.commitMessage.split("\n").find((line) => line.trim()) ??
+        "AI 提交完成";
       message.success(`已本地提交 ${result.commitHash}: ${title}`);
       await load();
       if (detail?.workspace.workspaceKey === item.workspaceKey) {
@@ -1493,8 +1666,12 @@ export function SecureCredentialGitWorkspacesPage() {
       message.success(`已切换到分支：${result.branch || targetBranch}`);
       setBranchModalWorkspace(null);
       await load();
-      if (detail?.workspace.workspaceKey === branchModalWorkspace.workspaceKey) {
-        setDetail(await gitWorkspaceApi.detail(branchModalWorkspace.workspaceKey));
+      if (
+        detail?.workspace.workspaceKey === branchModalWorkspace.workspaceKey
+      ) {
+        setDetail(
+          await gitWorkspaceApi.detail(branchModalWorkspace.workspaceKey),
+        );
       }
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1513,8 +1690,12 @@ export function SecureCredentialGitWorkspacesPage() {
       const branches = await gitWorkspaceApi.branches(item.workspaceKey);
       setMergeBranchOptions(branches);
       const current = branches.find((branch) => branch.isCurrent);
-      setMergeTargetBranch(current?.name || item.branch || branches[0]?.name || "");
-      setMergeSourceBranch(branches.find((branch) => !branch.isCurrent)?.name || "");
+      setMergeTargetBranch(
+        current?.name || item.branch || branches[0]?.name || "",
+      );
+      setMergeSourceBranch(
+        branches.find((branch) => !branch.isCurrent)?.name || "",
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -1523,7 +1704,11 @@ export function SecureCredentialGitWorkspacesPage() {
   }
 
   async function mergeBranch() {
-    if (!mergeModalWorkspace || !mergeSourceBranch.trim() || !mergeTargetBranch.trim()) {
+    if (
+      !mergeModalWorkspace ||
+      !mergeSourceBranch.trim() ||
+      !mergeTargetBranch.trim()
+    ) {
       return;
     }
     setMergingBranch(true);
@@ -1533,11 +1718,15 @@ export function SecureCredentialGitWorkspacesPage() {
         sourceBranch: mergeSourceBranch,
         targetBranch: mergeTargetBranch,
       });
-      message.success(`已将 ${mergeSourceBranch} 合并到 ${result.branch || mergeTargetBranch}`);
+      message.success(
+        `已将 ${mergeSourceBranch} 合并到 ${result.branch || mergeTargetBranch}`,
+      );
       setMergeModalWorkspace(null);
       await load();
       if (detail?.workspace.workspaceKey === mergeModalWorkspace.workspaceKey) {
-        setDetail(await gitWorkspaceApi.detail(mergeModalWorkspace.workspaceKey));
+        setDetail(
+          await gitWorkspaceApi.detail(mergeModalWorkspace.workspaceKey),
+        );
       }
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1557,7 +1746,9 @@ export function SecureCredentialGitWorkspacesPage() {
   }
 
   function renderBranchOption(branch: GitWorkspaceBranch) {
-    const commit = [branch.lastCommitHash, branch.lastCommitMessage].filter(Boolean).join(" ");
+    const commit = [branch.lastCommitHash, branch.lastCommitMessage]
+      .filter(Boolean)
+      .join(" ");
     return (
       <Space direction="vertical" size={0} style={{ width: "100%" }}>
         <Text strong>
@@ -1599,7 +1790,11 @@ export function SecureCredentialGitWorkspacesPage() {
             >
               扫描并克隆远端仓库
             </Button>
-            <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={openCreate}
+            >
               手动添加
             </Button>
           </Space>
@@ -1618,7 +1813,11 @@ export function SecureCredentialGitWorkspacesPage() {
           message={scanStatusText}
           description={
             scanProgress !== null ? (
-              <Progress percent={scanProgress} size="small" style={{ marginTop: 8 }} />
+              <Progress
+                percent={scanProgress}
+                size="small"
+                style={{ marginTop: 8 }}
+              />
             ) : null
           }
           style={{ marginBottom: 16 }}
@@ -1669,18 +1868,29 @@ export function SecureCredentialGitWorkspacesPage() {
                     icon={<KeyRound size={15} />}
                     onClick={() => openEditCredential(item)}
                   />
-                  <Popconfirm title="删除该 Git 工作区？" onConfirm={() => void deleteItem(item)}>
+                  <Popconfirm
+                    title="删除该 Git 工作区？"
+                    onConfirm={() => void deleteItem(item)}
+                  >
                     <Button type="text" danger icon={<Trash2 size={15} />} />
                   </Popconfirm>
                 </Space>
               }
             >
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+              <Space
+                direction="vertical"
+                size="middle"
+                style={{ width: "100%" }}
+              >
                 <Text type="secondary" ellipsis={{ tooltip: item.repoPath }}>
                   {item.repoPath}
                 </Text>
                 <Space className="prototype-git-workspace-tags" wrap>
-                  <Tag className="prototype-git-workspace-tag" color="blue" icon={<GitBranch size={12} />}>
+                  <Tag
+                    className="prototype-git-workspace-tag"
+                    color="blue"
+                    icon={<GitBranch size={12} />}
+                  >
                     {item.branch || "HEAD"}
                   </Tag>
                   {item.credentialKey ? (
@@ -1688,7 +1898,9 @@ export function SecureCredentialGitWorkspacesPage() {
                       🔑 {item.credentialKey}
                     </Tag>
                   ) : (
-                    <Tag className="prototype-git-workspace-tag">未绑定凭证</Tag>
+                    <Tag className="prototype-git-workspace-tag">
+                      未绑定凭证
+                    </Tag>
                   )}
                   {gitWorkspaceStatusTag(item.status)}
                   {item.changedFiles > 0 ? (
@@ -1707,11 +1919,19 @@ export function SecureCredentialGitWorkspacesPage() {
                     </Tag>
                   ) : null}
                 </Space>
-                <Paragraph type="secondary" style={{ marginBottom: 0 }} ellipsis={{ rows: 2 }}>
+                <Paragraph
+                  type="secondary"
+                  style={{ marginBottom: 0 }}
+                  ellipsis={{ rows: 2 }}
+                >
                   {item.description || item.remoteUrl || "暂无备注"}
                 </Paragraph>
                 <Space className="prototype-git-workspace-actions" wrap>
-                  <Button size="small" icon={<Eye size={14} />} onClick={() => void openDetail(item)}>
+                  <Button
+                    size="small"
+                    icon={<Eye size={14} />}
+                    onClick={() => void openDetail(item)}
+                  >
                     详情 / diff / log
                   </Button>
                   <Button
@@ -1730,10 +1950,18 @@ export function SecureCredentialGitWorkspacesPage() {
                   >
                     Push 推送
                   </Button>
-                  <Button size="small" icon={<Shuffle size={14} />} onClick={() => void openSwitchBranch(item)}>
+                  <Button
+                    size="small"
+                    icon={<Shuffle size={14} />}
+                    onClick={() => void openSwitchBranch(item)}
+                  >
                     切换分支
                   </Button>
-                  <Button size="small" icon={<GitMerge size={14} />} onClick={() => void openMergeBranch(item)}>
+                  <Button
+                    size="small"
+                    icon={<GitMerge size={14} />}
+                    onClick={() => void openMergeBranch(item)}
+                  >
                     合并分支
                   </Button>
                   <Button
@@ -1744,7 +1972,11 @@ export function SecureCredentialGitWorkspacesPage() {
                   >
                     AI 提交
                   </Button>
-                  <Button size="small" icon={<RefreshCw size={14} />} onClick={() => void refreshOne(item)}>
+                  <Button
+                    size="small"
+                    icon={<RefreshCw size={14} />}
+                    onClick={() => void refreshOne(item)}
+                  >
                     刷新状态
                   </Button>
                 </Space>
@@ -1767,13 +1999,21 @@ export function SecureCredentialGitWorkspacesPage() {
         }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="workspaceKey" label="工作区 Key" rules={[{ required: true }]}>
+          <Form.Item
+            name="workspaceKey"
+            label="工作区 Key"
+            rules={[{ required: true }]}
+          >
             <Input placeholder="tauri_ssh" autoCapitalize="off" />
           </Form.Item>
           <Form.Item name="name" label="显示名称" rules={[{ required: true }]}>
             <Input placeholder="tauri_ssh" autoCapitalize="off" />
           </Form.Item>
-          <Form.Item name="repoPath" label="本地仓库目录" rules={[{ required: true }]}>
+          <Form.Item
+            name="repoPath"
+            label="本地仓库目录"
+            rules={[{ required: true }]}
+          >
             <Input.Search
               placeholder="/Users/bin/Documents/GitHub/tauri_ssh"
               enterButton="选择"
@@ -1782,7 +2022,11 @@ export function SecureCredentialGitWorkspacesPage() {
             />
           </Form.Item>
           <Form.Item name="credentialKey" label="关联 Git 凭证">
-            <Select allowClear options={credentialOptions} placeholder="从安全凭证库选择 Git 凭证" />
+            <Select
+              allowClear
+              options={credentialOptions}
+              placeholder="从安全凭证库选择 Git 凭证"
+            />
           </Form.Item>
           <Form.Item name="description" label="备注">
             <Input.TextArea rows={3} placeholder="例如：Tauri SSH 主源码仓库" />
@@ -1815,7 +2059,11 @@ export function SecureCredentialGitWorkspacesPage() {
               <Input
                 placeholder="/Users/bin/Documents/GitHub"
                 addonAfter={
-                  <Button type="link" size="small" onClick={() => void pickCloneRootDirectory()}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => void pickCloneRootDirectory()}
+                  >
                     选择
                   </Button>
                 }
@@ -1853,7 +2101,11 @@ export function SecureCredentialGitWorkspacesPage() {
       </Modal>
 
       <Modal
-        title={editingCredential ? `编辑 Git 凭证：${editingCredential.name}` : "编辑 Git 凭证"}
+        title={
+          editingCredential
+            ? `编辑 Git 凭证：${editingCredential.name}`
+            : "编辑 Git 凭证"
+        }
         open={Boolean(editingCredential)}
         confirmLoading={credentialSaving}
         okText="保存"
@@ -1866,16 +2118,27 @@ export function SecureCredentialGitWorkspacesPage() {
             <Text type="secondary">{editingCredential?.repoPath}</Text>
           </Form.Item>
           <Form.Item name="credentialKey" label="关联 Git 凭证">
-            <Select allowClear options={credentialOptions} placeholder="从安全凭证库选择 Git 凭证" />
+            <Select
+              allowClear
+              options={credentialOptions}
+              placeholder="从安全凭证库选择 Git 凭证"
+            />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title={branchModalWorkspace ? `切换分支：${branchModalWorkspace.name}` : "切换分支"}
+        title={
+          branchModalWorkspace
+            ? `切换分支：${branchModalWorkspace.name}`
+            : "切换分支"
+        }
         open={Boolean(branchModalWorkspace)}
         confirmLoading={switchingBranch}
-        okButtonProps={{ disabled: !targetBranch || targetBranch === branchModalWorkspace?.branch }}
+        okButtonProps={{
+          disabled:
+            !targetBranch || targetBranch === branchModalWorkspace?.branch,
+        }}
         okText="切换"
         cancelText="取消"
         onOk={() => void switchBranch()}
@@ -1904,7 +2167,11 @@ export function SecureCredentialGitWorkspacesPage() {
       </Modal>
 
       <Modal
-        title={mergeModalWorkspace ? `合并分支：${mergeModalWorkspace.name}` : "合并分支"}
+        title={
+          mergeModalWorkspace
+            ? `合并分支：${mergeModalWorkspace.name}`
+            : "合并分支"
+        }
         open={Boolean(mergeModalWorkspace)}
         confirmLoading={mergingBranch}
         okButtonProps={{
@@ -1982,12 +2249,18 @@ export function SecureCredentialGitWorkspacesPage() {
               <Tag>behind {detail.workspace.behind}</Tag>
             </Space>
             <Card size="small" title="状态 / diff 摘要">
-              <pre className="prototype-code" style={{ maxHeight: 220, overflow: "auto", margin: 0 }}>
+              <pre
+                className="prototype-code"
+                style={{ maxHeight: 220, overflow: "auto", margin: 0 }}
+              >
                 {detail.statusText || "clean"}
               </pre>
             </Card>
             <Card size="small" title="最近提交">
-              <pre className="prototype-code" style={{ maxHeight: 220, overflow: "auto", margin: 0 }}>
+              <pre
+                className="prototype-code"
+                style={{ maxHeight: 220, overflow: "auto", margin: 0 }}
+              >
                 {detail.recentLog.join("\n") || "暂无提交记录"}
               </pre>
             </Card>
@@ -2006,7 +2279,9 @@ export function SecureCredentialMcpPage() {
     setLoading(true);
     try {
       const overview = await mcpApi.overview();
-      setTools(overview.tools.filter((tool) => isSecureCredentialMcpTool(tool.tool)));
+      setTools(
+        overview.tools.filter((tool) => isSecureCredentialMcpTool(tool.tool)),
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -2024,7 +2299,11 @@ export function SecureCredentialMcpPage() {
         title="MCP 接入"
         description="管理安全凭证相关 MCP 工具和客户端接入状态。"
         actions={
-          <Button icon={<RefreshCw size={14} />} loading={loading} onClick={() => void load()}>
+          <Button
+            icon={<RefreshCw size={14} />}
+            loading={loading}
+            onClick={() => void load()}
+          >
             刷新
           </Button>
         }
@@ -2036,7 +2315,12 @@ export function SecureCredentialMcpPage() {
           dataSource={tools}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           columns={[
-            { title: "工具", dataIndex: "tool", width: 240, render: (value) => <Text code>{value}</Text> },
+            {
+              title: "工具",
+              dataIndex: "tool",
+              width: 240,
+              render: (value) => <Text code>{value}</Text>,
+            },
             { title: "策略", dataIndex: "policy", width: 360 },
             { title: "审计", dataIndex: "audit" },
           ]}
@@ -2086,7 +2370,11 @@ export function SecureCredentialAuditPage() {
         title="安全凭证审计"
         description="查看凭证变更、会话签发和 MCP 调用审计。"
         actions={
-          <Button icon={<RefreshCw size={14} />} loading={loading} onClick={() => void load()}>
+          <Button
+            icon={<RefreshCw size={14} />}
+            loading={loading}
+            onClick={() => void load()}
+          >
             刷新
           </Button>
         }
@@ -2096,7 +2384,12 @@ export function SecureCredentialAuditPage() {
           <Statistic title="总调用" value={total} />
         </Card>
         <Card>
-          <Statistic title="成功率" value={total ? (success / total) * 100 : 0} precision={1} suffix="%" />
+          <Statistic
+            title="成功率"
+            value={total ? (success / total) * 100 : 0}
+            precision={1}
+            suffix="%"
+          />
         </Card>
         <Card>
           <Statistic title="失败次数" value={failure} />
@@ -2120,7 +2413,9 @@ export function SecureCredentialAuditPage() {
             placeholder="Provider"
             value={provider || undefined}
             options={providerOptions}
-            onChange={(value) => setProvider((value ?? "") as SecureCredentialProvider | "")}
+            onChange={(value) =>
+              setProvider((value ?? "") as SecureCredentialProvider | "")
+            }
             style={{ width: 160 }}
           />
           <Select
@@ -2146,22 +2441,42 @@ export function SecureCredentialAuditPage() {
             { title: "时间", dataIndex: "createdAt", width: 170 },
             { title: "调用方", dataIndex: "actor", width: 130 },
             { title: "来源", dataIndex: "source", width: 150 },
-            { title: "Provider", dataIndex: "provider", width: 110, render: providerLabel },
+            {
+              title: "Provider",
+              dataIndex: "provider",
+              width: 110,
+              render: providerLabel,
+            },
             { title: "凭证 Key", dataIndex: "credentialKey", width: 180 },
             { title: "动作", dataIndex: "action", width: 200 },
-            { title: "风险", dataIndex: "risk", width: 100, render: (value) => <Tag>{value}</Tag> },
+            {
+              title: "风险",
+              dataIndex: "risk",
+              width: 100,
+              render: (value) => <Tag>{value}</Tag>,
+            },
             {
               title: "结果",
               dataIndex: "result",
               width: 100,
-              render: (value) => <Tag color={value === "success" ? "green" : "red"}>{value}</Tag>,
+              render: (value) => (
+                <Tag color={value === "success" ? "green" : "red"}>{value}</Tag>
+              ),
             },
-            { title: "耗时", dataIndex: "durationMs", width: 90, render: (value) => `${value} ms` },
+            {
+              title: "耗时",
+              dataIndex: "durationMs",
+              width: 90,
+              render: (value) => `${value} ms`,
+            },
             {
               title: "详情",
               dataIndex: "detailJson",
               render: (value) => (
-                <pre className="prototype-code" style={{ maxHeight: 120, overflow: "auto", margin: 0 }}>
+                <pre
+                  className="prototype-code"
+                  style={{ maxHeight: 120, overflow: "auto", margin: 0 }}
+                >
                   {value}
                 </pre>
               ),
@@ -2174,7 +2489,8 @@ export function SecureCredentialAuditPage() {
 }
 
 export function SecureCredentialPoliciesPage() {
-  const [settings, setSettings] = useState<SecureCredentialPolicySettings | null>(null);
+  const [settings, setSettings] =
+    useState<SecureCredentialPolicySettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -2244,7 +2560,10 @@ export function SecureCredentialPoliciesPage() {
 
   return (
     <div className="prototype-page">
-      <PageHeader title="策略" description="配置 AI/MCP 使用凭证的默认会话、审批、脱敏和限流策略。" />
+      <PageHeader
+        title="策略"
+        description="配置 AI/MCP 使用凭证的默认会话、审批、脱敏和限流策略。"
+      />
       <Card loading={loading} title="基础策略" style={{ marginBottom: 16 }}>
         <Space direction="vertical" size={16} className="w-full">
           <div className="prototype-grid prototype-grid-2">
@@ -2256,7 +2575,9 @@ export function SecureCredentialPoliciesPage() {
                 value={current.defaultSessionTtlMinutes}
                 disabled={saving}
                 style={{ width: "100%", marginTop: 8 }}
-                onChange={(value) => void update("defaultSessionTtlMinutes", Number(value ?? 30))}
+                onChange={(value) =>
+                  void update("defaultSessionTtlMinutes", Number(value ?? 30))
+                }
               />
             </Card>
             <Card size="small">
@@ -2267,7 +2588,9 @@ export function SecureCredentialPoliciesPage() {
                 value={current.maxResponseItems}
                 disabled={saving}
                 style={{ width: "100%", marginTop: 8 }}
-                onChange={(value) => void update("maxResponseItems", Number(value ?? 100))}
+                onChange={(value) =>
+                  void update("maxResponseItems", Number(value ?? 100))
+                }
               />
             </Card>
             <Card size="small">
@@ -2278,7 +2601,9 @@ export function SecureCredentialPoliciesPage() {
                 value={current.rateLimitPerMinute}
                 disabled={saving}
                 style={{ width: "100%", marginTop: 8 }}
-                onChange={(value) => void update("rateLimitPerMinute", Number(value ?? 60))}
+                onChange={(value) =>
+                  void update("rateLimitPerMinute", Number(value ?? 60))
+                }
               />
             </Card>
             <Card size="small">
@@ -2289,16 +2614,34 @@ export function SecureCredentialPoliciesPage() {
                 value={current.maxConcurrentSessions}
                 disabled={saving}
                 style={{ width: "100%", marginTop: 8 }}
-                onChange={(value) => void update("maxConcurrentSessions", Number(value ?? 5))}
+                onChange={(value) =>
+                  void update("maxConcurrentSessions", Number(value ?? 5))
+                }
               />
             </Card>
           </div>
           <div className="prototype-grid prototype-grid-2">
             {[
-              ["allowReadonlyAuto", "允许只读自动执行", "关闭后，Git/HTTP 只读 Provider 调用也会被拒绝并提示需要审批。"],
-              ["requireApprovalForAll", "全部操作需审批", "开启后，所有 Provider 调用默认拒绝自动执行，等待后续审批入口接入。"],
-              ["allowHttpCustomHeaders", "允许 HTTP 自定义 Header", "首版仅保存策略，不向 MCP 暴露自定义 Header 明文。"],
-              ["allowDefaultBranchCommits", "允许默认分支直接提交", "默认关闭。开启后仍必须经过审批和 requestHash 校验。"],
+              [
+                "allowReadonlyAuto",
+                "允许只读自动执行",
+                "关闭后，Git/HTTP 只读 Provider 调用也会被拒绝并提示需要审批。",
+              ],
+              [
+                "requireApprovalForAll",
+                "全部操作需审批",
+                "开启后，所有 Provider 调用默认拒绝自动执行，等待后续审批入口接入。",
+              ],
+              [
+                "allowHttpCustomHeaders",
+                "允许 HTTP 自定义 Header",
+                "首版仅保存策略，不向 MCP 暴露自定义 Header 明文。",
+              ],
+              [
+                "allowDefaultBranchCommits",
+                "允许默认分支直接提交",
+                "默认关闭。开启后仍必须经过审批和 requestHash 校验。",
+              ],
             ].map(([field, title, description]) => (
               <Card key={field} size="small">
                 <div className="flex items-center justify-between gap-3">
@@ -2309,10 +2652,15 @@ export function SecureCredentialPoliciesPage() {
                     </Paragraph>
                   </div>
                   <Switch
-                    checked={Boolean(current[field as keyof SecureCredentialPolicySettings])}
+                    checked={Boolean(
+                      current[field as keyof SecureCredentialPolicySettings],
+                    )}
                     loading={saving}
                     onChange={(checked) =>
-                      void update(field as keyof SecureCredentialPolicySettings, checked as never)
+                      void update(
+                        field as keyof SecureCredentialPolicySettings,
+                        checked as never,
+                      )
                     }
                   />
                 </div>
@@ -2338,21 +2686,40 @@ export function SecureCredentialPoliciesPage() {
             <div>
               <Text strong>允许审批后执行高风险仓库操作</Text>
               <Paragraph type="secondary" className="!mb-0">
-                未开启时，即使审批通过，删除分支、删除 tag、删除 release、更新 Git ref 和修改仓库设置也会被拒绝。
+                未开启时，即使审批通过，删除分支、删除 tag、删除 release、更新
+                Git ref 和修改仓库设置也会被拒绝。
               </Paragraph>
             </div>
             <Switch
               checked={current.allowHighRiskRepoOps}
               loading={saving}
-              onChange={(checked) => void update("allowHighRiskRepoOps", checked)}
+              onChange={(checked) =>
+                void update("allowHighRiskRepoOps", checked)
+              }
             />
           </div>
           <div className="prototype-grid prototype-grid-2">
             {[
-              ["allowDeleteBranch", "删除分支", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee 分支。"],
-              ["allowDeleteTag", "删除 tag", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee tag。"],
-              ["allowDeleteRelease", "删除 release", "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee release。"],
-              ["allowUpdateRef", "更新 Git ref", "允许 approved 后更新 Git 引用，默认禁止强制更新。"],
+              [
+                "allowDeleteBranch",
+                "删除分支",
+                "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee 分支。",
+              ],
+              [
+                "allowDeleteTag",
+                "删除 tag",
+                "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee tag。",
+              ],
+              [
+                "allowDeleteRelease",
+                "删除 release",
+                "允许 approved 后删除 GitHub/GitLab/GitCode/Gitee release。",
+              ],
+              [
+                "allowUpdateRef",
+                "更新 Git ref",
+                "允许 approved 后更新 Git 引用，默认禁止强制更新。",
+              ],
               [
                 "allowUpdateRepoSettings",
                 "修改仓库设置",
@@ -2368,11 +2735,16 @@ export function SecureCredentialPoliciesPage() {
                     </Paragraph>
                   </div>
                   <Switch
-                    checked={Boolean(current[field as keyof SecureCredentialPolicySettings])}
+                    checked={Boolean(
+                      current[field as keyof SecureCredentialPolicySettings],
+                    )}
                     disabled={!current.allowHighRiskRepoOps}
                     loading={saving}
                     onChange={(checked) =>
-                      void update(field as keyof SecureCredentialPolicySettings, checked as never)
+                      void update(
+                        field as keyof SecureCredentialPolicySettings,
+                        checked as never,
+                      )
                     }
                   />
                 </div>
@@ -2380,7 +2752,8 @@ export function SecureCredentialPoliciesPage() {
             ))}
           </div>
           <Text type="secondary">
-            当前策略更新时间：{current.updatedAt ?? "尚未保存，使用默认拒绝策略"}
+            当前策略更新时间：
+            {current.updatedAt ?? "尚未保存，使用默认拒绝策略"}
           </Text>
         </Space>
       </Card>

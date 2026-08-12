@@ -1,370 +1,85 @@
 ---
 name: json-serialization
 description: |
-  Tauri 项目中 JSON 序列化/反序列化技能，覆盖 Rust serde 和 TypeScript 类型系统。
+  用于设计和验证 Rust serde、JSON 与 TypeScript 之间的序列化契约。
 
   触发场景：
-  - 需要定义 Rust 和 TypeScript 之间的数据传输类型
-  - 需要处理 JSON 序列化/反序列化
-  - 需要处理复杂嵌套数据结构
-  - serde 配置和自定义序列化
+  - 修改 Serialize、Deserialize 或 serde 属性
+  - 设计 Tauri IPC 的复杂 JSON 参数、返回值或结构化错误
+  - 处理 Option、枚举、日期、大整数、嵌套对象或自定义序列化
+  - 排查 Rust 与 TypeScript 的实际 JSON 形状不一致
 
-  触发词：JSON、序列化、serde、类型转换、数据传输、Serialize、Deserialize
+  不应触发：不改变 JSON 形状的普通业务字段映射、仅在数据库行与 Rust 模型之间赋值、普通类型重命名。
+
+  触发词：serde、Serialize、Deserialize、serde_json、rename_all、tagged enum、JSON contract、custom serializer
 ---
 
-# JSON 序列化与类型映射
+# JSON 序列化与类型契约
 
-## 核心概念
+## 适用边界
 
-Tauri IPC 通信基于 JSON：Rust 数据 ←→ JSON ←→ TypeScript 数据。
+本 Skill 关注“线上的 JSON 实际长什么样”，而非所有类型转换。Tauri IPC 的端到端注册与 API 封装由 `api-development` 负责；本 Skill 负责 serde 属性、JSON 形状及 Rust/TypeScript 类型语义一致性。
 
-`serde` 是 Rust 的标准序列化框架，负责 Rust struct ↔ JSON 的自动转换。
-
----
-
-## 项目三层架构中的类型流动
-
-在本项目中，数据类型在三层之间流动：
-
-```
-models/mod.rs (数据模型)
-    ↓ 序列化
-database/ (数据库层) → services/ (业务层) → commands/ (命令层)
-    ↓ JSON
-TypeScript types (src/types/index.ts)
-    ↓
-React 组件 (src/pages/)
+```text
+Rust model --serde--> JSON --Tauri IPC--> TypeScript type
 ```
 
-### 实际示例：AppConfig
-
-**Rust 数据模型** (`src-tauri/src/models/mod.rs`):
-
-```rust
-use serde::{Deserialize, Serialize};
-
-/// 应用配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfig {
-    pub key: String,
-    pub value: String,
-}
-```
-
-**TypeScript 类型** (`src/types/index.ts`):
-
-```typescript
-export interface AppConfig {
-  key: string;
-  value: string;
-}
-```
-
-**在 Database 层使用**:
-
-```rust
-// database/config.rs
-use crate::models::AppConfig;
-
-pub fn get_config(conn: &Connection, key: &str) -> Result<AppConfig, AppError> {
-    // 从数据库查询并反序列化为 AppConfig
-    Ok(AppConfig { key: key.into(), value: "...".into() })
-}
-```
-
-**在 Service 层传递**:
-
-```rust
-// services/config.rs
-use crate::models::AppConfig;
-
-pub fn read_config(key: &str) -> Result<AppConfig, AppError> {
-    let conn = get_connection()?;
-    database::config::get_config(&conn, key)
-}
-```
-
-**在 Command 层返回**:
-
-```rust
-// commands/config.rs
-use crate::models::AppConfig;
-
-#[tauri::command]
-pub fn get_config(key: String) -> Result<AppConfig, String> {
-    services::config::read_config(&key)
-        .map_err(|e| e.to_string())
-}
-```
-
-**前端调用** (`src/lib/api/index.ts`):
-
-```typescript
-import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "@/types";
-
-export const api = {
-  getConfig: (key: string) => invoke<AppConfig>("get_config", { key }),
-};
-```
-
----
-
-## Rust ↔ TypeScript 类型映射
-
-| Rust 类型 | JSON 类型 | TypeScript 类型 |
-|-----------|----------|----------------|
-| `String` | `string` | `string` |
-| `&str` | `string` | `string` |
-| `i32` / `i64` / `u32` / `u64` | `number` | `number` |
-| `f32` / `f64` | `number` | `number` |
-| `bool` | `boolean` | `boolean` |
-| `Vec<T>` | `array` | `T[]` |
-| `Option<T>` | `T \| null` | `T \| null` |
-| `HashMap<String, T>` | `object` | `Record<string, T>` |
-| `()` | `null` | `void` |
-| `(A, B)` | `[A, B]` | `[A, B]` |
-| enum (unit variants) | `string` | `string literal union` |
-| enum (data variants) | `object` | `discriminated union` |
-
----
-
-## 实际项目示例
-
-### SystemInfo（只序列化）
-
-```rust
-// src-tauri/src/models/mod.rs
-use serde::Serialize;
-
-/// 系统信息（仅发送给前端，不需要反序列化）
-#[derive(Debug, Clone, Serialize)]
-pub struct SystemInfo {
-    pub os: String,
-    pub arch: String,
-    pub app_version: String,
-    pub data_dir: String,
-}
-```
-
-对应 TypeScript:
-
-```typescript
-// src/types/index.ts
-export interface SystemInfo {
-  os: string;
-  arch: string;
-  app_version: string;
-  data_dir: string;
-}
-```
-
-### 高级用法：字段重命名
-
-```rust
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]  // 全部字段转 camelCase
-struct Config {
-    max_retries: u32,       // JSON: "maxRetries"
-    timeout_ms: u64,        // JSON: "timeoutMs"
-}
-
-#[derive(Serialize, Deserialize)]
-struct Item {
-    #[serde(rename = "type")]  // Rust 保留字
-    item_type: String,
-}
-```
-
-### 默认值
-
-```rust
-#[derive(Serialize, Deserialize)]
-struct Settings {
-    #[serde(default)]
-    dark_mode: bool,            // 缺失时默认 false
-
-    #[serde(default = "default_port")]
-    port: u16,                  // 缺失时使用自定义默认值
-}
-
-fn default_port() -> u16 { 8080 }
-```
-
-### 跳过序列化
-
-```rust
-#[derive(Serialize, Deserialize)]
-struct Internal {
-    name: String,
-
-    #[serde(skip)]
-    cache: Vec<u8>,             // 不参与序列化/反序列化
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>, // None 时不输出字段
-}
-```
-
-### 枚举序列化
-
-```rust
-// 简单枚举 → 字符串
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Status {
-    Active,      // "active"
-    Inactive,    // "inactive"
-    Pending,     // "pending"
-}
-
-// 带数据的枚举 → tagged union
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-enum Message {
-    Text(String),                    // {"type":"Text","data":"hello"}
-    Image { url: String, width: u32 }, // {"type":"Image","data":{"url":"...","width":100}}
-}
-```
-
-对应 TypeScript:
-
-```typescript
-type Status = "active" | "inactive" | "pending";
-
-type Message =
-  | { type: "Text"; data: string }
-  | { type: "Image"; data: { url: string; width: number } };
-```
-
----
-
-## 在三层架构中使用
-
-### 定义模型 (models/mod.rs)
-
-```rust
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: i64,
-    pub name: String,
-    pub email: Option<String>,
-}
-```
-
-### Database 层返回模型
-
-```rust
-// database/user.rs
-use crate::models::User;
-
-pub fn get_user(conn: &Connection, id: i64) -> Result<User, AppError> {
-    // 查询并构造 User
-    Ok(User { id, name: "Alice".into(), email: None })
-}
-```
-
-### Service 层处理业务
-
-```rust
-// services/user.rs
-use crate::models::User;
-
-pub fn fetch_user(id: i64) -> Result<User, AppError> {
-    let conn = get_connection()?;
-    database::user::get_user(&conn, id)
-}
-```
-
-### Command 层对接前端
-
-```rust
-// commands/user.rs
-use crate::models::User;
-
-#[tauri::command]
-pub fn get_user(id: i64) -> Result<User, String> {
-    services::user::fetch_user(id)
-        .map_err(|e| e.to_string())
-}
-```
-
-### 前端类型安全调用
-
-```typescript
-// src/types/index.ts
-export interface User {
-  id: number;
-  name: string;
-  email: string | null;
-}
-
-// src/lib/api/index.ts
-import { invoke } from "@tauri-apps/api/core";
-import type { User } from "@/types";
-
-export const api = {
-  getUser: (id: number) => invoke<User>("get_user", { id }),
-};
-
-// src/pages/UserPage.tsx
-import { api } from "@/lib/api";
-
-const user = await api.getUser(1); // 类型安全
-```
-
----
-
-## 错误处理中的序列化
-
-项目使用 `thiserror` 定义统一错误类型：
-
-```rust
-// src-tauri/src/error.rs
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("数据库错误: {0}")]
-    Database(#[from] rusqlite::Error),
-
-    #[error("未找到: {0}")]
-    NotFound(String),
-}
-
-// 转换为 String 供 Tauri Command 使用
-impl From<AppError> for String {
-    fn from(err: AppError) -> String {
-        err.to_string()
-    }
-}
-```
-
-Command 中使用：
-
-```rust
-#[tauri::command]
-pub fn my_command() -> Result<MyData, String> {
-    let data = services::my_service()
-        .map_err(|e: AppError| e.to_string())?; // 自动转换
-    Ok(data)
-}
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 忘记 derive Serialize/Deserialize | Command 参数和返回值都需要 derive |
-| Rust snake_case 不加 rename_all | 添加 `#[serde(rename_all = "camelCase")]` 或让 Tauri 自动转换 |
-| Option 字段在 TS 中标记为 T | 正确标记为 `T \| null` |
-| 不处理枚举的序列化格式 | 使用 `#[serde(tag, content)]` 控制格式 |
-| models 中的类型不共享 | 在 models/mod.rs 中统一定义，三层共享 |
-| TypeScript 类型与 Rust 不一致 | 保持 src/types/index.ts 与 models/mod.rs 同步 |
+## 契约不变量
+
+1. 字段说明和实际序列化结果是契约，示例不能覆盖字段定义。
+2. Rust、JSON、TypeScript 三端必须明确字段名、可空性、缺省与缺失的差异。
+3. `Option<T>` 通常对应 `T | null`；若配合 `skip_serializing_if`，TypeScript 还必须允许属性缺失。
+4. Rust `i64/u64` 可能超过 JavaScript 安全整数范围；标识符或大整数必须评估改用字符串，禁止无条件映射为 `number`。
+5. 日期时间默认使用明确格式和时区的字符串；不能依赖浏览器隐式解析本地时间。
+6. 枚举的大小写、tag/content 和未知值策略必须显式，并与 TypeScript union 对齐。
+7. 敏感字段不得仅靠前端忽略；应在 Rust 返回模型中根本不序列化。
+
+## 实施流程
+
+1. 阅读真实 Rust model、Command 签名、`src/types/` 和 `src/lib/api/`；记录当前 JSON 形状。
+2. 为请求和响应分别确定字段命名、必填、可空、默认、枚举与大整数策略。
+3. 使用最少且明确的 serde 属性；避免同时在多层重复改名。
+4. 同步 TypeScript 类型和解析逻辑，不使用 `any` 或不受控类型断言掩盖不一致。
+5. 用真实序列化测试或 IPC 调用验证 JSON，不只依赖编译通过。
+
+基础类型与精度边界见 [type-mapping.md](references/type-mapping.md)。字段重命名、默认值、Option、枚举和自定义序列化见 [serde-patterns.md](references/serde-patterns.md)。
+
+## 关键选择
+
+| 场景 | 处理方式 |
+|---|---|
+| 仅 Rust 返回前端 | `Serialize` |
+| 前端传入 Rust | `Deserialize`，并做业务校验 |
+| snake_case → camelCase | 在约定层统一使用 `rename_all`，同步 TS |
+| 可空且总是存在 | `Option<T>` ↔ `T | null` |
+| 可省略字段 | `skip_serializing_if` ↔ `field?: T` |
+| 带数据枚举 | serde tagged enum ↔ discriminated union |
+| 大整数/ID | 超出安全范围时以字符串传输 |
+| 错误响应 | 项目 `CommandError` 结构，不临时返回任意字符串 |
+
+## 不应触发示例
+
+- “Mapper 把 status 列赋给 Rust 字段”且不跨 JSON 边界。
+- “把页面变量 `userName` 政名为 `displayName`”但 API 契约不变。
+- “设计 SQLite 表字段类型”——使用 `database-ops`。
+
+## 最小测试矩阵
+
+- 请求：完整字段、缺失字段、显式 `null`、错误类型和未知枚举。
+- 响应：字段名、可省略属性、空集合、结构化错误和敏感字段缺失。
+- 数值：0、负数、边界值、超过 JavaScript 安全整数的 ID。
+- 时间：带时区、无时区、无效格式和跨日/夏令时边界。
+- 兼容：旧客户端缺少新增字段、新客户端接收旧服务端响应。
+
+## 与相关 Skill 的组合
+
+- `api-development`：负责 Command 注册、参数名和 `src/lib/api/` 端到端调用。
+- `database-ops`：负责 SQLite 列类型与行映射；不能用数据库类型替代 JSON 契约。
+- `error-handler`：负责 `AppError`/`CommandError` 的传播与用户提示。
+
+## 完成条件
+
+- Rust/JSON/TypeScript 的字段名、可空性、缺省、枚举、日期和数值精度逐项对齐。
+- 请求、响应和错误至少有聚焦序列化/反序列化测试。
+- Tauri IPC 参数名和返回类型已通过真实调用或相关测试验证。
+- `cargo fmt`、聚焦测试、前端类型检查和 `git diff --check` 通过。

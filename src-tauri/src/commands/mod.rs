@@ -10,6 +10,9 @@ pub mod deployment;
 pub mod git_workspace;
 pub mod jenkins;
 pub mod jumpserver;
+pub mod knowledge;
+#[allow(dead_code)]
+pub mod knowledge_domain;
 pub mod mcp;
 pub mod resource_monitor;
 pub mod secure_credential;

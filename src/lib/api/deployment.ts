@@ -26,7 +26,8 @@ const fallbackTemplates: DeploymentTemplate[] = [
   {
     key: "1panel-app",
     name: "1panel-app",
-    description: "1Panel 托管应用部署，按 1Panel 目录约定上传产物并重启对应 compose 服务。",
+    description:
+      "1Panel 托管应用部署，按 1Panel 目录约定上传产物并重启对应 compose 服务。",
     scenario: "1Panel 托管应用",
     risk: "high",
     supportedSources: ["local", "git"],
@@ -62,7 +63,8 @@ const fallbackTemplates: DeploymentTemplate[] = [
   {
     key: "static-nginx",
     name: "Nginx 静态站",
-    description: "前端静态站部署到 nginx，使用 releases 软链原子切换并 reload nginx。",
+    description:
+      "前端静态站部署到 nginx，使用 releases 软链原子切换并 reload nginx。",
     scenario: "React/Vue/Vite/Uniapp 静态站",
     risk: "review",
     supportedSources: ["local", "git"],
@@ -101,84 +103,96 @@ const fallbackProfiles: DeploymentEnvironmentProfile[] = [
   {
     key: "1panel-app",
     name: "1panel-app",
-    description: "1panel 托管应用部署（按 1panel 目录约定上传产物 + 重启对应 compose/服务）。",
+    description:
+      "1panel 托管应用部署（按 1panel 目录约定上传产物 + 重启对应 compose/服务）。",
     category: "基础模板",
     checks: ["1panel", "docker"],
   },
   {
     key: "custom-script",
     name: "custom-script",
-    description: "兜底万能配方，各阶段命令全部自定义（artifact 模式仍走 releases 软链原子切换）。",
+    description:
+      "兜底万能配方，各阶段命令全部自定义（artifact 模式仍走 releases 软链原子切换）。",
     category: "基础模板",
     checks: ["custom"],
   },
   {
     key: "docker-compose",
     name: "docker-compose",
-    description: "Docker Compose 部署（拉镜像 / 重建容器；后端反代 + HTTPS 由部署引擎统一接管，配了域名即自动配反代）。",
+    description:
+      "Docker Compose 部署（拉镜像 / 重建容器；后端反代 + HTTPS 由部署引擎统一接管，配了域名即自动配反代）。",
     category: "基础模板",
     checks: ["docker"],
   },
   {
     key: "node-pm2",
     name: "node-pm2",
-    description: "Node 后端用 pm2 部署（releases + 软链原子切换，pm2 reload 平滑重启）。",
+    description:
+      "Node 后端用 pm2 部署（releases + 软链原子切换，pm2 reload 平滑重启）。",
     category: "基础模板",
     checks: ["node", "backend"],
   },
   {
     key: "static-nginx",
     name: "static-nginx",
-    description: "前端静态站部署到 nginx（releases + 软链原子切换，reload nginx）。",
+    description:
+      "前端静态站部署到 nginx（releases + 软链原子切换，reload nginx）。",
     category: "基础模板",
     checks: ["static", "frontend"],
   },
   {
     key: "static-openresty",
     name: "static-openresty",
-    description: "前端静态站部署到 OpenResty（releases + current 软链原子切换；建站 + HTTPS 由部署引擎复用「网站」系统统一接管，不手写 conf）。",
+    description:
+      "前端静态站部署到 OpenResty（releases + current 软链原子切换；建站 + HTTPS 由部署引擎复用「网站」系统统一接管，不手写 conf）。",
     category: "基础模板",
     checks: ["static", "frontend"],
   },
   {
     key: "systemd-binary",
     name: "systemd-binary",
-    description: "Java jar / Go / 二进制用 systemd 部署（releases + 软链原子切换，systemctl restart）。",
+    description:
+      "Java jar / Go / 二进制用 systemd 部署（releases + 软链原子切换，systemctl restart）。",
     category: "基础模板",
     checks: ["java", "go", "binary", "backend"],
   },
   {
     key: "static-openresty-https",
     name: "前端静态站 + HTTPS",
-    description: "适合 Vite/React/Vue/Uniapp 等纯前端项目，默认使用 OpenResty 静态站、80 端口健康检查，并预留域名 HTTPS 配置。",
+    description:
+      "适合 Vite/React/Vue/Uniapp 等纯前端项目，默认使用 OpenResty 静态站、80 端口健康检查，并预留域名 HTTPS 配置。",
     category: "组合方案",
     checks: ["static", "openresty", "https"],
   },
   {
     key: "springboot-mysql-redis",
     name: "Spring Boot + MySQL + Redis",
-    description: "适合 Java 后端服务，默认使用 systemd 托管，并在扩展配置中预置 MySQL/Redis 专属账号创建结构。",
+    description:
+      "适合 Java 后端服务，默认使用 systemd 托管，并在扩展配置中预置 MySQL/Redis 专属账号创建结构。",
     category: "组合方案",
     checks: ["java", "systemd", "mysql", "redis"],
   },
   {
     key: "compose-db-redis",
     name: "Docker Compose + 数据库/Redis",
-    description: "适合多容器应用复用宿主共享 MySQL/Redis，默认使用 Compose 配方，并预置数据库和 Redis 专属账号配置。",
+    description:
+      "适合多容器应用复用宿主共享 MySQL/Redis，默认使用 Compose 配方，并预置数据库和 Redis 专属账号配置。",
     category: "组合方案",
     checks: ["docker", "compose", "mysql", "redis"],
   },
   {
     key: "frontend-api-same-domain",
     name: "前后端同域部署",
-    description: "适合 SPA 前端和后端 API 同域发布，默认使用 OpenResty 静态站并预置 API 反代前缀和后端端口配置。",
+    description:
+      "适合 SPA 前端和后端 API 同域发布，默认使用 OpenResty 静态站并预置 API 反代前缀和后端端口配置。",
     category: "组合方案",
     checks: ["static", "openresty", "api-proxy", "https"],
   },
   {
     key: "1panel-app-db",
     name: "1Panel 应用 + 共享数据库",
-    description: "适合 1Panel 托管应用复用应用内数据库/Redis 资源，默认使用 1Panel 配方并预置专属账号结构。",
+    description:
+      "适合 1Panel 托管应用复用应用内数据库/Redis 资源，默认使用 1Panel 配方并预置专属账号结构。",
     category: "组合方案",
     checks: ["1panel", "docker", "mysql", "redis"],
   },
@@ -208,7 +222,15 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     defaultPort: 3306,
     containerPort: 3306,
     volumePath: "/var/lib/mysql",
-    env: [{ key: "MYSQL_ROOT_PASSWORD", label: "Root 密码", defaultValue: "ChangeMe_123456", required: true, secret: true }],
+    env: [
+      {
+        key: "MYSQL_ROOT_PASSWORD",
+        label: "Root 密码",
+        defaultValue: "ChangeMe_123456",
+        required: true,
+        secret: true,
+      },
+    ],
     notes: ["生产环境请修改默认 Root 密码。"],
   },
   {
@@ -222,8 +244,20 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 5432,
     volumePath: "/var/lib/postgresql/data",
     env: [
-      { key: "POSTGRES_USER", label: "用户名", defaultValue: "postgres", required: true, secret: false },
-      { key: "POSTGRES_PASSWORD", label: "密码", defaultValue: "ChangeMe_123456", required: true, secret: true },
+      {
+        key: "POSTGRES_USER",
+        label: "用户名",
+        defaultValue: "postgres",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "POSTGRES_PASSWORD",
+        label: "密码",
+        defaultValue: "ChangeMe_123456",
+        required: true,
+        secret: true,
+      },
     ],
     notes: ["生产环境请修改默认数据库密码。"],
   },
@@ -264,8 +298,20 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 9001,
     volumePath: "/data",
     env: [
-      { key: "MINIO_ROOT_USER", label: "Root 用户", defaultValue: "minioadmin", required: true, secret: false },
-      { key: "MINIO_ROOT_PASSWORD", label: "Root 密码", defaultValue: "ChangeMe_123456", required: true, secret: true },
+      {
+        key: "MINIO_ROOT_USER",
+        label: "Root 用户",
+        defaultValue: "minioadmin",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "MINIO_ROOT_PASSWORD",
+        label: "Root 密码",
+        defaultValue: "ChangeMe_123456",
+        required: true,
+        secret: true,
+      },
     ],
     notes: ["API 默认容器端口 9000，控制台默认映射到宿主 9001。"],
   },
@@ -293,8 +339,20 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 3000,
     volumePath: "/var/lib/grafana",
     env: [
-      { key: "GF_SECURITY_ADMIN_USER", label: "管理员", defaultValue: "admin", required: true, secret: false },
-      { key: "GF_SECURITY_ADMIN_PASSWORD", label: "管理员密码", defaultValue: "ChangeMe_123456", required: true, secret: true },
+      {
+        key: "GF_SECURITY_ADMIN_USER",
+        label: "管理员",
+        defaultValue: "admin",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "GF_SECURITY_ADMIN_PASSWORD",
+        label: "管理员密码",
+        defaultValue: "ChangeMe_123456",
+        required: true,
+        secret: true,
+      },
     ],
     notes: ["Grafana 容器端口是 3000，默认映射到宿主 3001。"],
   },
@@ -334,8 +392,18 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     defaultPort: 9876,
     containerPort: 9876,
     volumePath: "/home/rocketmq/logs",
-    env: [{ key: "JAVA_OPT_EXT", label: "JVM 参数", defaultValue: "-server -Xms256m -Xmx256m", required: false, secret: false }],
-    notes: ["默认启动 NameServer；Broker 请使用 RocketMQ Broker 镜像项单独安装。"],
+    env: [
+      {
+        key: "JAVA_OPT_EXT",
+        label: "JVM 参数",
+        defaultValue: "-server -Xms256m -Xmx256m",
+        required: false,
+        secret: false,
+      },
+    ],
+    notes: [
+      "默认启动 NameServer；Broker 请使用 RocketMQ Broker 镜像项单独安装。",
+    ],
   },
   {
     key: "rocketmq-broker",
@@ -348,10 +416,24 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 10911,
     volumePath: "/home/rocketmq/store",
     env: [
-      { key: "NAMESRV_ADDR", label: "NameServer 地址", defaultValue: "127.0.0.1:9876", required: true, secret: false },
-      { key: "JAVA_OPT_EXT", label: "JVM 参数", defaultValue: "-server -Xms512m -Xmx512m", required: false, secret: false },
+      {
+        key: "NAMESRV_ADDR",
+        label: "NameServer 地址",
+        defaultValue: "127.0.0.1:9876",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "JAVA_OPT_EXT",
+        label: "JVM 参数",
+        defaultValue: "-server -Xms512m -Xmx512m",
+        required: false,
+        secret: false,
+      },
     ],
-    notes: ["默认按单机快速部署生成；生产环境请把 NAMESRV_ADDR 改为真实 NameServer 地址。"],
+    notes: [
+      "默认按单机快速部署生成；生产环境请把 NAMESRV_ADDR 改为真实 NameServer 地址。",
+    ],
   },
   {
     key: "elasticsearch",
@@ -364,9 +446,27 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 9200,
     volumePath: "/usr/share/elasticsearch/data",
     env: [
-      { key: "discovery.type", label: "发现模式", defaultValue: "single-node", required: true, secret: false },
-      { key: "xpack.security.enabled", label: "安全认证", defaultValue: "false", required: true, secret: false },
-      { key: "ES_JAVA_OPTS", label: "JVM 参数", defaultValue: "-Xms512m -Xmx512m", required: false, secret: false },
+      {
+        key: "discovery.type",
+        label: "发现模式",
+        defaultValue: "single-node",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "xpack.security.enabled",
+        label: "安全认证",
+        defaultValue: "false",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "ES_JAVA_OPTS",
+        label: "JVM 参数",
+        defaultValue: "-Xms512m -Xmx512m",
+        required: false,
+        secret: false,
+      },
     ],
     notes: ["生产环境建议开启认证，并提前设置 vm.max_map_count。"],
   },
@@ -380,8 +480,18 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     defaultPort: 12800,
     containerPort: 12800,
     volumePath: "/skywalking/ext-config",
-    env: [{ key: "SW_STORAGE", label: "存储类型", defaultValue: "h2", required: true, secret: false }],
-    notes: ["默认使用 H2 便于快速体验；生产环境建议切换到 Elasticsearch 存储。"],
+    env: [
+      {
+        key: "SW_STORAGE",
+        label: "存储类型",
+        defaultValue: "h2",
+        required: true,
+        secret: false,
+      },
+    ],
+    notes: [
+      "默认使用 H2 便于快速体验；生产环境建议切换到 Elasticsearch 存储。",
+    ],
   },
   {
     key: "skywalking-ui",
@@ -393,7 +503,15 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     defaultPort: 8080,
     containerPort: 8080,
     volumePath: "/skywalking/ext-config",
-    env: [{ key: "SW_OAP_ADDRESS", label: "OAP 地址", defaultValue: "http://127.0.0.1:12800", required: true, secret: false }],
+    env: [
+      {
+        key: "SW_OAP_ADDRESS",
+        label: "OAP 地址",
+        defaultValue: "http://127.0.0.1:12800",
+        required: true,
+        secret: false,
+      },
+    ],
     notes: ["如果 OAP 不在同一宿主机，请修改 SW_OAP_ADDRESS。"],
   },
   {
@@ -407,15 +525,31 @@ const fallbackImageStoreApps: DeploymentImageStoreApp[] = [
     containerPort: 5601,
     volumePath: "/usr/share/elasticsearch/data",
     env: [
-      { key: "ELASTIC_PASSWORD", label: "Elastic 密码", defaultValue: "ChangeMe_123456", required: false, secret: true },
-      { key: "ES_JAVA_OPTS", label: "ES JVM 参数", defaultValue: "-Xms512m -Xmx512m", required: false, secret: false },
+      {
+        key: "ELASTIC_PASSWORD",
+        label: "Elastic 密码",
+        defaultValue: "ChangeMe_123456",
+        required: false,
+        secret: true,
+      },
+      {
+        key: "ES_JAVA_OPTS",
+        label: "ES JVM 参数",
+        defaultValue: "-Xms512m -Xmx512m",
+        required: false,
+        secret: false,
+      },
     ],
-    notes: ["会生成三容器 compose，默认开放 Kibana 5601、Elasticsearch 9200、Logstash 5044。"],
+    notes: [
+      "会生成三容器 compose，默认开放 Kibana 5601、Elasticsearch 9200、Logstash 5044。",
+    ],
   },
 ];
 
 function requireTauriRuntime(): never {
-  throw new Error("当前浏览器预览环境无法调用本地文件检测，请在 Tauri 桌面端使用该功能。");
+  throw new Error(
+    "当前浏览器预览环境无法调用本地文件检测，请在 Tauri 桌面端使用该功能。",
+  );
 }
 
 export const deploymentApi = {
@@ -425,7 +559,9 @@ export const deploymentApi = {
       : Promise.resolve(fallbackTemplates),
   listEnvironmentProfiles: () =>
     hasTauriRuntime()
-      ? invoke<DeploymentEnvironmentProfile[]>("list_deployment_environment_profiles")
+      ? invoke<DeploymentEnvironmentProfile[]>(
+          "list_deployment_environment_profiles",
+        )
       : Promise.resolve(fallbackProfiles),
   listImageStoreApps: () =>
     hasTauriRuntime()
@@ -433,11 +569,15 @@ export const deploymentApi = {
       : Promise.resolve(fallbackImageStoreApps),
   installImageStoreApp: (input: InstallImageStoreAppInput) =>
     hasTauriRuntime()
-      ? invoke<DeploymentTarget>("install_deployment_image_store_app", { input })
+      ? invoke<DeploymentTarget>("install_deployment_image_store_app", {
+          input,
+        })
       : Promise.resolve(requireTauriRuntime()),
   detectProject: (input: DetectDeploymentProjectInput) =>
     hasTauriRuntime()
-      ? invoke<DeploymentDetectionResult>("detect_deployment_project", { input })
+      ? invoke<DeploymentDetectionResult>("detect_deployment_project", {
+          input,
+        })
       : Promise.resolve(requireTauriRuntime()),
   listTargets: () =>
     hasTauriRuntime()

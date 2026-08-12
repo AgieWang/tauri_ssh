@@ -1233,6 +1233,12 @@ impl AiSkillService {
             trigger_words.join(" ").to_lowercase()
         );
         let mut scopes = Vec::new();
+        // 知识问答使用独立作用域，避免把通用运维 Skill 注入需要保持版本隔离、引用和
+        // 证据缺口规则的 RAG 提示词。
+        if text.contains("knowledge") || text.contains("知识库") || text.contains("追踪矩阵")
+        {
+            scopes.push("knowledge".into());
+        }
         if text.contains("mysql")
             || text.contains("postgres")
             || text.contains("redis")
@@ -1342,5 +1348,21 @@ impl AiSkillService {
         } else {
             out
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AiSkillService;
+
+    #[test]
+    fn infers_dedicated_knowledge_scope() {
+        let scopes = AiSkillService::infer_scopes(
+            "knowledge",
+            "基于团队知识库回答历史版本和源码证据",
+            &["知识库".to_string(), "历史版本".to_string()],
+        );
+        assert!(scopes.contains(&"knowledge".to_string()));
+        assert!(!scopes.contains(&"global".to_string()));
     }
 }

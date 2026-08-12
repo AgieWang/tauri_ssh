@@ -22,7 +22,15 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Activity, Database, HardDrive, MemoryStick, Network, RefreshCw, Server } from "lucide-react";
+import {
+  Activity,
+  Database,
+  HardDrive,
+  MemoryStick,
+  Network,
+  RefreshCw,
+  Server,
+} from "lucide-react";
 import { getErrorMessage, resourceMonitorApi } from "@/lib/api";
 import type {
   CollectResourceBatchResult,
@@ -44,7 +52,14 @@ const targetTypeMeta: Record<string, { label: string; color: string }> = {
   redis: { label: "Redis", color: "red" },
 };
 
-const statusMeta: Record<string, { label: string; color: string; percentStatus?: "success" | "exception" | "normal" }> = {
+const statusMeta: Record<
+  string,
+  {
+    label: string;
+    color: string;
+    percentStatus?: "success" | "exception" | "normal";
+  }
+> = {
   unknown: { label: "未采集", color: "default" },
   healthy: { label: "正常", color: "green", percentStatus: "success" },
   warning: { label: "预警", color: "orange", percentStatus: "exception" },
@@ -59,14 +74,34 @@ const severityMeta: Record<string, { label: string; color: string }> = {
 
 const metricOptions = [
   { label: "CPU 使用率", value: "cpuUsagePercent", targetTypes: ["server"] },
-  { label: "内存使用率", value: "memoryUsagePercent", targetTypes: ["server", "redis"] },
+  {
+    label: "内存使用率",
+    value: "memoryUsagePercent",
+    targetTypes: ["server", "redis"],
+  },
   { label: "磁盘使用率", value: "diskUsagePercent", targetTypes: ["server"] },
-  { label: "数据库连接使用率", value: "connectionUsagePercent", targetTypes: ["mysql", "postgresql"] },
-  { label: "活动连接数", value: "activeConnections", targetTypes: ["mysql", "postgresql"] },
-  { label: "缓存命中率", value: "cacheHitPercent", targetTypes: ["mysql", "postgresql"] },
+  {
+    label: "数据库连接使用率",
+    value: "connectionUsagePercent",
+    targetTypes: ["mysql", "postgresql"],
+  },
+  {
+    label: "活动连接数",
+    value: "activeConnections",
+    targetTypes: ["mysql", "postgresql"],
+  },
+  {
+    label: "缓存命中率",
+    value: "cacheHitPercent",
+    targetTypes: ["mysql", "postgresql"],
+  },
   { label: "锁等待", value: "lockWaits", targetTypes: ["mysql", "postgresql"] },
   { label: "慢查询数量", value: "slowQueries", targetTypes: ["mysql"] },
-  { label: "Redis 客户端连接", value: "connectedClients", targetTypes: ["redis"] },
+  {
+    label: "Redis 客户端连接",
+    value: "connectedClients",
+    targetTypes: ["redis"],
+  },
   { label: "Redis Key 数", value: "keyCount", targetTypes: ["redis"] },
   { label: "Redis 命中率", value: "hitPercent", targetTypes: ["redis"] },
   { label: "Redis 慢日志", value: "slowlogLen", targetTypes: ["redis"] },
@@ -77,7 +112,10 @@ function numberValue(value: unknown): number | null {
   return null;
 }
 
-function summaryNumber(snapshot: ResourceMetricSnapshot | null | undefined, key: string) {
+function summaryNumber(
+  snapshot: ResourceMetricSnapshot | null | undefined,
+  key: string,
+) {
   return numberValue(snapshot?.summary?.[key]);
 }
 
@@ -117,8 +155,14 @@ function formatDurationSeconds(value: number) {
   return `${value} 秒`;
 }
 
-function renderSlowQueryCell(value: string | number | null | undefined, fallback = "-") {
-  const text = value === null || value === undefined || value === "" ? fallback : String(value);
+function renderSlowQueryCell(
+  value: string | number | null | undefined,
+  fallback = "-",
+) {
+  const text =
+    value === null || value === undefined || value === ""
+      ? fallback
+      : String(value);
   if (text === fallback) return <Text type="secondary">{fallback}</Text>;
   return (
     <Tooltip title={text}>
@@ -140,18 +184,30 @@ function MetricProgress({ value }: { value: number | null }) {
   );
 }
 
-function renderDetailMetricCards(targetType: string, snapshot: ResourceMetricSnapshot | null | undefined) {
+function renderDetailMetricCards(
+  targetType: string,
+  snapshot: ResourceMetricSnapshot | null | undefined,
+) {
   if (targetType === "server") {
     return (
       <div className="prototype-grid prototype-grid-3">
         <Card>
-          <Statistic title="CPU 使用率" value={formatPercent(summaryNumber(snapshot, "cpuUsagePercent"))} />
+          <Statistic
+            title="CPU 使用率"
+            value={formatPercent(summaryNumber(snapshot, "cpuUsagePercent"))}
+          />
         </Card>
         <Card>
-          <Statistic title="内存使用率" value={formatPercent(summaryNumber(snapshot, "memoryUsagePercent"))} />
+          <Statistic
+            title="内存使用率"
+            value={formatPercent(summaryNumber(snapshot, "memoryUsagePercent"))}
+          />
         </Card>
         <Card>
-          <Statistic title="磁盘使用率" value={formatPercent(summaryNumber(snapshot, "diskUsagePercent"))} />
+          <Statistic
+            title="磁盘使用率"
+            value={formatPercent(summaryNumber(snapshot, "diskUsagePercent"))}
+          />
         </Card>
       </div>
     );
@@ -162,7 +218,10 @@ function renderDetailMetricCards(targetType: string, snapshot: ResourceMetricSna
     return (
       <div className="prototype-grid prototype-grid-4">
         <Card>
-          <Statistic title="客户端连接" value={formatCount(summaryNumber(snapshot, "connectedClients"))} />
+          <Statistic
+            title="客户端连接"
+            value={formatCount(summaryNumber(snapshot, "connectedClients"))}
+          />
         </Card>
         <Card>
           <Statistic
@@ -175,10 +234,16 @@ function renderDetailMetricCards(targetType: string, snapshot: ResourceMetricSna
           />
         </Card>
         <Card>
-          <Statistic title="Key 数" value={formatCount(summaryNumber(snapshot, "keyCount"))} />
+          <Statistic
+            title="Key 数"
+            value={formatCount(summaryNumber(snapshot, "keyCount"))}
+          />
         </Card>
         <Card>
-          <Statistic title="命中率" value={formatPercent(summaryNumber(snapshot, "hitPercent"))} />
+          <Statistic
+            title="命中率"
+            value={formatPercent(summaryNumber(snapshot, "hitPercent"))}
+          />
         </Card>
       </div>
     );
@@ -187,16 +252,32 @@ function renderDetailMetricCards(targetType: string, snapshot: ResourceMetricSna
   return (
     <div className="prototype-grid prototype-grid-4">
       <Card>
-        <Statistic title="活动连接" value={formatCount(summaryNumber(snapshot, "activeConnections"))} />
+        <Statistic
+          title="活动连接"
+          value={formatCount(summaryNumber(snapshot, "activeConnections"))}
+        />
       </Card>
       <Card>
-        <Statistic title="连接使用率" value={formatPercent(summaryNumber(snapshot, "connectionUsagePercent"))} />
+        <Statistic
+          title="连接使用率"
+          value={formatPercent(
+            summaryNumber(snapshot, "connectionUsagePercent"),
+          )}
+        />
       </Card>
       <Card>
-        <Statistic title="缓存命中率" value={formatPercent(summaryNumber(snapshot, "cacheHitPercent"))} />
+        <Statistic
+          title="缓存命中率"
+          value={formatPercent(summaryNumber(snapshot, "cacheHitPercent"))}
+        />
       </Card>
       <Card>
-        <Statistic title="库容量" value={formatStaticBytes(summaryNumber(snapshot, "databaseSizeBytes"))} />
+        <Statistic
+          title="库容量"
+          value={formatStaticBytes(
+            summaryNumber(snapshot, "databaseSizeBytes"),
+          )}
+        />
       </Card>
     </div>
   );
@@ -213,11 +294,23 @@ function renderDetailStatusCard(
         <Space size={32} wrap>
           <Space>
             <Network size={16} />
-            <Text>网络 RX：{formatBytes(summaryNumber(snapshot, "networkRxBytesPerSec"))}</Text>
+            <Text>
+              网络 RX：
+              {formatBytes(summaryNumber(snapshot, "networkRxBytesPerSec"))}
+            </Text>
           </Space>
-          <Text>网络 TX：{formatBytes(summaryNumber(snapshot, "networkTxBytesPerSec"))}</Text>
-          <Text>磁盘读：{formatBytes(summaryNumber(snapshot, "diskReadBytesPerSec"))}</Text>
-          <Text>磁盘写：{formatBytes(summaryNumber(snapshot, "diskWriteBytesPerSec"))}</Text>
+          <Text>
+            网络 TX：
+            {formatBytes(summaryNumber(snapshot, "networkTxBytesPerSec"))}
+          </Text>
+          <Text>
+            磁盘读：
+            {formatBytes(summaryNumber(snapshot, "diskReadBytesPerSec"))}
+          </Text>
+          <Text>
+            磁盘写：
+            {formatBytes(summaryNumber(snapshot, "diskWriteBytesPerSec"))}
+          </Text>
         </Space>
       </Card>
     );
@@ -227,29 +320,56 @@ function renderDetailStatusCard(
     return (
       <Card title="Redis 状态">
         <Space size={32} wrap>
-          <Text>已用内存：{formatStaticBytes(summaryNumber(snapshot, "usedMemoryBytes"))}</Text>
-          <Text>最大内存：{formatRedisMaxMemory(summaryNumber(snapshot, "maxMemoryBytes"))}</Text>
-          <Text>过期 Key：{formatCount(summaryNumber(snapshot, "expiredKeys"))}</Text>
-          <Text>淘汰 Key：{formatCount(summaryNumber(snapshot, "evictedKeys"))}</Text>
-          <Text>慢日志：{formatCount(summaryNumber(snapshot, "slowlogLen"))}</Text>
+          <Text>
+            已用内存：
+            {formatStaticBytes(summaryNumber(snapshot, "usedMemoryBytes"))}
+          </Text>
+          <Text>
+            最大内存：
+            {formatRedisMaxMemory(summaryNumber(snapshot, "maxMemoryBytes"))}
+          </Text>
+          <Text>
+            过期 Key：{formatCount(summaryNumber(snapshot, "expiredKeys"))}
+          </Text>
+          <Text>
+            淘汰 Key：{formatCount(summaryNumber(snapshot, "evictedKeys"))}
+          </Text>
+          <Text>
+            慢日志：{formatCount(summaryNumber(snapshot, "slowlogLen"))}
+          </Text>
         </Space>
       </Card>
     );
   }
 
   return (
-    <Card title={targetType === "postgresql" ? "PostgreSQL 状态" : "MySQL 状态"}>
+    <Card
+      title={targetType === "postgresql" ? "PostgreSQL 状态" : "MySQL 状态"}
+    >
       <Space size={32} wrap>
-        <Text>最大连接：{formatCount(summaryNumber(snapshot, "maxConnections"))}</Text>
-        <Text>表数量：{formatCount(summaryNumber(snapshot, "tableCount"))}</Text>
+        <Text>
+          最大连接：{formatCount(summaryNumber(snapshot, "maxConnections"))}
+        </Text>
+        <Text>
+          表数量：{formatCount(summaryNumber(snapshot, "tableCount"))}
+        </Text>
         {targetType === "mysql" ? (
           <Tooltip
             title={`累计慢查询：${formatCount(summaryNumber(snapshot, "cumulativeSlowQueries"))}；阈值：${formatCount(summaryNumber(snapshot, "slowQueryThresholdSecs"), " 秒")}`}
           >
-            <Text>慢查询数量：{formatCount(typeof mysqlSlowQueryCount === "number" ? mysqlSlowQueryCount : null)}</Text>
+            <Text>
+              慢查询数量：
+              {formatCount(
+                typeof mysqlSlowQueryCount === "number"
+                  ? mysqlSlowQueryCount
+                  : null,
+              )}
+            </Text>
           </Tooltip>
         ) : (
-          <Text>慢查询：{formatCount(summaryNumber(snapshot, "slowQueries"))}</Text>
+          <Text>
+            慢查询：{formatCount(summaryNumber(snapshot, "slowQueries"))}
+          </Text>
         )}
         <Text>锁等待：{formatCount(summaryNumber(snapshot, "lockWaits"))}</Text>
       </Space>
@@ -257,7 +377,9 @@ function renderDetailStatusCard(
   );
 }
 
-function buildHistoryColumns(targetType: string): ColumnsType<ResourceMetricSnapshot> {
+function buildHistoryColumns(
+  targetType: string,
+): ColumnsType<ResourceMetricSnapshot> {
   const baseColumns: ColumnsType<ResourceMetricSnapshot> = [
     { title: "时间", dataIndex: "collectedAt", width: 170 },
     {
@@ -275,17 +397,36 @@ function buildHistoryColumns(targetType: string): ColumnsType<ResourceMetricSnap
   if (targetType === "server") {
     return [
       ...baseColumns,
-      { title: "CPU", render: (_, row) => formatPercent(summaryNumber(row, "cpuUsagePercent")) },
-      { title: "内存", render: (_, row) => formatPercent(summaryNumber(row, "memoryUsagePercent")) },
-      { title: "磁盘", render: (_, row) => formatPercent(summaryNumber(row, "diskUsagePercent")) },
-      { title: "耗时", dataIndex: "durationMs", render: (value) => `${value} ms` },
+      {
+        title: "CPU",
+        render: (_, row) =>
+          formatPercent(summaryNumber(row, "cpuUsagePercent")),
+      },
+      {
+        title: "内存",
+        render: (_, row) =>
+          formatPercent(summaryNumber(row, "memoryUsagePercent")),
+      },
+      {
+        title: "磁盘",
+        render: (_, row) =>
+          formatPercent(summaryNumber(row, "diskUsagePercent")),
+      },
+      {
+        title: "耗时",
+        dataIndex: "durationMs",
+        render: (value) => `${value} ms`,
+      },
     ];
   }
 
   if (targetType === "redis") {
     return [
       ...baseColumns,
-      { title: "连接", render: (_, row) => formatCount(summaryNumber(row, "connectedClients")) },
+      {
+        title: "连接",
+        render: (_, row) => formatCount(summaryNumber(row, "connectedClients")),
+      },
       {
         title: "内存",
         render: (_, row) => {
@@ -295,19 +436,47 @@ function buildHistoryColumns(targetType: string): ColumnsType<ResourceMetricSnap
             : formatPercent(memoryUsage);
         },
       },
-      { title: "Key 数", render: (_, row) => formatCount(summaryNumber(row, "keyCount")) },
-      { title: "命中率", render: (_, row) => formatPercent(summaryNumber(row, "hitPercent")) },
-      { title: "耗时", dataIndex: "durationMs", render: (value) => `${value} ms` },
+      {
+        title: "Key 数",
+        render: (_, row) => formatCount(summaryNumber(row, "keyCount")),
+      },
+      {
+        title: "命中率",
+        render: (_, row) => formatPercent(summaryNumber(row, "hitPercent")),
+      },
+      {
+        title: "耗时",
+        dataIndex: "durationMs",
+        render: (value) => `${value} ms`,
+      },
     ];
   }
 
   return [
     ...baseColumns,
-    { title: "活动连接", render: (_, row) => formatCount(summaryNumber(row, "activeConnections")) },
-    { title: "连接使用率", render: (_, row) => formatPercent(summaryNumber(row, "connectionUsagePercent")) },
-    { title: "缓存命中率", render: (_, row) => formatPercent(summaryNumber(row, "cacheHitPercent")) },
-    { title: "库容量", render: (_, row) => formatStaticBytes(summaryNumber(row, "databaseSizeBytes")) },
-    { title: "耗时", dataIndex: "durationMs", render: (value) => `${value} ms` },
+    {
+      title: "活动连接",
+      render: (_, row) => formatCount(summaryNumber(row, "activeConnections")),
+    },
+    {
+      title: "连接使用率",
+      render: (_, row) =>
+        formatPercent(summaryNumber(row, "connectionUsagePercent")),
+    },
+    {
+      title: "缓存命中率",
+      render: (_, row) => formatPercent(summaryNumber(row, "cacheHitPercent")),
+    },
+    {
+      title: "库容量",
+      render: (_, row) =>
+        formatStaticBytes(summaryNumber(row, "databaseSizeBytes")),
+    },
+    {
+      title: "耗时",
+      dataIndex: "durationMs",
+      render: (value) => `${value} ms`,
+    },
   ];
 }
 
@@ -315,21 +484,49 @@ function trendMetricConfigs(targetType: string) {
   if (targetType === "server") {
     return [
       { key: "cpuUsagePercent", label: "CPU 使用率", formatter: formatPercent },
-      { key: "memoryUsagePercent", label: "内存使用率", formatter: formatPercent },
-      { key: "diskUsagePercent", label: "磁盘使用率", formatter: formatPercent },
+      {
+        key: "memoryUsagePercent",
+        label: "内存使用率",
+        formatter: formatPercent,
+      },
+      {
+        key: "diskUsagePercent",
+        label: "磁盘使用率",
+        formatter: formatPercent,
+      },
     ];
   }
   if (targetType === "redis") {
     return [
-      { key: "connectedClients", label: "客户端连接", formatter: (value: number | null) => formatCount(value) },
-      { key: "usedMemoryBytes", label: "已用内存", formatter: formatStaticBytes },
-      { key: "keyCount", label: "Key 数", formatter: (value: number | null) => formatCount(value) },
+      {
+        key: "connectedClients",
+        label: "客户端连接",
+        formatter: (value: number | null) => formatCount(value),
+      },
+      {
+        key: "usedMemoryBytes",
+        label: "已用内存",
+        formatter: formatStaticBytes,
+      },
+      {
+        key: "keyCount",
+        label: "Key 数",
+        formatter: (value: number | null) => formatCount(value),
+      },
       { key: "hitPercent", label: "命中率", formatter: formatPercent },
     ];
   }
   return [
-    { key: "activeConnections", label: "活动连接", formatter: (value: number | null) => formatCount(value) },
-    { key: "connectionUsagePercent", label: "连接使用率", formatter: formatPercent },
+    {
+      key: "activeConnections",
+      label: "活动连接",
+      formatter: (value: number | null) => formatCount(value),
+    },
+    {
+      key: "connectionUsagePercent",
+      label: "连接使用率",
+      formatter: formatPercent,
+    },
     { key: "cacheHitPercent", label: "缓存命中率", formatter: formatPercent },
     { key: "databaseSizeBytes", label: "库容量", formatter: formatStaticBytes },
   ];
@@ -359,7 +556,8 @@ function TrendCard({
   const height = 64;
   const polyline = points
     .map((value, index) => {
-      const x = points.length <= 1 ? width : (index / (points.length - 1)) * width;
+      const x =
+        points.length <= 1 ? width : (index / (points.length - 1)) * width;
       const y = height - ((value - min) / range) * height;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
@@ -373,7 +571,13 @@ function TrendCard({
           <Text strong>{formatter(latest)}</Text>
         </Space>
         {points.length > 1 ? (
-          <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} role="img" aria-label={`${title}趋势`}>
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            width="100%"
+            height={height}
+            role="img"
+            aria-label={`${title}趋势`}
+          >
             <polyline
               points={polyline}
               fill="none"
@@ -394,20 +598,27 @@ function TrendCard({
 export default function ResourceMonitorPage() {
   const [ruleForm] = Form.useForm<UpsertResourceAlertRuleInput>();
   const [targets, setTargets] = useState<ResourceMonitorTarget[]>([]);
-  const [overview, setOverview] = useState<ResourceMonitorOverview | null>(null);
+  const [overview, setOverview] = useState<ResourceMonitorOverview | null>(
+    null,
+  );
   const [history, setHistory] = useState<ResourceMetricSnapshot[]>([]);
   const [alertRules, setAlertRules] = useState<ResourceAlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<ResourceAlertEvent[]>([]);
   const [detailAlerts, setDetailAlerts] = useState<ResourceAlertEvent[]>([]);
-  const [mysqlSlowQueries, setMysqlSlowQueries] = useState<MysqlSlowQuery[]>([]);
+  const [mysqlSlowQueries, setMysqlSlowQueries] = useState<MysqlSlowQuery[]>(
+    [],
+  );
   const [loading, setLoading] = useState(false);
   const [collectingKey, setCollectingKey] = useState<string | null>(null);
   const [slowQueryLoading, setSlowQueryLoading] = useState(false);
   const [killingProcessId, setKillingProcessId] = useState<number | null>(null);
-  const [batchResult, setBatchResult] = useState<CollectResourceBatchResult | null>(null);
+  const [batchResult, setBatchResult] =
+    useState<CollectResourceBatchResult | null>(null);
   const [selected, setSelected] = useState<ResourceMonitorTarget | null>(null);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<ResourceAlertRule | null>(null);
+  const [editingRule, setEditingRule] = useState<ResourceAlertRule | null>(
+    null,
+  );
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [groupFilter, setGroupFilter] = useState<string>("all");
@@ -461,9 +672,13 @@ export default function ResourceMonitorPage() {
   const collectBatch = async () => {
     setCollectingKey("__batch__");
     try {
-      const result = await resourceMonitorApi.collectBatch({ onlyEnabled: true });
+      const result = await resourceMonitorApi.collectBatch({
+        onlyEnabled: true,
+      });
       setBatchResult(result);
-      message.success(`批量采集完成：成功 ${result.success}，失败 ${result.failed}`);
+      message.success(
+        `批量采集完成：成功 ${result.success}，失败 ${result.failed}`,
+      );
       await loadData();
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -475,7 +690,10 @@ export default function ResourceMonitorPage() {
   const openDetail = async (target: ResourceMonitorTarget) => {
     setSelected(target);
     setMysqlSlowQueries([]);
-    const threshold = summaryNumber(target.latestSnapshot, "slowQueryThresholdSecs");
+    const threshold = summaryNumber(
+      target.latestSnapshot,
+      "slowQueryThresholdSecs",
+    );
     if (target.targetType === "mysql" && threshold !== null) {
       setSlowQueryMinSecs(threshold);
     }
@@ -495,14 +713,20 @@ export default function ResourceMonitorPage() {
       setHistory(rows);
       setDetailAlerts(events);
       if (target.targetType === "mysql") {
-        await loadMysqlSlowQueries(target.targetKey, threshold ?? slowQueryMinSecs);
+        await loadMysqlSlowQueries(
+          target.targetKey,
+          threshold ?? slowQueryMinSecs,
+        );
       }
     } catch (error) {
       message.error(getErrorMessage(error));
     }
   };
 
-  const loadMysqlSlowQueries = async (connectionKey = selected?.targetKey, minElapsedSecs = slowQueryMinSecs) => {
+  const loadMysqlSlowQueries = async (
+    connectionKey = selected?.targetKey,
+    minElapsedSecs = slowQueryMinSecs,
+  ) => {
     if (!connectionKey) return;
     setSlowQueryLoading(true);
     try {
@@ -625,7 +849,11 @@ export default function ResourceMonitorPage() {
         render: (_, row) => (
           <Space direction="vertical" size={0}>
             <Space size={6}>
-              {row.targetType === "server" ? <Server size={15} /> : <Database size={15} />}
+              {row.targetType === "server" ? (
+                <Server size={15} />
+              ) : (
+                <Database size={15} />
+              )}
               <Text strong>{row.displayName}</Text>
             </Space>
             <Text type="secondary" className="text-xs">
@@ -649,7 +877,9 @@ export default function ResourceMonitorPage() {
         dataIndex: "lastStatus",
         width: 100,
         render: (value: string) => (
-          <Tag color={statusMeta[value]?.color ?? "default"}>{statusMeta[value]?.label ?? value}</Tag>
+          <Tag color={statusMeta[value]?.color ?? "default"}>
+            {statusMeta[value]?.label ?? value}
+          </Tag>
         ),
       },
       {
@@ -657,7 +887,11 @@ export default function ResourceMonitorPage() {
         width: 150,
         render: (_, row) => {
           if (row.targetType === "server") {
-            return <MetricProgress value={summaryNumber(row.latestSnapshot, "cpuUsagePercent")} />;
+            return (
+              <MetricProgress
+                value={summaryNumber(row.latestSnapshot, "cpuUsagePercent")}
+              />
+            );
           }
           const value =
             row.targetType === "redis"
@@ -671,11 +905,21 @@ export default function ResourceMonitorPage() {
         width: 150,
         render: (_, row) => {
           if (row.targetType === "server") {
-            return <MetricProgress value={summaryNumber(row.latestSnapshot, "memoryUsagePercent")} />;
+            return (
+              <MetricProgress
+                value={summaryNumber(row.latestSnapshot, "memoryUsagePercent")}
+              />
+            );
           }
           if (row.targetType === "redis") {
-            const memoryUsage = summaryNumber(row.latestSnapshot, "memoryUsagePercent");
-            const usedMemory = summaryNumber(row.latestSnapshot, "usedMemoryBytes");
+            const memoryUsage = summaryNumber(
+              row.latestSnapshot,
+              "memoryUsagePercent",
+            );
+            const usedMemory = summaryNumber(
+              row.latestSnapshot,
+              "usedMemoryBytes",
+            );
             return memoryUsage === null ? (
               <Text>{formatStaticBytes(usedMemory)}</Text>
             ) : (
@@ -683,7 +927,9 @@ export default function ResourceMonitorPage() {
             );
           }
           const cacheHit = summaryNumber(row.latestSnapshot, "cacheHitPercent");
-          return <Text>{cacheHit === null ? "-" : `${cacheHit.toFixed(1)}%`}</Text>;
+          return (
+            <Text>{cacheHit === null ? "-" : `${cacheHit.toFixed(1)}%`}</Text>
+          );
         },
       },
       {
@@ -691,14 +937,24 @@ export default function ResourceMonitorPage() {
         width: 150,
         render: (_, row) => {
           if (row.targetType === "server") {
-            return <MetricProgress value={summaryNumber(row.latestSnapshot, "diskUsagePercent")} />;
+            return (
+              <MetricProgress
+                value={summaryNumber(row.latestSnapshot, "diskUsagePercent")}
+              />
+            );
           }
           const bytes =
             row.targetType === "redis"
               ? summaryNumber(row.latestSnapshot, "keyCount")
               : summaryNumber(row.latestSnapshot, "databaseSizeBytes");
           if (bytes === null) return <Text type="secondary">-</Text>;
-          return <Text>{row.targetType === "redis" ? `${bytes.toFixed(0)} keys` : formatStaticBytes(bytes)}</Text>;
+          return (
+            <Text>
+              {row.targetType === "redis"
+                ? `${bytes.toFixed(0)} keys`
+                : formatStaticBytes(bytes)}
+            </Text>
+          );
         },
       },
       {
@@ -712,7 +968,9 @@ export default function ResourceMonitorPage() {
               return (
                 <Space direction="vertical" size={0}>
                   <Text className="text-xs">命中 {formatPercent(hit)}</Text>
-                  <Text className="text-xs">慢日志 {slowlog === null ? "-" : slowlog.toFixed(0)}</Text>
+                  <Text className="text-xs">
+                    慢日志 {slowlog === null ? "-" : slowlog.toFixed(0)}
+                  </Text>
                 </Space>
               );
             }
@@ -720,8 +978,12 @@ export default function ResourceMonitorPage() {
             const locks = summaryNumber(row.latestSnapshot, "lockWaits");
             return (
               <Space direction="vertical" size={0}>
-                <Text className="text-xs">慢查询数量 {slow === null ? "-" : slow.toFixed(0)}</Text>
-                <Text className="text-xs">锁等待 {locks === null ? "-" : locks.toFixed(0)}</Text>
+                <Text className="text-xs">
+                  慢查询数量 {slow === null ? "-" : slow.toFixed(0)}
+                </Text>
+                <Text className="text-xs">
+                  锁等待 {locks === null ? "-" : locks.toFixed(0)}
+                </Text>
               </Space>
             );
           }
@@ -769,7 +1031,9 @@ export default function ResourceMonitorPage() {
   );
 
   const groupOptions = useMemo(() => {
-    const groups = Array.from(new Set(targets.map((item) => item.groupName).filter(Boolean)));
+    const groups = Array.from(
+      new Set(targets.map((item) => item.groupName).filter(Boolean)),
+    );
     return [
       { label: "全部分组", value: "all" },
       ...groups.map((group) => ({ label: group, value: group })),
@@ -780,7 +1044,8 @@ export default function ResourceMonitorPage() {
     const normalizedKeyword = keyword.trim().toLowerCase();
     return targets.filter((item) => {
       if (typeFilter !== "all" && item.targetType !== typeFilter) return false;
-      if (statusFilter !== "all" && item.lastStatus !== statusFilter) return false;
+      if (statusFilter !== "all" && item.lastStatus !== statusFilter)
+        return false;
       if (groupFilter !== "all" && item.groupName !== groupFilter) return false;
       if (!normalizedKeyword) return true;
       return [item.displayName, item.targetKey, item.groupName, item.targetType]
@@ -800,11 +1065,17 @@ export default function ResourceMonitorPage() {
       const snapshot = target.latestSnapshot;
       if (!snapshot) continue;
       if (target.targetType === "server") {
-        if ((summaryNumber(snapshot, "cpuUsagePercent") ?? 0) >= 85) highCpu += 1;
-        if ((summaryNumber(snapshot, "memoryUsagePercent") ?? 0) >= 85) highMemory += 1;
-        if ((summaryNumber(snapshot, "diskUsagePercent") ?? 0) >= 85) highDisk += 1;
+        if ((summaryNumber(snapshot, "cpuUsagePercent") ?? 0) >= 85)
+          highCpu += 1;
+        if ((summaryNumber(snapshot, "memoryUsagePercent") ?? 0) >= 85)
+          highMemory += 1;
+        if ((summaryNumber(snapshot, "diskUsagePercent") ?? 0) >= 85)
+          highDisk += 1;
       } else if (target.targetType === "redis") {
-        if ((summaryNumber(snapshot, "memoryUsagePercent") ?? 0) >= 85 || (summaryNumber(snapshot, "slowlogLen") ?? 0) > 0) {
+        if (
+          (summaryNumber(snapshot, "memoryUsagePercent") ?? 0) >= 85 ||
+          (summaryNumber(snapshot, "slowlogLen") ?? 0) > 0
+        ) {
           redisRisk += 1;
         }
       } else if (
@@ -828,18 +1099,30 @@ export default function ResourceMonitorPage() {
     <div className="prototype-page">
       <div className="prototype-page-header">
         <div>
-          <Title level={2} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>
+          <Title
+            level={2}
+            style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}
+          >
             资源监控
           </Title>
           <Paragraph type="secondary" style={{ margin: "6px 0 0" }}>
-            复用已配置的 SSH 服务器、数据库和 Redis 连接，采集 CPU、内存、磁盘、网络和运行状态。
+            复用已配置的 SSH 服务器、数据库和 Redis 连接，采集
+            CPU、内存、磁盘、网络和运行状态。
           </Paragraph>
         </div>
         <Space>
-          <Button onClick={loadData} loading={loading} icon={<RefreshCw size={16} />}>
+          <Button
+            onClick={loadData}
+            loading={loading}
+            icon={<RefreshCw size={16} />}
+          >
             刷新列表
           </Button>
-          <Button type="primary" onClick={collectBatch} loading={collectingKey === "__batch__"}>
+          <Button
+            type="primary"
+            onClick={collectBatch}
+            loading={collectingKey === "__batch__"}
+          >
             批量采集
           </Button>
         </Space>
@@ -847,22 +1130,42 @@ export default function ResourceMonitorPage() {
 
       <div className="prototype-grid prototype-grid-4">
         <Card>
-          <Statistic title="监控目标" value={overview?.totalTargets ?? 0} suffix={`/ ${overview?.enabledTargets ?? 0} 启用`} />
+          <Statistic
+            title="监控目标"
+            value={overview?.totalTargets ?? 0}
+            suffix={`/ ${overview?.enabledTargets ?? 0} 启用`}
+          />
         </Card>
         <Card>
-          <Statistic title="正常" value={overview?.healthyTargets ?? 0} prefix={<Activity size={18} />} />
+          <Statistic
+            title="正常"
+            value={overview?.healthyTargets ?? 0}
+            prefix={<Activity size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="预警" value={overview?.warningTargets ?? 0} prefix={<MemoryStick size={18} />} />
+          <Statistic
+            title="预警"
+            value={overview?.warningTargets ?? 0}
+            prefix={<MemoryStick size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="失败" value={overview?.failedTargets ?? 0} prefix={<HardDrive size={18} />} />
+          <Statistic
+            title="失败"
+            value={overview?.failedTargets ?? 0}
+            prefix={<HardDrive size={18} />}
+          />
         </Card>
         <Card>
           <Statistic
             title="打开告警"
             value={overview?.openAlerts ?? 0}
-            styles={{ content: { color: (overview?.openAlerts ?? 0) > 0 ? "#cf1322" : undefined } }}
+            styles={{
+              content: {
+                color: (overview?.openAlerts ?? 0) > 0 ? "#cf1322" : undefined,
+              },
+            }}
           />
         </Card>
       </div>
@@ -901,7 +1204,12 @@ export default function ResourceMonitorPage() {
               { label: "失败", value: "failed" },
             ]}
           />
-          <Select value={groupFilter} style={{ width: 150 }} onChange={setGroupFilter} options={groupOptions} />
+          <Select
+            value={groupFilter}
+            style={{ width: 150 }}
+            onChange={setGroupFilter}
+            options={groupOptions}
+          />
           <Input.Search
             allowClear
             placeholder="搜索资源名称、Key 或分组"
@@ -927,19 +1235,39 @@ export default function ResourceMonitorPage() {
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}
       >
         <Card>
-          <Statistic title="CPU 高负载" value={riskSummary.highCpu} suffix="个" />
+          <Statistic
+            title="CPU 高负载"
+            value={riskSummary.highCpu}
+            suffix="个"
+          />
         </Card>
         <Card>
-          <Statistic title="内存高使用" value={riskSummary.highMemory} suffix="个" />
+          <Statistic
+            title="内存高使用"
+            value={riskSummary.highMemory}
+            suffix="个"
+          />
         </Card>
         <Card>
-          <Statistic title="磁盘高使用" value={riskSummary.highDisk} suffix="个" />
+          <Statistic
+            title="磁盘高使用"
+            value={riskSummary.highDisk}
+            suffix="个"
+          />
         </Card>
         <Card>
-          <Statistic title="数据库状态风险" value={riskSummary.databaseWarning} suffix="个" />
+          <Statistic
+            title="数据库状态风险"
+            value={riskSummary.databaseWarning}
+            suffix="个"
+          />
         </Card>
         <Card>
-          <Statistic title="Redis 风险" value={riskSummary.redisRisk} suffix="个" />
+          <Statistic
+            title="Redis 风险"
+            value={riskSummary.redisRisk}
+            suffix="个"
+          />
         </Card>
       </div>
 
@@ -983,8 +1311,12 @@ export default function ResourceMonitorPage() {
               width: 220,
               render: (_, row) => (
                 <Space direction="vertical" size={0}>
-                  <Text strong>{targetTypeMeta[row.targetType]?.label ?? row.targetType}</Text>
-                  <Text type="secondary" className="text-xs">{row.targetKey}</Text>
+                  <Text strong>
+                    {targetTypeMeta[row.targetType]?.label ?? row.targetType}
+                  </Text>
+                  <Text type="secondary" className="text-xs">
+                    {row.targetKey}
+                  </Text>
                 </Space>
               ),
             },
@@ -992,7 +1324,8 @@ export default function ResourceMonitorPage() {
             {
               title: "当前/阈值",
               width: 140,
-              render: (_, row) => `${row.metricValue.toFixed(2)} / ${row.thresholdValue.toFixed(2)}`,
+              render: (_, row) =>
+                `${row.metricValue.toFixed(2)} / ${row.thresholdValue.toFixed(2)}`,
             },
             { title: "说明", dataIndex: "message", ellipsis: true },
             { title: "最近触发", dataIndex: "lastSeenAt", width: 170 },
@@ -1061,7 +1394,11 @@ export default function ResourceMonitorPage() {
               dataIndex: "enabled",
               width: 90,
               render: (enabled, row) => (
-                <Switch size="small" checked={enabled} onChange={(checked) => toggleRule(row, checked)} />
+                <Switch
+                  size="small"
+                  checked={enabled}
+                  onChange={(checked) => toggleRule(row, checked)}
+                />
               ),
             },
             { title: "更新时间", dataIndex: "updatedAt", width: 170 },
@@ -1074,7 +1411,10 @@ export default function ResourceMonitorPage() {
                   <Button size="small" onClick={() => openRuleModal(row)}>
                     编辑
                   </Button>
-                  <Popconfirm title="确认删除该规则？" onConfirm={() => deleteRule(row.id)}>
+                  <Popconfirm
+                    title="确认删除该规则？"
+                    onConfirm={() => deleteRule(row.id)}
+                  >
                     <Button size="small" danger>
                       删除
                     </Button>
@@ -1094,7 +1434,11 @@ export default function ResourceMonitorPage() {
         destroyOnHidden
       >
         <Form form={ruleForm} layout="vertical" preserve={false}>
-          <Form.Item name="targetType" label="资源类型" rules={[{ required: true, message: "请选择资源类型" }]}>
+          <Form.Item
+            name="targetType"
+            label="资源类型"
+            rules={[{ required: true, message: "请选择资源类型" }]}
+          >
             <Select
               options={[
                 { label: "服务器", value: "server" },
@@ -1107,26 +1451,43 @@ export default function ResourceMonitorPage() {
           <Form.Item name="targetKey" label="目标 Key">
             <Input placeholder="* 表示该类型全部目标；也可填写具体服务器别名或连接 Key" />
           </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prev, next) => prev.targetType !== next.targetType}>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, next) => prev.targetType !== next.targetType}
+          >
             {({ getFieldValue }) => {
               const targetType = getFieldValue("targetType") || "server";
               return (
-                <Form.Item name="metricKey" label="指标" rules={[{ required: true, message: "请选择指标" }]}>
+                <Form.Item
+                  name="metricKey"
+                  label="指标"
+                  rules={[{ required: true, message: "请选择指标" }]}
+                >
                   <Select
                     showSearch
                     options={metricOptions
                       .filter((item) => item.targetTypes.includes(targetType))
-                      .map((item) => ({ label: `${item.label} (${item.value})`, value: item.value }))}
+                      .map((item) => ({
+                        label: `${item.label} (${item.value})`,
+                        value: item.value,
+                      }))}
                   />
                 </Form.Item>
               );
             }}
           </Form.Item>
           <Space align="start" style={{ width: "100%" }}>
-            <Form.Item name="operator" label="条件" rules={[{ required: true, message: "请选择条件" }]}>
+            <Form.Item
+              name="operator"
+              label="条件"
+              rules={[{ required: true, message: "请选择条件" }]}
+            >
               <Select
                 style={{ width: 120 }}
-                options={[">", ">=", "<", "<=", "=="].map((value) => ({ label: value, value }))}
+                options={[">", ">=", "<", "<=", "=="].map((value) => ({
+                  label: value,
+                  value,
+                }))}
               />
             </Form.Item>
             <Form.Item
@@ -1137,7 +1498,11 @@ export default function ResourceMonitorPage() {
               <InputNumber style={{ width: 160 }} precision={2} />
             </Form.Item>
           </Space>
-          <Form.Item name="severity" label="级别" rules={[{ required: true, message: "请选择级别" }]}>
+          <Form.Item
+            name="severity"
+            label="级别"
+            rules={[{ required: true, message: "请选择级别" }]}
+          >
             <Select
               options={[
                 { label: "提示", value: "info" },
@@ -1165,22 +1530,38 @@ export default function ResourceMonitorPage() {
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="资源类型">
-                {targetTypeMeta[selected.targetType]?.label ?? selected.targetType}
+                {targetTypeMeta[selected.targetType]?.label ??
+                  selected.targetType}
               </Descriptions.Item>
-              <Descriptions.Item label="资源 Key">{selected.targetKey}</Descriptions.Item>
+              <Descriptions.Item label="资源 Key">
+                {selected.targetKey}
+              </Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={statusMeta[selected.lastStatus]?.color ?? "default"}>
-                  {statusMeta[selected.lastStatus]?.label ?? selected.lastStatus}
+                <Tag
+                  color={statusMeta[selected.lastStatus]?.color ?? "default"}
+                >
+                  {statusMeta[selected.lastStatus]?.label ??
+                    selected.lastStatus}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="最近采集">{selected.lastCollectedAt ?? "-"}</Descriptions.Item>
-              <Descriptions.Item label="耗时">{selectedSnapshot?.durationMs ?? "-"} ms</Descriptions.Item>
-              <Descriptions.Item label="错误">{selected.lastError ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="最近采集">
+                {selected.lastCollectedAt ?? "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="耗时">
+                {selectedSnapshot?.durationMs ?? "-"} ms
+              </Descriptions.Item>
+              <Descriptions.Item label="错误">
+                {selected.lastError ?? "-"}
+              </Descriptions.Item>
             </Descriptions>
 
             {renderDetailMetricCards(selected.targetType, selectedSnapshot)}
 
-            {renderDetailStatusCard(selected.targetType, selectedSnapshot, mysqlSlowQueries.length)}
+            {renderDetailStatusCard(
+              selected.targetType,
+              selectedSnapshot,
+              mysqlSlowQueries.length,
+            )}
 
             {selected.targetType === "mysql" ? (
               <Card
@@ -1193,7 +1574,11 @@ export default function ResourceMonitorPage() {
                       max={86400}
                       addonAfter="秒"
                       value={slowQueryMinSecs}
-                      onChange={(value) => setSlowQueryMinSecs(typeof value === "number" ? value : 5)}
+                      onChange={(value) =>
+                        setSlowQueryMinSecs(
+                          typeof value === "number" ? value : 5,
+                        )
+                      }
                       style={{ width: 130 }}
                     />
                     <Button
@@ -1270,7 +1655,11 @@ export default function ResourceMonitorPage() {
                         value ? (
                           <Paragraph
                             copyable={{ text: String(value) }}
-                            ellipsis={{ rows: 2, expandable: true, symbol: "展开" }}
+                            ellipsis={{
+                              rows: 2,
+                              expandable: true,
+                              symbol: "展开",
+                            }}
                             style={{ margin: 0, wordBreak: "break-all" }}
                           >
                             {String(value)}
@@ -1302,7 +1691,9 @@ export default function ResourceMonitorPage() {
             <Card title="指标趋势">
               <div
                 className="prototype-grid"
-                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
+                style={{
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                }}
               >
                 {trendMetricConfigs(selected.targetType).map((item) => (
                   <TrendCard
@@ -1328,7 +1719,9 @@ export default function ResourceMonitorPage() {
                     dataIndex: "severity",
                     width: 80,
                     render: (value) => (
-                      <Tag color={severityMeta[String(value)]?.color ?? "default"}>
+                      <Tag
+                        color={severityMeta[String(value)]?.color ?? "default"}
+                      >
                         {severityMeta[String(value)]?.label ?? String(value)}
                       </Tag>
                     ),
@@ -1347,7 +1740,8 @@ export default function ResourceMonitorPage() {
                   {
                     title: "当前/阈值",
                     width: 130,
-                    render: (_, row) => `${row.metricValue.toFixed(2)} / ${row.thresholdValue.toFixed(2)}`,
+                    render: (_, row) =>
+                      `${row.metricValue.toFixed(2)} / ${row.thresholdValue.toFixed(2)}`,
                   },
                   { title: "最近触发", dataIndex: "lastSeenAt", width: 170 },
                   { title: "说明", dataIndex: "message", ellipsis: true },

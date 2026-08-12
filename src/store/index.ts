@@ -6,4 +6,5 @@
 // 2. 在此处 export
 
 export { useAppStore } from "./app";
+export { useKnowledgeStore } from "./knowledge";
 export { useSettingsStore } from "./settings";

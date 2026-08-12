@@ -1,153 +1,42 @@
 ---
 name: release
-description: |
-  执行 Tauri 桌面应用的完整发布流程：更新版本号、更新 README、推送代码、打 Tag 触发 CI 构建、处理构建产物并推送到 release 仓库。
-
-  触发场景：
-  - 需要发布应用的新版本
-  - 需要更新版本号并触发 CI 构建流程
-  - 需要将构建产物推送到 release 仓库
-
-  触发词：发布、release、版本、version、打包、构建、build、tag
+description: 用于用户显式调用 /release、$release，或明确要求向指定仓库/渠道发布指定版本并编排完整流程；普通 build、打包或版本编辑不触发，也不自动授权外部写入。
 ---
 
-作为版本发布助手，执行 Tauri 桌面应用的发布流程：更新版本号 -> 更新 README -> 推送 -> 打 Tag 触发 CI -> 等待 CI -> 下载产物 -> 本地推送到 release 仓库。
+# /release
 
-> **本地不需要执行 `pnpm tauri build`**。CI 负责构建和签名。用户只需从 GitHub Release 下载产物。
+`/release` 只负责编排完整发布顺序。普通“build”“构建”“打包”“版本”不触发；仅生成本地安装包使用 `tauri-packaging`，Updater 使用 `tauri-updater`，远端写入使用 `release-publish`。
 
-## 执行流程
+配置字段、平台产物和阶段检查按需读取 [`references/release-orchestration.md`](references/release-orchestration.md)。
 
-### 第一步：读取当前版本和发布配置
+## 发布阶段
 
-```bash
-Read src-tauri/tauri.conf.json  # 读取当前 version 和 productName
-```
+1. **只读预检**：读取当前分支/状态、版本源、发布配置、CI、签名与远端目标，确认未提交改动和当前发布基线。
+2. **形成发布计划**：列出目标版本、版本文件、平台、产物、远端仓库、Tag、Updater manifest、验证门和回滚点。
+3. **确认授权范围**：在首次本地写入、提交、push、Tag、创建 Release、修改外部 release 仓库前分别核对用户已明确授权的动作和目标。
+4. **版本准备**：只在授权后更新版本与发布说明，并执行格式、测试、构建/配置一致性检查。
+5. **发布前半段**：按 `release-publish` 执行提交、推送、Tag 和 CI 触发；具体打包和签名规则交给对应领域 Skill。
+6. **CI 与产物验收**：等待并核对 commit、Tag、平台矩阵、签名文件和实际产物，不把 CI 启动或单个 job 成功当成发布完成。
+7. **发布后半段**：经再次确认后复制产物、生成/校验 update manifest、写远端仓库并验证下载端点。
+8. **交付报告**：列出已执行动作、版本/commit/Tag、产物校验、渠道状态、真实更新验证和残余风险。
 
-检查是否存在发布配置文件 `.claude/release-config.json`：
-- **存在**：读取配置，跳到第三步
-- **不存在**：进入第二步（首次配置）
+## 外部写入授权边界
 
-### 第二步：首次配置（仅首次执行）
+- **进入 `/release` 不自动授权外部写入。** 若用户的当前请求没有明确包含 exact push、Tag、Release、外部仓库或渠道，执行到对应门前必须停下确认。
+- 不读取或输出明文私钥、token、密码；优先使用 Tauri SSH Safe Credentials、Git Workspace 和审批/审计链路。
+- 不自动创建/覆盖 `.claude/release-config.json`；首次缺配置时先展示字段与目标路径，确认后再写。
+- 不擅自变更目标平台、远端、主分支、签名方式或发布渠道。
+- 不用 `git add -A`/`git add .`，不 stash/reset/clean，不覆盖其他会话的工作。
 
-使用 AskUserQuestion 询问以下信息：
+## 验证与回滚
 
-**问题1**：源码仓库的 GitHub remote 名称是什么？
-- 选项：`github`、`origin`、自定义
+- 版本号必须在所有规范源中一致；产物文件名、架构、签名和 update manifest URL 必须与配置一致。
+- Tag 前保留可回滚点；Tag/push 后不得本地假装回滚，必须说明远端状态并请求用户决定修复版本、撤销 Release 或删除 Tag。
+- 任一目标仓库 push 失败时停止后续渠道写入，保留成功/失败矩阵，不重复盲推。
+- 发布完成至少需要：目标 commit/Tag 可追溯、平台产物齐全、签名/manifest 校验通过、下载端点可访问；真实客户端更新仍应单独验收。
 
-**问题2**：需要支持哪些平台？
-- 选项（多选）：`Windows`、`macOS`、`Linux`
-- 默认推荐：Windows + macOS（Linux AppImage 体积大约 80MB）
+## 不应触发
 
-**问题3**：请提供以下信息（自由文本）：
-- 源码仓库 GitHub URL（如 `https://github.com/user/my-app`）
-- Release 仓库 Gitee URL（如 `https://gitee.com/user/my-app-release`）
-- Release 仓库 GitHub URL（如 `https://github.com/user/my-app-release`）
-- 本地 Release 仓库（Gitee）路径
-- 本地 Release 仓库（GitHub）路径
-- 主分支名（master/main）
-
-将信息保存到 `.claude/release-config.json`：
-
-```json
-{
-  "appName": "<从 tauri.conf.json 的 productName 读取>",
-  "githubRemote": "github",
-  "platforms": ["windows", "macos"],
-  "sourceRepoUrl": "https://github.com/user/my-app",
-  "releaseRepoGiteeUrl": "https://gitee.com/user/my-app-release",
-  "releaseRepoGithubUrl": "https://github.com/user/my-app-release",
-  "localReleaseGiteePath": "<绝对路径>",
-  "localReleaseGithubPath": "<绝对路径>",
-  "mainBranch": "master"
-}
-```
-
-> **平台配置说明**：`platforms` 数组决定 CI 构建矩阵、README 下载表格、产物清单和 update.json 内容。
-> 修改平台配置后，需同步更新 `.github/workflows/release.yml` 的构建矩阵。
-
-### 第三步：询问发布信息
-
-使用 AskUserQuestion 询问：
-
-**问题1**：新版本号是什么？（当前: {当前版本}）
-- 选项：patch（x.y.Z+1）、minor（x.Y+1.0）、major（X+1.0.0）、自定义
-
-**问题2**：更新说明（将写入 README.md 版本历史）
-
-### 第四步：激活 release-publish 技能
-
-```
-Skill(release-publish)
-```
-
-### 第五步：按技能中的步骤执行发布前半段
-
-1. 更新三处版本号（tauri.conf.json / Cargo.toml / package.json）
-2. 更新两个 release 仓库的 README.md（下载链接 + 版本历史 + 项目结构树，**仅包含已配置的平台**）
-3. 提交 + pull rebase + 推送 release 仓库 README 变更（Gitee 先推，GitHub 后推）
-4. 提交源码仓库 + 推送到 GitHub
-5. 打 Tag + 推送（触发 CI）
-
-### 第六步：输出等待提示和文件清单
-
-CI 触发后，**根据 platforms 配置**输出对应平台的文件清单：
-
-```
-CI 已触发，请等待构建完成。
-
-构建进度：<源码仓库 GitHub URL>/actions
-下载地址：<源码仓库 GitHub URL>/releases
-
-需要下载的文件：
-  [仅列出已配置平台的文件]
-
-下载完成后请告诉我文件所在目录。
-```
-
-**各平台对应的文件**：
-- Windows (2 个): `*.exe` + `*.exe.sig`
-- macOS ARM (3 个): `*aarch64.dmg` + `*aarch64.app.tar.gz` + `*aarch64.app.tar.gz.sig`
-- macOS Intel (3 个): `*x64.dmg` + `*x64.app.tar.gz` + `*x64.app.tar.gz.sig`
-- Linux (3 个): `*.AppImage` + `*.AppImage.sig` + `*.deb`
-
-使用 AskUserQuestion 询问：**文件下载到了哪个目录？**
-
-### 第七步：执行发布后半段（本地处理）
-
-用户提供下载目录后：
-
-1. 复制所有产物到两个 release 仓库的 `releases/vX.Y.Z/` 目录
-2. 读取 `.sig` 文件生成 `update.json`（**仅包含已配置平台**，Gitee 版 + GitHub 版）
-3. 提交 + pull rebase + 推送 release 仓库（Gitee 先推，GitHub 后推）
-4. 输出完成报告
-
----
-
-## AI 执行规则
-
-### 配置管理
-1. **首次自动配置**：首次执行时询问仓库信息和平台偏好，保存到 `.claude/release-config.json`
-2. **后续自动读取**：后续发布直接读取配置，不再重复询问
-3. **平台偏好持久化**：`platforms` 字段记录支持的平台，影响 CI 矩阵、产物清单、README 和 update.json
-
-### 版本号
-4. **全自动执行**：除询问版本号、更新说明和下载目录外，不再中途询问确认
-5. **三处同步**：tauri.conf.json / Cargo.toml / package.json 版本号必须一致
-
-### README 更新
-6. **三处更新**：下载链接表格 + 版本历史条目 + 项目结构树
-7. **两个仓库同步**：Gitee 和 GitHub release 仓库的 README.md 内容一致
-8. **CI 产物文件名**：使用 `<productName>_` 作为前缀（从 tauri.conf.json 读取）
-9. **按平台过滤**：下载表格和项目结构树只包含 `platforms` 配置中的平台
-
-### 推送相关
-10. **推送前先拉取**：release 仓库 push 前必须 `git pull --rebase origin master`
-11. **Gitee 优先推送**：release 仓库先推 Gitee（主更新端点），后推 GitHub（备份）
-12. **Git remote 名**：从 release-config.json 读取
-13. **打 Tag 触发 CI**：`git tag vX.Y.Z && git push <remote> vX.Y.Z`
-
-### CI 与产物处理
-14. **不需要本地构建**：`pnpm tauri build` 由 CI 执行
-15. **签名由 CI 完成**：`.sig` 文件已包含在 CI 产物中，用户只需下载
-16. **Claude 生成 update.json**：读取 `.sig` 文件内容写入 update.json（仅包含已配置平台）
-17. **Claude 推送 release 仓库**：复制产物 + update.json 后本地推送到 Gitee/GitHub
+- “运行 pnpm build”——普通构建验证。
+- “生成一个 dmg”——使用 `tauri-packaging`。
+- “把 package.json 版本改为 1.2.0”——普通本地版本编辑，不授权发布。

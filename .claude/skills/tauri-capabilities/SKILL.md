@@ -1,196 +1,49 @@
 ---
 name: tauri-capabilities
 description: |
-  Tauri Capabilities 深度配置技能，指导高级权限管理、作用域控制和多窗口权限差异化。
+  用于修改或诊断 Tauri 2 的 `capabilities/*.json`、permission、scope 与窗口权限映射；仅在存在具体 Capability 配置证据时触发。
 
   触发场景：
-  - 需要精确控制 API 访问权限
-  - 需要限制文件访问作用域
-  - 需要为不同窗口配置不同权限
-  - 需要自定义 Capability 权限组
+  - 修改 `src-tauri/capabilities/*.json` 的 permissions 或 windows/webviews
+  - 为 `tauri-plugin-*` 添加、收紧或排查 permission/scope
+  - 配置文件路径、URL、Shell 或多窗口的细粒度作用域
+  - 根据生成 schema 诊断运行时 permission denied
 
-  触发词：Capabilities、权限配置、作用域、scope、精细权限、安全配置
+  触发词：capabilities/default.json、Tauri Capability、permission identifier、scope、窗口权限、webview 权限、permission denied、desktop-schema
 ---
 
-# Tauri Capabilities 深度配置
+# Tauri 2 Capabilities
 
-## 概念
+## 边界
 
-Capabilities 是 Tauri 2.x 的核心安全机制：
+本技能只负责 Capability JSON 与运行时权限映射。威胁边界、凭据、CSP 和外部输入审查使用 `security-permissions`；插件依赖和 `.plugin(...)` 注册使用 `tauri-plugins`。
 
-```
-Capability = {
-  identifier: 唯一标识,
-  windows: [适用的窗口列表],
-  permissions: [权限声明列表]
-}
-```
+普通业务角色权限、页面按钮权限、操作系统文件权限，以及没有 Tauri Capability 证据的“没权限”问题不应触发。
 
-每个 **窗口** 可以有不同的 Capability，每个 **权限** 可以有作用域限制。
+## 强制规则
 
----
+1. 先读取当前 `src-tauri/capabilities/`、`tauri.conf.json`、插件注册和生成的 permission schema，不凭记忆拼权限标识。
+2. 每项 permission 必须对应真实使用的 API/Command/插件；新增权限必须说明调用方、窗口与资源范围。
+3. 优先专用 permission 和最窄 scope；禁止无理由使用所有窗口、全盘路径、任意 URL 或 Shell 通配。
+4. 多窗口按 label/角色拆分 Capability，避免让低信任窗口继承主窗口全部能力。
+5. 修改插件权限时，同时核对 Cargo/npm 依赖、Rust 注册和前端 API，不能只改 JSON。
+6. 涉及凭据、外部 URL、Shell、远程或敏感文件时，必须同时应用 `security-permissions`。
 
-## 权限声明格式
+## 执行流程
 
-### 简单声明
+1. 定位失败或需求对应的 Tauri API、插件和调用窗口。
+2. 从当前 schema 确认 permission 名、允许的 scope 结构与平台限制。
+3. 在现有 Capability 上做最小增量；需要隔离时新增按窗口划分的 Capability。
+4. 校验 JSON、identifier、windows/webviews、permission 和 scope 路径。
+5. 在真实 Tauri 运行时分别验证允许路径与拒绝路径；仅通过前端构建不算完成。
 
-```json
-{
-  "permissions": ["core:default", "fs:default"]
-}
-```
+## 按需参考
 
-### 带作用域的声明
+修改 permission/scope、多 Capability 或多窗口配置前，读取 [references/permission-and-scope.md](references/permission-and-scope.md)。该文件包含详细 JSON、路径变量、窗口匹配、schema 查看和排错示例。
 
-```json
-{
-  "permissions": [
-    {
-      "identifier": "fs:allow-read-text-file",
-      "allow": [
-        { "path": "$APPDATA/**" },
-        { "path": "$HOME/Documents/**" }
-      ],
-      "deny": [
-        { "path": "$HOME/.ssh/**" }
-      ]
-    }
-  ]
-}
-```
+## 完成条件
 
-### 路径变量
-
-| 变量 | 说明 | 示例路径 (Windows) |
-|------|------|-------------------|
-| `$APPDATA` | 应用数据目录 | `C:\Users\xxx\AppData\Roaming\com.app` |
-| `$APPCONFIG` | 应用配置目录 | `C:\Users\xxx\AppData\Roaming\com.app` |
-| `$APPLOCALDATA` | 应用本地数据 | `C:\Users\xxx\AppData\Local\com.app` |
-| `$HOME` | 用户主目录 | `C:\Users\xxx` |
-| `$DESKTOP` | 桌面目录 | `C:\Users\xxx\Desktop` |
-| `$DOCUMENT` | 文档目录 | `C:\Users\xxx\Documents` |
-| `$DOWNLOAD` | 下载目录 | `C:\Users\xxx\Downloads` |
-| `$TEMP` | 临时目录 | `C:\Users\xxx\AppData\Local\Temp` |
-
----
-
-## 多 Capability 文件
-
-```
-src-tauri/capabilities/
-├── default.json        # 主窗口：基础权限
-├── editor.json         # 编辑器窗口：文件读写权限
-└── settings.json       # 设置窗口：最小权限
-```
-
-### default.json（推荐模板）
-
-```json
-{
-  "identifier": "default",
-  "windows": ["main", "editor-*"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-minimize",
-    "core:window:allow-maximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-destroy",
-    "core:webview:allow-create-webview-window",
-    "opener:default",
-    { "identifier": "opener:allow-open-path", "allow": [{ "path": "**" }] },
-    "shell:default",
-    "os:default",
-    "dialog:default",
-    "notification:default",
-    "store:default",
-    "log:default",
-    "core:menu:default",
-    "core:tray:default",
-    "updater:default",
-    "process:default"
-  ]
-}
-```
-
-> **说明**:
-> - `core:default` 包含 `core:window:default`，但 **不包含** `core:window:allow-start-dragging`，无边框窗口拖拽需显式声明
-> - 建议同时显式声明 `allow-minimize`, `allow-maximize`, `allow-toggle-maximize`, `allow-close`
-> - 根据项目实际安装的插件增减权限（如 `pty:default`、`sql:default` 等）
-
-### 通配符窗口配置
-
-windows 字段支持 `*` 通配符匹配动态创建的多窗口：
-
-```json
-{
-  "windows": ["main", "editor-*", "preview-*"]
-}
-```
-
-| 模式 | 匹配示例 | 说明 |
-|------|---------|------|
-| `"main"` | `main` | 精确匹配 |
-| `"editor-*"` | `editor-1`, `editor-abc` | 匹配动态创建的编辑器窗口 |
-| `"preview-*"` | `preview-doc`, `preview-123` | 匹配动态创建的预览窗口 |
-
-> 适用场景：应用在运行时通过 `WebviewWindow::builder(app, "editor-xxx")` 动态创建窗口。
-
-### editor.json
-
-```json
-{
-  "identifier": "editor",
-  "windows": ["editor"],
-  "permissions": [
-    "core:default",
-    "dialog:default",
-    {
-      "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$HOME/**" }],
-      "deny": [{ "path": "$HOME/.ssh/**" }, { "path": "$HOME/.gnupg/**" }]
-    },
-    {
-      "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$DOCUMENT/**" }, { "path": "$DESKTOP/**" }]
-    }
-  ]
-}
-```
-
----
-
-## 查看可用权限
-
-每个 Tauri 插件安装后会在 `src-tauri/gen/schemas/` 生成权限 schema。
-
-```bash
-# 运行 tauri dev 后查看生成的 schema
-ls src-tauri/gen/schemas/
-```
-
----
-
-## 调试权限问题
-
-```
-症状: "Permission denied" 或功能无响应
-排查:
-1. 检查 capabilities/*.json 是否声明了权限
-2. 检查窗口 label 是否匹配
-3. 检查作用域是否覆盖目标路径
-4. 运行 tauri dev 查看控制台权限错误
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 给所有窗口相同权限 | 最小权限原则，按窗口配置 |
-| `fs:default` 不加 scope | 使用 allow/deny 限制路径范围 |
-| 忘记 deny 敏感路径 | 显式 deny `.ssh`、`.gnupg` 等 |
-| 不测试权限是否生效 | 开发时刻意触发权限错误验证 |
-| 修改权限后不重启 | Capabilities 变更需重启 dev server |
+- 权限标识来自当前 schema，且与插件注册及调用代码一致。
+- scope 和窗口范围已最小化，并保留预期拒绝行为。
+- JSON 校验、相关测试/构建和真实运行时权限验证通过。
+- UTF-8 无 BOM，`git diff --check` 通过。

@@ -2,7 +2,8 @@ export type DatabaseType = "mysql" | "postgresql" | "redis";
 export type DatabaseConnectionMode = "direct" | "ssh_tunnel";
 export type DatabaseAuthType = "direct_password" | "credential_ref";
 export type DatabaseSecurityMode = "approval_all" | "confirm_execute";
-export type DatabaseConnectionStatus = "unknown" | "online" | "offline" | "degraded";
+export type DatabaseConnectionStatus =
+  "unknown" | "online" | "offline" | "degraded";
 
 export interface DatabaseConnection {
   key: string;

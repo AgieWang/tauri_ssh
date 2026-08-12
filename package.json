@@ -12,7 +12,14 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles app",
     "mobile:dev": "kill-port 1520 & vite --config vite.mobile.config.ts",
-    "mobile:build": "vite --config vite.mobile.config.ts build"
+    "mobile:build": "vite --config vite.mobile.config.ts build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{ts,tsx,css}\"",
+    "skill:check": "node .codex/scripts/validate-skills.cjs",
+    "skill:test": "node --test .codex/tests/skill-routing/router.test.cjs",
+    "skill:measure": "node .codex/scripts/measure-skill-context.cjs",
+    "skill:sync:check": "node .codex/scripts/sync-skills.cjs --check"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -37,7 +44,7 @@
     "@codemirror/view": "^6.43.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-log": "^2.8.0",
+    "@tauri-apps/plugin-log": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-store": "^2.4.2",
@@ -50,19 +57,25 @@
     "lucide-react": "^0.577.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.13.1",
+    "react-router-dom": "^7.18.2",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "2.11.2",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^30.0.1",
     "kill-port": "^2.0.1",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.8.0+sha512.c1f5e7c4cb241c8f174b743851d82f42b802324afc8b0f116b96adb15aa06664948dde36960a3ba1079ba5b4b29dd0140135b94b5b5f5263592249d68e555f26"
 }

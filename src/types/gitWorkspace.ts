@@ -1,4 +1,5 @@
-export type GitWorkspaceStatus = "clean" | "dirty" | "ahead" | "behind" | "diverged" | "unknown";
+export type GitWorkspaceStatus =
+  "clean" | "dirty" | "ahead" | "behind" | "diverged" | "unknown";
 
 export interface GitWorkspace {
   id: number;

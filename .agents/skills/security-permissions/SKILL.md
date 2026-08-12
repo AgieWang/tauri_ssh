@@ -1,459 +1,57 @@
 ---
 name: security-permissions
 description: |
-  Tauri 安全与权限管理技能,指导 Capabilities 配置和安全最佳实践。
+  用于审查和实现 Tauri 应用的威胁边界、凭据保护、CSP、外部输入校验与最小权限；涉及凭据、远程访问、命令执行、外部 URL 或安全审查时保守触发。
 
-  触发场景:
-  - 需要配置 Capabilities 权限
-  - 需要理解 Tauri 安全模型
-  - 需要处理 CSP(内容安全策略)
-  - 功能不可用可能是权限问题
+  触发场景：
+  - 处理密码、Token、SSH 密钥、Safe Credentials 或签名材料
+  - 设计 CSP、外部 URL、命令执行、文件路径或远程访问边界
+  - 审查不可信输入、日志脱敏、权限提升或跨进程安全风险
+  - 修改 Capabilities 或插件权限且需要评估整体安全影响
 
-  触发词: 权限、Capabilities、安全、CSP、permission、安全策略、sandbox
+  触发词：凭据安全、SSH 密钥、Token、CSP、威胁建模、最小权限、外部输入、命令执行、远程访问、安全审查
 ---
 
-# Tauri 安全与权限管理
+# Tauri 安全边界
 
-## Tauri 2.x 安全模型
+## 边界
 
-Tauri 2.x 引入了 **Capabilities** 系统,取代了 v1 的 allowlist。每个 API 和插件功能都需要**显式声明权限**。
+本技能负责安全决策和风险审查，不负责罗列 `capabilities/*.json` 的 permission/scope 写法。具体 Capability 配置使用 `tauri-capabilities`；插件注册使用 `tauri-plugins`；已发生故障的根因定位使用 `bug-detective`。
 
-```
-capabilities/
-└── default.json          # 主窗口默认权限
-```
+普通业务“权限字段”、页面按钮显隐或无敏感边界的代码整理不应触发本技能。
 
----
+## 不可下沉的安全底线
 
-## 当前项目权限配置
+1. 不读取、输出、写入或提交明文密码、Token、私钥和签名密钥；日志、截图、错误与测试夹具必须脱敏。
+2. Git、服务器、数据库和凭据操作优先使用 Tauri SSH MCP 与 Safe Credentials；不得绕过审批或凭据托管。
+3. 外部写入、远程执行、推送、发布、删除或权限扩大必须有用户对该动作的明确授权；诊断和方案不等于授权执行。
+4. 对 IPC、文件路径、URL、Shell 参数、事件载荷和远程响应按不可信输入处理；在 Rust 信任边界重新校验。
+5. 默认拒绝和最小权限。不得为“先跑通”使用全盘文件、任意 URL、任意 Shell 或所有窗口通配权限。
+6. 不在前端保存长期秘密；前端只能持有完成当前交互所需的最少信息。
+7. 安全失败必须可见且可审计，不能静默降级为不安全路径。
 
-### 基础结构
+## 执行流程
 
-```json
-// src-tauri/capabilities/default.json
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "主窗口默认权限",
-  "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "store:default",
-    "log:default"
-  ]
-}
-```
+1. 明确资产、主体、信任边界、入口、外部系统和预期授权。
+2. 读取当前实现、配置、Capabilities、CSP、日志与参考代码，不凭样例假设现状。
+3. 识别泄露、注入、越权、路径穿越、SSRF、重放、供应链和回滚风险。
+4. 选择最小控制：输入白名单、scope、凭据引用、审批、脱敏、超时、审计与失败关闭。
+5. 修改前核对是否包含外部副作用；没有明确授权时只完成本地代码或方案。
+6. 验证正向功能、拒绝路径、越权路径、敏感信息泄露和回滚路径。
 
-### 当前已启用的权限
+## 按需参考
 
-| 插件 | 权限 ID | 说明 | 用途 |
-|------|---------|------|------|
-| **Core** | `core:default` | 核心默认权限 | 基础应用功能 |
-| **Opener** | `opener:default` | 打开 URL/文件 | 在浏览器中打开链接 |
-| **Store** | `store:default` | 键值存储 | 持久化应用配置 |
-| **Log** | `log:default` | 日志系统 | 应用日志记录 |
+以下任一情况必须读取 [references/security-review.md](references/security-review.md)：
 
-### 推荐权限配置（按需启用）
+- 涉及凭据、CSP、外部 URL、Shell、文件 scope 或多窗口权限；
+- 需要完整安全检查表、现有配置示例或故障排查；
+- 修改权限后需要确认插件注册、Command 校验与运行时行为。
 
-以下是常见桌面应用的推荐权限组合，根据项目需要选择性启用：
+如实际修改 `src-tauri/capabilities/**`，同时读取 `tauri-capabilities`；如要执行发布或远程写入，同时读取相应 Git/发布技能并再次核对授权。
 
-| 插件 | 权限 ID | 说明 | 典型场景 |
-|------|---------|------|---------|
-| **Core Window** | `core:window:allow-start-dragging` | 窗口拖拽 | 无边框窗口必须 |
-| **Core Window** | `core:window:allow-minimize` | 最小化 | 无边框窗口必须 |
-| **Core Window** | `core:window:allow-maximize` | 最大化 | 无边框窗口必须 |
-| **Core Window** | `core:window:allow-toggle-maximize` | 切换最大化 | 无边框窗口必须 |
-| **Core Window** | `core:window:allow-close` | 关闭窗口 | 无边框窗口必须 |
-| **Core Window** | `core:window:allow-destroy` | 销毁窗口 | 多窗口管理 |
-| **Core Window** | `core:window:allow-set-icon` | 设置窗口图标 | 自定义窗口图标 |
-| **Core Window** | `core:window:allow-set-title` | 设置窗口标题 | 动态标题 |
-| **Core Window** | `core:window:allow-set-always-on-top` | 置顶窗口 | 悬浮窗 |
-| **Core Window** | `core:window:allow-show` / `allow-hide` | 显示/隐藏窗口 | 托盘应用 |
-| **Core Window** | `core:window:allow-outer-position` / `allow-outer-size` / `allow-inner-size` | 获取窗口位置与大小 | 窗口布局 |
-| **Core Window** | `core:window:allow-set-size` / `allow-set-position` | 设置窗口大小与位置 | 窗口布局 |
-| **Core Window** | `core:window:allow-scale-factor` | 获取缩放因子 | DPI 适配 |
-| **Core Window** | `core:window:allow-is-always-on-top` | 查询是否置顶 | 状态查询 |
-| **Core WebView** | `core:webview:allow-create-webview-window` | 创建 WebView 窗口 | 多窗口/预览窗口 |
-| **Core Menu** | `core:menu:default` | 菜单权限 | 上下文菜单/应用菜单 |
-| **Core Tray** | `core:tray:default` | 托盘权限 | 系统托盘图标 |
-| **Opener** | `opener:allow-open-path`（带 scope） | 打开本地路径 | 在资源管理器中打开文件 |
-| **Shell** | `shell:default` | 执行系统命令 | 子进程管理 |
-| **OS** | `os:default` | 操作系统信息 | 平台检测（Windows/macOS/Linux） |
-| **PTY** | `pty:default` | 伪终端 | 终端模拟器 |
-| **Dialog** | `dialog:default` | 文件对话框 | 文件选择/保存 |
-| **Notification** | `notification:default` | 系统通知 | 桌面通知 |
-| **Updater** | `updater:default` | 应用更新 | 自动更新检查与安装 |
-| **Process** | `process:default` | 进程管理 | 应用退出/重启 |
+## 完成条件
 
----
-
-## 完整权限清单（按需添加）
-
-### 核心权限
-
-| 权限 | 说明 |
-|------|------|
-| `core:default` | 核心默认权限（包含 `core:window:default`） |
-| `core:window:default` | 窗口基础权限（**不含** `allow-start-dragging`） |
-| `core:window:allow-start-dragging` | 窗口拖拽（无边框窗口必须显式声明） |
-| `core:window:allow-minimize` | 最小化窗口 |
-| `core:window:allow-maximize` | 最大化窗口 |
-| `core:window:allow-toggle-maximize` | 切换最大化状态 |
-| `core:window:allow-close` | 关闭窗口 |
-| `core:window:allow-destroy` | 销毁窗口 |
-| `core:window:allow-set-icon` | 设置窗口图标 |
-| `core:window:allow-set-title` | 设置窗口标题 |
-| `core:window:allow-set-always-on-top` | 设置窗口置顶 |
-| `core:window:allow-show` | 显示窗口 |
-| `core:window:allow-hide` | 隐藏窗口 |
-| `core:window:allow-outer-position` | 获取窗口外部位置 |
-| `core:window:allow-outer-size` | 获取窗口外部大小 |
-| `core:window:allow-inner-size` | 获取窗口内部大小 |
-| `core:window:allow-set-size` | 设置窗口大小 |
-| `core:window:allow-set-position` | 设置窗口位置 |
-| `core:window:allow-scale-factor` | 获取缩放因子 |
-| `core:window:allow-is-always-on-top` | 查询是否置顶 |
-| `core:webview:allow-create-webview-window` | 创建 WebView 窗口 |
-| `core:menu:default` | 菜单默认权限 |
-| `core:tray:default` | 系统托盘默认权限 |
-
-### 文件系统
-
-| 权限 | 说明 |
-|------|------|
-| `fs:default` | 文件系统基础 |
-| `fs:allow-read-text-file` | 读取文本文件 |
-| `fs:allow-write-text-file` | 写入文本文件 |
-| `fs:allow-exists` | 检查文件存在 |
-| `fs:allow-mkdir` | 创建目录 |
-
-### 对话框
-
-| 权限 | 说明 |
-|------|------|
-| `dialog:default` | 文件对话框 |
-| `dialog:allow-open` | 打开文件对话框 |
-| `dialog:allow-save` | 保存文件对话框 |
-
-### 系统交互
-
-| 权限 | 说明 |
-|------|------|
-| `notification:default` | 系统通知 |
-| `shell:default` | 执行系统命令（子进程） |
-| `shell:allow-open` | 打开 URL |
-| `os:default` | 操作系统信息（平台/架构/版本） |
-| `pty:default` | 伪终端（终端模拟器） |
-| `clipboard-manager:default` | 剪贴板 |
-| `process:default` | 进程管理（退出/重启） |
-
-### Opener
-
-| 权限 | 说明 |
-|------|------|
-| `opener:default` | 打开 URL/文件（默认） |
-| `opener:allow-open-path` | 打开本地路径（需 scope 限制） |
-
-### 网络与更新
-
-| 权限 | 说明 |
-|------|------|
-| `http:default` | HTTP 请求 |
-| `updater:default` | 应用更新 |
-
-### 存储与日志
-
-| 权限 | 说明 |
-|------|------|
-| `store:default` | 键值存储 |
-| `log:default` | 日志系统 |
-
----
-
-## 项目权限添加指南
-
-当需要新功能时，按以下步骤添加权限：
-
-### 1. 安装对应插件
-
-```toml
-# src-tauri/Cargo.toml
-[dependencies]
-tauri-plugin-fs = "2"
-```
-
-```bash
-pnpm add @tauri-apps/plugin-fs
-```
-
-### 2. 注册插件
-
-```rust
-// src-tauri/src/lib.rs
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_fs::init())    // 添加这行
-        .invoke_handler(tauri::generate_handler![...])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
-
-### 3. 声明权限
-
-```json
-// src-tauri/capabilities/default.json
-{
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "store:default",
-    "log:default",
-    "fs:default",              // 新增
-    "fs:allow-read-text-file"  // 新增
-  ]
-}
-```
-
----
-
-## 高级权限: 作用域控制
-
-当需要限制文件访问范围时：
-
-```json
-{
-  "identifier": "fs-scoped",
-  "permissions": [
-    {
-      "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$APPDATA/**" }]
-    },
-    {
-      "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$APPDATA/**" }]
-    }
-  ]
-}
-```
-
-### Opener 路径作用域
-
-打开本地路径时，建议使用 scope 限制可访问范围：
-
-```json
-{
-  "identifier": "opener:allow-open-path",
-  "allow": [{ "path": "**" }]
-}
-```
-
-> **注意**：`"path": "**"` 允许打开任意路径。生产环境应限制为 `$APPDATA/**` 或特定目录。
-
-### 路径变量
-
-| 变量 | 说明 |
-|------|------|
-| `$APPDATA` | 应用数据目录 |
-| `$APPCONFIG` | 应用配置目录 |
-| `$APPLOG` | 应用日志目录 |
-| `$HOME` | 用户主目录 |
-| `$TEMP` | 临时目录 |
-
----
-
-## 多窗口差异化权限
-
-如果应用有多个窗口，可以为不同窗口配置不同权限。
-
-### 通配符匹配动态窗口
-
-`windows` 字段支持通配符 `*`，适用于动态创建的窗口：
-
-```json
-// default.json - 覆盖所有窗口
-{
-  "identifier": "default",
-  "windows": ["main", "editor-*", "viewer-*"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-minimize",
-    "core:window:allow-maximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "opener:default",
-    "store:default",
-    "log:default"
-  ]
-}
-```
-
-> **说明**：`"editor-*"` 会匹配所有以 `editor-` 开头的窗口标签（如 `editor-1`、`editor-abc`），适用于运行时通过 `WebviewWindowBuilder` 动态创建的窗口。
-
-### 按窗口角色配置不同权限
-
-```json
-// admin-capability.json - 管理窗口（高权限）
-{
-  "identifier": "admin",
-  "windows": ["admin-*"],
-  "permissions": [
-    "core:default",
-    "fs:default",
-    "shell:default",
-    "dialog:default"
-  ]
-}
-
-// viewer-capability.json - 查看窗口（低权限）
-{
-  "identifier": "viewer",
-  "windows": ["viewer-*"],
-  "permissions": [
-    "core:default"
-  ]
-}
-```
-
-### 典型多窗口权限组合
-
-| 窗口类型 | 通配符模式 | 推荐权限 |
-|---------|-----------|---------|
-| 主窗口 | `main` | 完整权限 |
-| 编辑器窗口 | `editor-*` | core + fs + dialog |
-| 预览窗口 | `viewer-*` / `preview-*` | core（只读） |
-| 设置窗口 | `settings` | core + store |
-
----
-
-## CSP(内容安全策略)
-
-```json
-// tauri.conf.json
-{
-  "app": {
-    "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'unsafe-inline' 'self'"
-    }
-  }
-}
-```
-
-| 策略 | 说明 |
-|------|------|
-| `default-src 'self'` | 默认只允许加载本地资源 |
-| `img-src 'self' asset:` | 允许本地和 asset 协议图片 |
-| `script-src 'self'` | 只允许本地脚本 |
-| `connect-src 'self' ipc:` | 允许 IPC 连接 |
-
----
-
-## 安全最佳实践
-
-### 1. 最小权限原则
-只声明实际需要的权限，不要添加"可能用到"的权限。
-
-```json
-// ❌ 不好：添加不需要的权限
-{
-  "permissions": ["core:default", "fs:default", "http:default", "websocket:default"]
-}
-
-// ✅ 好：只添加当前需要的权限
-{
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "store:default",
-    "log:default"
-  ]
-}
-```
-
-### 2. 无边框窗口权限
-`core:default` 包含 `core:window:default`，但**不含** `core:window:allow-start-dragging`。无边框窗口必须显式声明：
-
-```json
-{
-  "permissions": [
-    "core:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-minimize",
-    "core:window:allow-maximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close"
-  ]
-}
-```
-
-### 3. 作用域限制
-文件操作限制在特定目录：
-
-```json
-{
-  "identifier": "fs:allow-read-text-file",
-  "allow": [{ "path": "$APPDATA/**" }]
-}
-```
-
-### 4. 不暴露敏感操作
-加密/密钥等放在 Rust 侧，不要通过 Command 暴露给前端。
-
-### 5. Command 验证
-在 Rust Command 中验证输入参数：
-
-```rust
-#[tauri::command]
-pub fn read_file(path: String) -> Result<String, String> {
-    // 验证路径安全性
-    if path.contains("..") {
-        return Err("不允许访问父目录".into());
-    }
-    // ...
-}
-```
-
-### 6. 不信任前端数据
-前端发来的数据在 Rust 侧重新验证：
-
-```rust
-#[tauri::command]
-pub fn delete_user(id: i64) -> Result<(), String> {
-    // 验证 ID 有效性
-    if id <= 0 {
-        return Err("无效的用户 ID".into());
-    }
-    // 检查权限
-    // ...
-}
-```
-
----
-
-## 排查权限问题
-
-| 症状 | 可能原因 | 解决方法 |
-|------|---------|---------|
-| "Permission denied" | Capabilities 未声明 | 添加权限到 capabilities/default.json |
-| API 调用无响应 | 插件未注册 | 检查 lib.rs 中的 .plugin() |
-| 编译错误 | 插件版本不兼容 | Cargo.toml 和 package.json 版本对齐 |
-| 运行时报错 | CSP 阻止资源加载 | 检查 tauri.conf.json 中的 CSP 配置 |
-| 窗口拖拽无效 | 缺少 `allow-start-dragging` | `core:default` 不含此权限，需显式声明 |
-| 动态窗口无权限 | `windows` 未包含通配符 | 使用 `"窗口前缀-*"` 通配符匹配 |
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| CSP 设为 null(禁用) | 生产环境配置合适的 CSP |
-| 所有权限都声明 | 只声明需要的权限 |
-| 文件权限不限制路径 | 使用 scope 限制为 $APPDATA |
-| 密钥放在前端代码中 | 密钥只在 Rust 侧处理 |
-| 不区分窗口权限 | 不同窗口给不同权限 |
-| 添加权限不测试 | 添加权限后验证功能是否正常 |
-| 以为 `core:default` 包含所有窗口操作 | 无边框窗口的拖拽/最大化等需显式声明 |
-| 动态窗口只写固定标签名 | 使用 `窗口前缀-*` 通配符覆盖动态窗口 |
+- 风险和授权边界已明确，未暴露敏感信息。
+- 最小权限、输入校验、错误和审计路径都有代码或配置证据。
+- Capabilities/CSP/配置格式检查及真实运行时拒绝与允许路径已验证。
+- 相关测试、构建、UTF-8 和 `git diff --check` 通过。

@@ -1,335 +1,81 @@
 ---
 name: dev
 description: |
-  开发新功能的全栈代码生成器，自动生成 Rust 三层架构后端 + React 前端 UI + Tauri 权限配置的完整功能模块。
+  显式工作流：仅当用户输入 /dev、$dev，或明确要求“使用 dev 全栈工作流”开发完整 Tauri 功能模块时，编排 Rust 三层、IPC、React UI、状态、数据库和权限。
 
   触发场景：
-  - 需要开发一个完整的新功能模块（含后端+前端+UI页面）
-  - 需要创建带有完整 CRUD 操作的业务模块
-  - 需要全栈代码生成（Rust Command + Service + Database + React 页面）
+  - 用户显式调用 /dev 或 $dev
+  - 用户明确要求按 dev 工作流实现完整跨层功能
+  - 用户明确要求使用 dev 工作流一次交付多个 Command、完整页面、状态和持久化
 
-  触发词：开发、dev、新功能、功能开发、全栈、模块开发、页面开发
+  不应触发：普通“开发/新功能/页面开发”措辞；单个 Command；仅前端页面；仅修 Bug；仅输出方案。
+
+  强触发词：/dev、$dev、使用 dev 全栈工作流、dev 完整功能模块、全栈脚手架工作流
 ---
 
-作为新功能开发助手,引导完成 Tauri 桌面应用的全栈功能开发。
-
-## 核心优势
-
-- 全栈自动生成(Rust 三层架构 + React UI + Capabilities 权限声明)
-- 遵循 Tauri 双进程架构(WebView 进程 + Rust Core 进程)
-- 类型安全(Rust serde 序列化 + TypeScript 类型对齐)
-- 自动处理 Capabilities 权限声明(Tauri 2.x 强制权限模型)
-- 错误处理规范(Rust `AppError` enum + 前端统一 API 包装)
-- 三层分离(Commands -> Services -> Database)
+# `/dev` 全栈实现编排
 
----
+## 激活门禁
 
-## 执行流程
+这是 `explicit-only` 工作流。未出现显式信号时退出，不因“开发”“新功能”“模块”“页面”等宽泛词自动接管普通编码任务。
 
-### 第一步:询问需求
+- 单个端到端 IPC：`api-development`。
+- 单个显式脚手架：`command`。
+- React 页面：`ui-frontend`。
+- 数据库、权限、安全、文件、事件等继续加载对应领域 Skill，不能由 `/dev` 替代。
 
-使用 AskUserQuestion 工具询问:
-
-**问题1:功能信息**
-```
-请告诉我要开发的功能:
-1. **功能名称**?(如:用户管理、数据导入、系统监控、设置页面)
-2. **需要哪些系统能力**?(选择适用项)
-   - 文件读写(fs 插件)
-   - 网络请求(Rust reqwest)
-   - 本地数据库(rusqlite - 已集成)
-   - 系统通知(notification 插件)
-   - 剪贴板(clipboard 插件)
-   - 对话框(dialog 插件 -- 文件选择/保存/确认框)
-   - 系统托盘(tray 插件)
-   - 全局快捷键(global-shortcut 插件)
-   - 窗口操作(多窗口/窗口控制)
-   - Shell 命令执行(shell 插件)
-   - 自动更新(updater 插件)
-   - 无特殊系统能力(纯前端 UI + 基础 Command)
-3. **是否需要持久化数据**?(SQLite 数据库 / Rust 侧 State 管理 / 无)
-```
-
-**自动推断配置**:
-- 文件操作 -> 需要 `fs` 插件 + `dialog` 插件 + 对应 Capabilities
-- 网络请求 -> 通过 Rust Command 代理(禁止前端直接 fetch 外部 API)
-- 数据库 -> `rusqlite` 已集成,创建 Service + Database 层
-- 系统通知 -> `tauri-plugin-notification` + Capabilities 声明
-- 持久状态 -> `tauri::State<T>` + `Mutex`/`RwLock` 包裹
-
----
-
-### 第二步:检查功能是否已存在(强制执行)
-
-```bash
-# 检查 Rust Command 是否已有相关功能
-Grep pattern: "fn {功能相关关键词}" path: src-tauri/src/commands/ output_mode: files_with_matches
-
-# 检查 Rust Service 是否已有相关功能
-Grep pattern: "fn {功能相关关键词}" path: src-tauri/src/services/ output_mode: files_with_matches
-
-# 检查前端 API 是否已有相关功能
-Grep pattern: "{功能名相关关键词}" path: src/lib/api/ output_mode: files_with_matches
-
-# 检查前端页面是否已有相关功能
-Grep pattern: "{功能名相关关键词}" path: src/pages/ output_mode: files_with_matches
-```
-
-**如果功能已存在** -> 停止全栈生成流程,建议增强现有代码(列出现有文件和扩展建议)
-**如果功能未实现** -> 继续
-
----
-
-### 第三步:读取参考代码(强制执行)
-
-```bash
-# Rust 后端参考 -- 了解三层架构模式
-Read src-tauri/src/commands/user.rs      # Command 层示例
-Read src-tauri/src/services/user.rs      # Service 层示例
-Read src-tauri/src/database/mod.rs       # Database 层示例
-Read src-tauri/src/error.rs              # 统一错误处理
-
-# Rust 主入口 -- 了解 Builder 配置和 Command 注册
-Read src-tauri/src/main.rs
-Read src-tauri/src/lib.rs
-
-# 前端参考 -- 了解 API 封装和组件结构
-Read src/lib/api/index.ts                # API 封装层
-Read src/types/index.ts                  # 类型定义
-Read src/pages/Users/index.tsx           # 页面组件示例
-
-# 权限声明参考 -- 了解已声明的 Capabilities
-Read src-tauri/capabilities/default.json
-
-# Tauri 配置参考 -- 了解应用配置(窗口/安全/构建)
-Read src-tauri/tauri.conf.json
-
-# Rust 依赖参考 -- 了解已安装的 crate
-Read src-tauri/Cargo.toml
-```
-
-**项目已有清晰的模块化结构**:
-- `src-tauri/src/commands/` -- Command 层(IPC 入口)
-- `src-tauri/src/services/` -- Service 层(业务逻辑)
-- `src-tauri/src/database/` -- Database 层(数据持久化)
-- `src/pages/` -- 前端页面组件
-- `src/lib/api/` -- 前端 API 封装
-
----
-
-### 第四步:设计数据结构
-
-定义 Rust 结构体和对应的 TypeScript 类型,确保两端类型对齐:
-
-**Rust 侧(serde 自动序列化/反序列化)**:
-```rust
-use serde::{Deserialize, Serialize};
-
-/// 功能数据结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct XxxData {
-    pub id: i64,
-    pub name: String,
-    pub status: i32,
-    pub created_at: String,
-}
-
-/// 功能创建请求(如需独立入参类型)
-#[derive(Debug, Deserialize)]
-pub struct CreateXxxRequest {
-    pub name: String,
-    pub status: Option<i32>,
-}
-
-/// 功能查询请求(如需分页/过滤)
-#[derive(Debug, Deserialize)]
-pub struct QueryXxxRequest {
-    pub keyword: Option<String>,
-    pub page: Option<u32>,
-    pub page_size: Option<u32>,
-}
-
-/// 功能响应结构(如需分页等封装)
-#[derive(Debug, Serialize)]
-pub struct XxxListResponse {
-    pub items: Vec<XxxData>,
-    pub total: usize,
-}
-```
-
-**TypeScript 侧(与 Rust 类型一一对应)**:
-```typescript
-// src/types/index.ts 中添加
-
-// 功能数据类型
-export interface XxxData {
-  id: number;
-  name: string;
-  status: number;
-  createdAt: string;  // Tauri 自动 snake_case -> camelCase
-}
-
-// 功能创建请求类型
-export interface CreateXxxRequest {
-  name: string;
-  status?: number;
-}
-
-// 功能查询请求类型
-export interface QueryXxxRequest {
-  keyword?: string;
-  page?: number;
-  pageSize?: number;
-}
-
-// 功能响应类型
-export interface XxxListResponse {
-  items: XxxData[];
-  total: number;
-}
-```
-
-**类型对齐规则**:
-| Rust 类型 | TypeScript 类型 | 说明 |
-|-----------|----------------|------|
-| `String` / `&str` | `string` | 字符串 |
-| `i32` / `i64` / `u32` / `u64` | `number` | 数字 |
-| `f64` / `f32` | `number` | 浮点数 |
-| `bool` | `boolean` | 布尔 |
-| `Vec<T>` | `T[]` | 数组 |
-| `Option<T>` | `T \| undefined` 或 `T?` | 可选值 |
-| `HashMap<K, V>` | `Record<K, V>` | 映射 |
-| `()` | `void` | 空返回 |
-
----
-
-### 第五步:输出生成方案并确认
-
-```markdown
-## 代码生成方案
-
-### 功能概述
-- **功能名称**:{功能名}
-- **系统能力**:{需要的插件/API 列表}
-- **持久化方案**:{SQLite / State / 无}
-
-### 文件清单
-
-**Rust 后端(三层架构)**:
-1. `src-tauri/src/commands/xxx.rs` -- Command 层(IPC 入口,参数验证)
-2. `src-tauri/src/services/xxx.rs` -- Service 层(业务逻辑)
-3. `src-tauri/src/database/xxx.rs` -- Database 层(数据持久化,如需数据库)
-4. `src-tauri/src/database/mod.rs` -- 注册新的 Database 模块
-5. `src-tauri/src/lib.rs` -- 在 generate_handler![] 中注册新 Command
-
-**React 前端**:
-6. `src/types/index.ts` -- 添加 TypeScript 类型定义
-7. `src/lib/api/index.ts` -- 添加 API 封装函数
-8. `src/pages/Xxx/index.tsx` -- React 页面组件(Ant Design 5 组件)
-9. `src/store/xxxStore.ts` -- Zustand 状态管理(如需全局状态)
-
-**权限配置**:
-10. `src-tauri/capabilities/default.json` -- 添加所需插件权限
-
-**依赖更新(如需新插件)**:
-11. `src-tauri/Cargo.toml` -- 添加 Rust 依赖
-12. `package.json` -- 添加 @tauri-apps/plugin-* 前端绑定
-
-确认开始生成?
-```
-
-> **注意**:三层架构是强制规范:
-> - **Command 层**:仅处理 IPC 调用、参数验证、错误转换
-> - **Service 层**:业务逻辑、跨模块调用、事务处理
-> - **Database 层**:SQL 执行、数据映射、连接池管理
-
----
-
-### 第六步:自动生成代码
-
-按三层架构生成完整的 Rust 后端代码（Commands + Services + Database）、React 前端代码（Types + API + Store + Page）、以及 Capabilities 权限配置。
-
----
-
-### 第七步:完成报告
-
-```markdown
-## 代码生成完成
-
-### 已完成
-- Rust 三层架构实现(Commands -> Services -> Database)
-- Rust 数据结构定义(Serialize/Deserialize)
-- Rust 统一错误处理(AppError enum)
-- TypeScript 类型定义(与 Rust 对齐)
-- 前端 API 封装(统一 invoke 调用)
-- Zustand 状态管理(如需全局状态)
-- React 页面组件(Ant Design 5 + TailwindCSS 4)
-- Capabilities 权限声明更新
-
-### 后续操作
-- **重新运行** `pnpm tauri dev` 使 Rust 代码变更生效
-- **如添加了新插件**,需确认 `cargo add` 和 `pnpm add` 已执行
-- **如添加了新窗口**,需在 `tauri.conf.json` 的 `app.windows` 中配置
-- **如需添加路由**,在前端路由配置中添加页面路由
-- 推荐运行 `/check` 检查代码规范
-- 推荐运行 `cd src-tauri && cargo clippy` 检查 Rust 代码质量
-```
-
----
-
-## AI 强制执行规则
-
-### 流程控制
-1. **仅在第五步确认一次,其他步骤自动执行**
-2. **第二步必须检查功能是否存在**(Grep 搜索 Commands/Services/API/Pages)
-3. **第三步必须读参考代码**(commands/user.rs / services/user.rs / database/mod.rs / lib/api/index.ts / pages/Users/index.tsx)
-4. **禁止多次询问用户确认**(确认后直接生成全部代码)
-
-### Rust 后端规范(三层架构)
-5. **必须严格遵循三层架构**: Command 层 / Service 层 / Database 层
-6. **Command 必须返回 `Result<T, AppError>`**(统一错误处理)
-7. **Rust 结构体必须 `#[derive(Debug, Serialize, Deserialize)]`**(serde 序列化必备)
-8. **新 Command 必须在 `generate_handler![]` 中注册**(否则前端 invoke 找不到)
-9. **禁止在 Command/Service 中直接调用数据库**(必须通过 Database 层)
-10. **Database 层函数必须是纯数据操作**(不含业务逻辑)
-11. **错误处理必须使用 AppError**(不使用 String,使用 thiserror 定义的枚举)
-12. **禁止 `unwrap()` 处理可能失败的操作**(用 `?` 运算符)
-13. **禁止在 Command 中 `panic!()`**(会导致应用崩溃)
-14. **异步函数使用 `async fn`**(数据库操作、网络请求等)
-15. **使用的插件必须在 Builder 中通过 `.plugin()` 注册**
-
-### TypeScript 前端规范
-16. **所有 invoke 调用必须封装在 `src/lib/api/index.ts` 中**
-17. **所有类型必须定义在 `src/types/index.ts` 中**
-18. **全局状态使用 Zustand**(不使用 Context API)
-19. **路径导入必须使用 `@/` 别名**
-20. **UI 组件使用 Ant Design 5**
-21. **样式使用 TailwindCSS 4 类名**
-22. **使用函数组件 + Hooks**(React 19 推荐模式,禁止 class 组件)
-23. **禁止在前端直接访问文件系统**(通过 Tauri FS API 或 Rust Command)
-24. **禁止前端直接 fetch 外部 API**(通过 Rust Command 代理请求)
-25. **禁止使用 `any` 类型**
-26. **API 函数必须有错误处理**
-27. **invoke 命令名使用 snake_case**
-
-### 权限配置规范
-28. **使用的插件 API 必须在 Capabilities 中声明权限**
-29. **新插件既要 Rust 侧 `cargo add` 也要前端侧 `pnpm add`**
-30. **禁止在 Capabilities 中声明未使用的权限**
-
-### 桌面应用特有规范
-31. **禁止涉及 REST API 路由注册**(Tauri 是桌面应用,不是 Web 服务器)
-32. **禁止涉及复杂的数据库迁移脚本**(建表在 init_database 中)
-33. **禁止涉及多租户设计**(桌面应用是单用户本地应用)
-34. **禁止涉及菜单 SQL 初始化**(桌面应用无后台管理菜单系统)
-35. **禁止涉及 RESTful 路径设计**(通信走 IPC invoke,不是 HTTP)
-36. **跨平台路径必须使用 Tauri path API**
-
-### 代码质量规范
-37. **SQL 语句必须使用参数化查询**
-38. **数据库连接必须通过 `get_connection()` 获取**
-39. **新数据表必须在 `init_database()` 中建表**
-40. **前端组件必须处理 loading 和 error 状态**
-41. **删除操作必须有确认对话框**
-42. **表单必须有验证规则**
-43. **成功/失败操作必须有提示**
+## 执行阶段
+
+1. **界定目标**：从需求提取用户流程、数据来源、系统能力、持久化、页面、失败行为和验收标准。只有影响架构或外部权限的关键歧义才询问。
+2. **防重复**：用 `rg` 检查现有 Command、Service、Database、API、Types、Store、Page 和路由；已有能力优先扩展。
+3. **读取模式**：读取每个涉及层的一处相似实现、错误类型、`lib.rs`、Capabilities、依赖和前端布局/API 客户端。
+4. **设计契约与文件图**：先列 Rust/TS 类型、Command 契约、数据/状态归属、精确文件清单和验证项；不空造层。
+5. **按依赖顺序实现**：Models/Database -> Services -> Commands/注册 -> Types/API -> Store/Page/Router -> Capabilities/依赖。
+6. **分层验证**：每完成一层运行聚焦检查；最终格式化、编译/测试、`git diff --check`，页面强制浏览器验收。
+7. **交付证据**：说明实际文件、契约、数据库/权限变化、检查结果、运行时证据和未完成风险。
+
+## 不可削弱的准确性规则
+
+- 先读真实参考代码，目录、错误类型、迁移和状态模式不按旧模板猜测。
+- Rust 保持 Commands -> Services -> Database；Command 不写业务/SQL，Service 不绕过 Database。
+- 所有可失败操作传播错误，禁止 `unwrap()`/`panic!()`；异步路径禁止阻塞 sleep。
+- Rust/TypeScript 按实际 serde JSON 对齐，结构体字段不会无条件自动 camelCase。
+- 前端 API 统一封装，组件不裸写 invoke；外部 HTTP 默认经 Rust 代理并执行安全校验。
+- 全局状态仅在确有跨组件共享时使用 Zustand；局部状态留在组件。
+- 插件必须检查 Rust 注册、前端依赖和最小 Capabilities；未使用权限不得加入。
+- SQLite 改动遵循当前 `PRAGMA user_version` 迁移机制，SQL 参数化；不得回退到旧式 `init_database()` 假设。
+- 删除要确认，表单要验证，页面必须呈现 loading/empty/error/success 状态。
+- 不自动执行 Git commit/push、发布、远程写入、生产数据修改或凭据操作。
+
+## 按需读取 References
+
+- 规划跨层数据流与文件：读取 [全栈计划与文件矩阵](references/fullstack-plan.md)。
+- 编码或审查全栈强制规则：读取 [生成规则与验证](references/generation-rules.md)。
+- IPC 契约细节读取 `api-development`；页面模式与浏览器验收读取 `ui-frontend`。
+- 数据库/Capabilities/文件/事件/通知等只在实际涉及时读取对应 Skill。
+
+## 正反向示例
+
+| 用户请求 | 是否激活 |
+|---|---|
+| “/dev 完整开发知识库管理模块” | 是 |
+| “用 $dev 做 CRUD、页面和 SQLite” | 是 |
+| “帮我开发一个 React 页面” | 否，使用 `ui-frontend` |
+| “新增一个 Command” | 否，使用 IPC 领域 Skill |
+| “先设计这个模块方案” | 否，处于方案阶段不得进入实现 |
+
+显式激活意味着使用完整编排，不代表每一层都必须创建；文件仍由真实需求决定。发现已有实现时以扩展/修复为主，不能为了脚手架另起平行模块。
+
+## 交付证据
+
+按层列出修改原因和核心内容，给出格式化、聚焦测试、编译/构建、浏览器及真实数据/权限验证的实际结果；未完成项注明原因和风险。
+
+构建、HTTP 200、截图或测试通过都是中间证据；只有与需求验收标准一致的真实行为才能作为功能完成结论。
+
+## 完成条件
+
+- [ ] 用户流程、契约、数据归属和文件图与实现一致。
+- [ ] 只修改实际需要的层，无重复能力和架构绕行。
+- [ ] Rust 注册、TS API、路由/状态、权限/依赖全部闭环。
+- [ ] 格式化、聚焦测试、Rust/TS 检查、构建和 diff check 通过。
+- [ ] 页面由 Codex 内置浏览器或 Chrome 验收，控制台和失败态无回归。

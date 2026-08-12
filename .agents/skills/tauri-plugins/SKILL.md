@@ -1,380 +1,49 @@
 ---
 name: tauri-plugins
 description: |
-  Tauri 插件开发与集成技能，指导如何使用官方插件和开发自定义插件。
+  用于引入、配置、升级或开发 `tauri-plugin-*` 及其前端绑定；普通 npm 包、crate 或第三方业务 SDK 不触发。
 
   触发场景：
-  - 需要集成 Tauri 官方插件
-  - 需要开发自定义 Tauri 插件
-  - 需要理解插件的安装和配置流程
-  - 需要排查插件不可用的问题
+  - 添加或升级 Tauri 官方/社区 `tauri-plugin-*`
+  - 在 `tauri::Builder` 注册插件并配置初始化参数
+  - 配置插件前端包、Capabilities 和跨平台支持
+  - 开发自定义 Tauri 插件或诊断插件未注册/权限缺失
 
-  触发词：插件、plugin、tauri-plugin、集成、扩展、第三方
+  触发词：tauri-plugin、@tauri-apps/plugin、Builder.plugin、插件注册、Tauri plugin init、自定义 Tauri 插件、插件 permission、插件前端绑定
 ---
 
-# Tauri 插件开发与集成
+# Tauri 插件集成
 
-## 当前项目已安装插件
+## 边界
 
-### Cargo 依赖（src-tauri/Cargo.toml）
+本技能只处理 Tauri 插件生命周期。普通 npm/crate 依赖、React 组件库、Rust 业务模块和第三方 HTTP SDK 不应触发。具体 permission/scope 使用 `tauri-capabilities`；插件涉及凭据、Shell、文件、外部 URL 或远程访问时同时使用 `security-permissions`。
 
-```toml
-[dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-tauri-plugin-store = "2"
-tauri-plugin-log = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
-```
+## 强制规则
 
-### 已注册插件（src-tauri/src/lib.rs）
+1. 读取当前 `Cargo.toml`、`package.json`、`src-tauri/src/lib.rs` 和 Capabilities，确认项目已有插件与版本。
+2. Rust crate、前端绑定和 Tauri 主版本必须兼容；不得只安装一侧依赖。
+3. 在 `tauri::Builder` 明确注册插件，并把业务逻辑放在 Service/API 封装层，避免页面裸调或 Command 堆积逻辑。
+4. 权限按实际 API 最小声明；不能因插件不可用直接开放 `*:default` 或宽 scope。
+5. 检查 Windows/macOS/Linux 支持差异、移动端条件编译和功能降级。
+6. 新依赖要评估维护状态、许可证、供应链和安全边界，不把“能编译”当成集成完成。
 
-```rust
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![...])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
+## 执行流程
 
-### 已配置权限（src-tauri/capabilities/default.json）
+1. 明确所需插件能力和为什么不能由现有模块完成。
+2. 对照当前锁文件与官方版本安装 Rust/TypeScript 依赖。
+3. 注册插件、配置初始化、补最小 Capability，并通过 `src/lib/api/` 封装前端调用。
+4. 验证编译、权限允许/拒绝路径、平台行为和卸载/失败降级。
+5. 变更 lock 文件时核对依赖树与不必要升级。
 
-```json
-{
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "store:default",
-    "log:default",
-    "updater:default",
-    "process:default"
-  ]
-}
-```
+## 按需参考
 
----
+需要官方插件清单、初始化方式、自定义插件结构、Service/前端调用示例或故障排查时读取 [references/plugin-integration.md](references/plugin-integration.md)。
 
-## 官方插件完整清单
+只有实际要改 permission/scope 时再加载 `tauri-capabilities`；只有涉及自动更新协议时再加载 `tauri-updater`。
 
-### 核心功能插件
+## 完成条件
 
-| 插件 | Cargo 依赖 | npm 包 | 用途 | 当前状态 |
-|------|-----------|--------|------|---------|
-| **opener** | `tauri-plugin-opener` | `@tauri-apps/plugin-opener` | 打开 URL/文件 | ✅ 已安装 |
-| **store** | `tauri-plugin-store` | `@tauri-apps/plugin-store` | 键值存储 | ✅ 已安装 |
-| **log** | `tauri-plugin-log` | `@tauri-apps/plugin-log` | 日志系统 | ✅ 已安装 |
-| **updater** | `tauri-plugin-updater` | `@tauri-apps/plugin-updater` | 应用自动更新 | ✅ 已安装 |
-| **process** | `tauri-plugin-process` | `@tauri-apps/plugin-process` | 进程管理（退出/重启） | ✅ 已安装 |
-| **shell** | `tauri-plugin-shell` | `@tauri-apps/plugin-shell` | 执行系统命令 | 📦 推荐 |
-| **os** | `tauri-plugin-os` | `@tauri-apps/plugin-os` | 操作系统信息（平台/架构/版本） | 📦 推荐 |
-| **dialog** | `tauri-plugin-dialog` | `@tauri-apps/plugin-dialog` | 文件选择/消息对话框 | 📦 推荐 |
-| **notification** | `tauri-plugin-notification` | `@tauri-apps/plugin-notification` | 系统通知 | 📦 推荐 |
-| **fs** | `tauri-plugin-fs` | `@tauri-apps/plugin-fs` | 文件系统操作 | 📦 按需安装 |
-| **clipboard** | `tauri-plugin-clipboard-manager` | `@tauri-apps/plugin-clipboard-manager` | 剪贴板 | 📦 按需安装 |
-| **pty** | `tauri-plugin-pty` | `@anthropic-ai/tauri-plugin-pty` | 伪终端（终端模拟器） | 📦 按需安装 |
-
-### 数据存储插件
-
-| 插件 | 用途 | 数据库支持 | 当前状态 |
-|------|------|-----------|---------|
-| **store** | 键值存储 | JSON 文件持久化 | ✅ 已安装 |
-| **sql** | SQL 数据库 | SQLite / MySQL / PostgreSQL | ⭕ 未安装（使用 rusqlite） |
-
-> **注意**: 本项目使用 **rusqlite** 直接操作 SQLite，而非 tauri-plugin-sql。
-
-### 系统交互插件
-
-| 插件 | 用途 | 当前状态 |
-|------|------|---------|
-| **process** | 进程管理（退出/重启） | ✅ 已安装 |
-| **updater** | 应用自动更新 | ✅ 已安装 |
-| **shell** | 执行系统命令、打开终端 | 📦 推荐 |
-| **os** | 获取平台、架构、版本等系统信息 | 📦 推荐 |
-| **notification** | 系统原生通知 | 📦 推荐 |
-| **dialog** | 文件选择、消息确认对话框 | 📦 推荐 |
-| **global-shortcut** | 全局快捷键 | 📦 按需安装 |
-| **http** | HTTP 请求（前端发起） | 📦 按需安装（可用 reqwest 代替） |
-| **websocket** | WebSocket 连接 | 📦 按需安装 |
-
-### 插件初始化方式速查
-
-| 初始化方式 | 适用插件 | 示例 |
-|-----------|---------|------|
-| `::init()` | 大多数插件 | `tauri_plugin_opener::init()` |
-| `Builder::new().build()` | 需要配置的插件 | `tauri_plugin_store::Builder::new().build()` |
-| `Builder::new().xxx().build()` | 需要链式配置 | `tauri_plugin_log::Builder::new().level(...).build()` |
-| `Builder::new().build()` | updater | `tauri_plugin_updater::Builder::new().build()` |
-
----
-
-## 插件集成 3 步法（适配三层架构）
-
-### 步骤 1: 安装依赖
-
-```toml
-# src-tauri/Cargo.toml
-[dependencies]
-tauri-plugin-fs = "2"
-```
-
-```bash
-pnpm add @tauri-apps/plugin-fs
-```
-
-### 步骤 2: 注册插件
-
-```rust
-// src-tauri/src/lib.rs
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_log::Builder::new().build())
-        .plugin(tauri_plugin_fs::init())    // 新增
-        .invoke_handler(tauri::generate_handler![...])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
-
-### 步骤 3: 声明权限
-
-```json
-// src-tauri/capabilities/default.json
-{
-  "permissions": [
-    "core:default",
-    "opener:default",
-    "store:default",
-    "log:default",
-    "fs:default",              // 新增
-    "fs:allow-read-text-file"  // 新增（细粒度权限）
-  ]
-}
-```
-
----
-
-## 在三层架构中使用插件
-
-插件功能应遵循项目的三层架构（Database/Service/Command），避免在 Command 层直接堆砌业务逻辑。
-
-### 方式一：插件功能封装到 Service 层
-
-适用于大多数插件（shell、os、dialog、notification 等），插件提供的能力作为业务逻辑的一部分。
-
-```rust
-// ── Service 层封装插件逻辑 ──
-// src-tauri/src/services/system.rs
-use crate::error::AppError;
-
-/// 获取系统信息（封装 os 插件或 std 能力）
-pub fn get_system_info() -> Result<SystemInfo, AppError> {
-    Ok(SystemInfo {
-        platform: std::env::consts::OS.to_string(),
-        arch: std::env::consts::ARCH.to_string(),
-    })
-}
-
-// ── Command 层暴露给前端 ──
-// src-tauri/src/commands/system.rs
-#[tauri::command]
-pub fn get_system_info() -> Result<SystemInfo, String> {
-    crate::services::system::get_system_info()
-        .map_err(|e| e.to_string())
-}
-```
-
-### 方式二：需要 AppHandle 的插件
-
-某些插件 API 需要 `AppHandle`（如 notification、dialog、updater），通过 Command 参数注入。
-
-```rust
-// ── Command 层（注入 AppHandle）──
-#[tauri::command]
-pub async fn check_update(app: tauri::AppHandle) -> Result<bool, String> {
-    crate::services::update::check_for_update(&app)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// ── Service 层（接收 AppHandle 引用）──
-// src-tauri/src/services/update.rs
-pub async fn check_for_update(app: &tauri::AppHandle) -> Result<bool, AppError> {
-    let update = app.updater_builder().build()
-        .map_err(|e| AppError::Custom(e.to_string()))?
-        .check()
-        .await
-        .map_err(|e| AppError::Custom(e.to_string()))?;
-    Ok(update.is_some())
-}
-```
-
-### 方式三：前端直接使用插件 JS API
-
-某些插件支持前端直接调用，无需经过 Rust Command（适用于简单场景）。
-
-```typescript
-// 前端直接使用 store 插件
-import { Store } from "@tauri-apps/plugin-store";
-const store = new Store("settings.json");
-await store.set("theme", "dark");
-
-// 前端直接使用 opener 插件
-import { open } from "@tauri-apps/plugin-opener";
-await open("https://example.com");
-
-// 前端直接使用 process 插件
-import { exit, relaunch } from "@tauri-apps/plugin-process";
-await relaunch();
-```
-
-### 决策指南：Rust Command vs 前端 JS API
-
-| 场景 | 推荐方式 | 原因 |
-|------|---------|------|
-| 简单读写配置 | 前端 JS API（store） | 无需业务逻辑 |
-| 打开 URL/文件 | 前端 JS API（opener） | 简单操作 |
-| 涉及数据库的操作 | Rust Command（三层架构） | 需要事务/校验 |
-| 需要系统权限的操作 | Rust Command（三层架构） | 安全控制 |
-| 复杂业务流程 | Rust Command（三层架构） | 业务逻辑属于后端 |
-| 需要组合多个插件 | Rust Command（三层架构） | 统一编排 |
-
----
-
-## 自定义 Tauri 插件
-
-### 插件结构
-
-```rust
-use tauri::plugin::{Builder, TauriPlugin};
-use tauri::Runtime;
-
-// 定义插件命令
-#[tauri::command]
-fn my_plugin_command() -> String {
-    "Hello from plugin!".into()
-}
-
-// 构建插件
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("my-plugin")
-        .invoke_handler(tauri::generate_handler![my_plugin_command])
-        .build()
-}
-```
-
-### 注册自定义插件
-
-```rust
-// src-tauri/src/lib.rs
-mod my_plugin;
-
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(my_plugin::init())
-        .invoke_handler(tauri::generate_handler![...])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
-
-### 前端调用
-
-```typescript
-// 自定义插件的命令通过 invoke 调用
-const result = await invoke("plugin:my-plugin|my_plugin_command");
-```
-
----
-
-## 项目数据存储策略
-
-本项目采用双数据存储方案：
-
-| 存储方式 | 用途 | 数据类型 | 实现方式 |
-|---------|------|---------|---------|
-| **tauri-plugin-store** | 应用配置 | 键值对 | JSON 文件 |
-| **rusqlite** | 业务数据 | 结构化数据 | SQLite 数据库 |
-
-### tauri-plugin-store 使用示例
-
-```typescript
-// 前端直接使用
-import { Store } from "@tauri-apps/plugin-store";
-
-const store = new Store("settings.json");
-await store.set("theme", "dark");
-const theme = await store.get<string>("theme");
-```
-
-### rusqlite 使用示例
-
-```rust
-// 在三层架构中使用
-// database/user.rs
-use rusqlite::{Connection, Result};
-use crate::models::User;
-
-pub fn get_user(conn: &Connection, id: i64) -> Result<User, rusqlite::Error> {
-    conn.query_row(
-        "SELECT id, name FROM users WHERE id = ?1",
-        [id],
-        |row| Ok(User {
-            id: row.get(0)?,
-            name: row.get(1)?,
-        })
-    )
-}
-
-// services/user.rs
-use crate::database;
-use crate::error::AppError;
-
-pub fn fetch_user(id: i64) -> Result<User, AppError> {
-    let conn = get_connection()?;
-    Ok(database::user::get_user(&conn, id)?)
-}
-
-// commands/user.rs
-#[tauri::command]
-pub fn get_user(id: i64) -> Result<User, String> {
-    crate::services::user::fetch_user(id)
-        .map_err(|e| e.to_string())
-}
-```
-
----
-
-## 排查插件问题
-
-| 症状 | 可能原因 | 解决方法 |
-|------|---------|---------|
-| "Command not found" | 插件未注册 | 检查 lib.rs 中的 .plugin() |
-| "Permission denied" | Capabilities 未声明 | 添加权限到 capabilities/default.json |
-| 编译错误 | 版本不兼容 | Cargo.toml + package.json 版本对齐（都用 2.x） |
-| 运行时无效 | 缺少 JS 绑定 | 检查是否安装对应的 npm 包 |
-| 数据库错误 | rusqlite 配置问题 | 检查 features = ["bundled"] |
-| 插件 init 方式错误 | 用了 `init()` 但插件需要 `Builder` | 参考"插件初始化方式速查"表 |
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 只装 Cargo 不装 npm | Rust 和 npm 包都要安装 |
-| 注册插件但不声明权限 | 每个插件都要配 Capabilities |
-| 不看插件文档直接用 | 先查看插件 README 了解 API |
-| Tauri v1 API 用于 v2 | v1 和 v2 API 不同，检查版本 |
-| 混用 tauri-plugin-sql 和 rusqlite | 选择一种数据库方案，本项目用 rusqlite |
-| 在 Command 层直接使用插件 | 通过三层架构（Database → Service → Command）组织代码 |
-| 所有操作都走 Rust Command | 简单插件操作可前端直接用 JS API |
-| 不区分 init() 和 Builder 模式 | 查看插件文档确认正确的初始化方式 |
+- Rust/前端依赖、注册、权限和 API 封装形成完整链路。
+- 最小权限与目标平台行为已验证，无敏感配置泄露。
+- Cargo/TypeScript 检查、聚焦测试和构建通过。
+- UTF-8 无 BOM，`git diff --check` 通过。

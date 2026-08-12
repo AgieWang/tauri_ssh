@@ -10,6 +10,18 @@ pub mod deployment;
 pub mod git_workspace;
 pub mod jenkins;
 pub mod jumpserver;
+pub mod knowledge;
+#[allow(dead_code)] // 由后续快照持久化任务接入；当前先以单测锁定 P0 分析契约。
+pub mod knowledge_code_analyzer;
+#[allow(dead_code)]
+pub mod knowledge_domain;
+pub mod knowledge_embedding;
+pub mod knowledge_local_embedding;
+pub mod knowledge_local_ocr;
+pub mod knowledge_parser;
+pub mod knowledge_policy;
+pub mod knowledge_retrieval;
+pub mod knowledge_rollout;
 pub mod mcp;
 pub mod resource_monitor;
 pub mod secure_credential;

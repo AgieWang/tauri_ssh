@@ -23,8 +23,21 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, GitBranch, PackageSearch, Plus, RefreshCw, Rocket, Server } from "lucide-react";
-import { deploymentApi, getErrorMessage, secureCredentialApi, sshServerApi } from "@/lib/api";
+import {
+  FolderOpen,
+  GitBranch,
+  PackageSearch,
+  Plus,
+  RefreshCw,
+  Rocket,
+  Server,
+} from "lucide-react";
+import {
+  deploymentApi,
+  getErrorMessage,
+  secureCredentialApi,
+  sshServerApi,
+} from "@/lib/api";
 import type {
   DeploymentAiAdviceResult,
   DeploymentCandidate,
@@ -68,7 +81,12 @@ const riskMeta: Record<string, { label: string; color: string }> = {
   high: { label: "审批", color: "red" },
 };
 
-const gitCredentialProviders = new Set(["github", "gitlab", "gitcode", "gitee"]);
+const gitCredentialProviders = new Set([
+  "github",
+  "gitlab",
+  "gitcode",
+  "gitee",
+]);
 
 function isGitCredential(credential: SecureCredential) {
   if (gitCredentialProviders.has(credential.provider)) {
@@ -86,7 +104,10 @@ function isGitCredential(credential: SecureCredential) {
   ]
     .join(" ")
     .toLowerCase();
-  return credential.provider === "custom" && /\bgit(hub|lab|code|ee)?\b|repo/.test(haystack);
+  return (
+    credential.provider === "custom" &&
+    /\bgit(hub|lab|code|ee)?\b|repo/.test(haystack)
+  );
 }
 
 function gitCredentialUnavailableReason(credential: SecureCredential) {
@@ -119,8 +140,10 @@ function riskTag(risk: string) {
 }
 
 function probeStatusTag(status: string) {
-  const color = status === "ok" ? "green" : status === "warning" ? "orange" : "default";
-  const label = status === "ok" ? "正常" : status === "warning" ? "需确认" : status;
+  const color =
+    status === "ok" ? "green" : status === "warning" ? "orange" : "default";
+  const label =
+    status === "ok" ? "正常" : status === "warning" ? "需确认" : status;
   return <Tag color={color}>{label}</Tag>;
 }
 
@@ -146,7 +169,11 @@ function formatDisk(kb?: number | null) {
 }
 
 function configSummary(target: DeploymentTarget) {
-  const parts = [target.deployRoot, target.domain, target.port ? `:${target.port}` : ""].filter(Boolean);
+  const parts = [
+    target.deployRoot,
+    target.domain,
+    target.port ? `:${target.port}` : "",
+  ].filter(Boolean);
   return parts.length ? parts.join(" ") : "-";
 }
 
@@ -156,10 +183,15 @@ export default function DeploymentsPage() {
   const [runs, setRuns] = useState<DeploymentRun[]>([]);
   const [templates, setTemplates] = useState<DeploymentTemplate[]>([]);
   const [profiles, setProfiles] = useState<DeploymentEnvironmentProfile[]>([]);
-  const [imageStoreApps, setImageStoreApps] = useState<DeploymentImageStoreApp[]>([]);
-  const [selectedImageStoreApp, setSelectedImageStoreApp] = useState<DeploymentImageStoreApp | null>(null);
+  const [imageStoreApps, setImageStoreApps] = useState<
+    DeploymentImageStoreApp[]
+  >([]);
+  const [selectedImageStoreApp, setSelectedImageStoreApp] =
+    useState<DeploymentImageStoreApp | null>(null);
   const [imageStoreOpen, setImageStoreOpen] = useState(false);
-  const [installingImageKey, setInstallingImageKey] = useState<string | null>(null);
+  const [installingImageKey, setInstallingImageKey] = useState<string | null>(
+    null,
+  );
   const [credentials, setCredentials] = useState<SecureCredential[]>([]);
   const [servers, setServers] = useState<SshServer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,12 +199,16 @@ export default function DeploymentsPage() {
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
   const [detectOpen, setDetectOpen] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const [detection, setDetection] = useState<DeploymentDetectionResult | null>(null);
+  const [detection, setDetection] = useState<DeploymentDetectionResult | null>(
+    null,
+  );
   const [dryRunOpen, setDryRunOpen] = useState(false);
   const [dryRunLoading, setDryRunLoading] = useState(false);
   const [dryRunPlan, setDryRunPlan] = useState<DeploymentPlan | null>(null);
   const [aiAdviceLoading, setAiAdviceLoading] = useState(false);
-  const [aiAdvice, setAiAdvice] = useState<DeploymentAiAdviceResult | null>(null);
+  const [aiAdvice, setAiAdvice] = useState<DeploymentAiAdviceResult | null>(
+    null,
+  );
   const [runDetailOpen, setRunDetailOpen] = useState(false);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
   const [runDetail, setRunDetail] = useState<DeploymentRunDetail | null>(null);
@@ -234,12 +270,20 @@ export default function DeploymentsPage() {
   }, [loadData]);
 
   const targetOptions = useMemo(
-    () => targets.map((target) => ({ label: `${target.name} (${target.targetKey})`, value: target.targetKey })),
+    () =>
+      targets.map((target) => ({
+        label: `${target.name} (${target.targetKey})`,
+        value: target.targetKey,
+      })),
     [targets],
   );
 
   const recipeOptions = useMemo(
-    () => templates.map((template) => ({ label: template.name, value: template.key })),
+    () =>
+      templates.map((template) => ({
+        label: template.name,
+        value: template.key,
+      })),
     [templates],
   );
 
@@ -255,25 +299,27 @@ export default function DeploymentsPage() {
 
   const gitCredentialOptions = useMemo(
     () =>
-      credentials
-        .filter(isGitCredential)
-        .map((credential) => {
-          const reason = gitCredentialUnavailableReason(credential);
-          return {
-            label: reason
-              ? `${credential.displayName} (${credential.credentialKey}) - ${reason}`
-              : `${credential.displayName} (${credential.credentialKey})`,
-            value: credential.credentialKey,
-            disabled: Boolean(reason),
-            title: `${credential.provider} / ${credential.accountName || "-"} / ${credential.scopes.join(", ") || "-"}`,
-          };
-        }),
+      credentials.filter(isGitCredential).map((credential) => {
+        const reason = gitCredentialUnavailableReason(credential);
+        return {
+          label: reason
+            ? `${credential.displayName} (${credential.credentialKey}) - ${reason}`
+            : `${credential.displayName} (${credential.credentialKey})`,
+          value: credential.credentialKey,
+          disabled: Boolean(reason),
+          title: `${credential.provider} / ${credential.accountName || "-"} / ${credential.scopes.join(", ") || "-"}`,
+        };
+      }),
     [credentials],
   );
 
   async function chooseTargetProjectDirectory() {
     try {
-      const selected = await openDialog({ directory: true, multiple: false, title: "选择本地项目目录" });
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "选择本地项目目录",
+      });
       if (typeof selected === "string") {
         targetForm.setFieldValue("projectPath", selected);
       }
@@ -284,7 +330,11 @@ export default function DeploymentsPage() {
 
   async function chooseDetectProjectDirectory() {
     try {
-      const selected = await openDialog({ directory: true, multiple: false, title: "选择本地项目目录" });
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "选择本地项目目录",
+      });
       if (typeof selected === "string") {
         detectForm.setFieldValue("projectPath", selected);
       }
@@ -337,7 +387,9 @@ export default function DeploymentsPage() {
       name: template.name,
       serverAlias: "",
       recipe: template.key,
-      sourceType: template.supportedSources.includes("local") ? "local" : template.supportedSources[0] || "local",
+      sourceType: template.supportedSources.includes("local")
+        ? "local"
+        : template.supportedSources[0] || "local",
       projectPath: "",
       gitUrl: "",
       gitRef: "main",
@@ -358,9 +410,16 @@ export default function DeploymentsPage() {
       defaults.recipe = "1panel-app";
       defaults.workdir = ".";
       defaults.port = undefined;
-      defaults.configJson = JSON.stringify({ deploymentProfile: "1panel-app" }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: "1panel-app" },
+        null,
+        2,
+      );
     }
-    if (template.key === "static-openresty" || template.key === "static-nginx") {
+    if (
+      template.key === "static-openresty" ||
+      template.key === "static-nginx"
+    ) {
       defaults.port = 80;
       defaults.healthCheckUrl = "/";
     }
@@ -416,7 +475,11 @@ export default function DeploymentsPage() {
     if (profile.key === "1panel-app") {
       defaults.recipe = "1panel-app";
       defaults.port = undefined;
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "custom-script") {
       defaults.recipe = "custom-script";
@@ -442,30 +505,50 @@ export default function DeploymentsPage() {
     if (profile.key === "docker-compose") {
       defaults.recipe = "docker-compose";
       defaults.port = undefined;
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "static-nginx") {
       defaults.recipe = "static-nginx";
       defaults.port = 80;
       defaults.healthCheckUrl = "/";
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "static-openresty") {
       defaults.recipe = "static-openresty";
       defaults.httpsEnabled = false;
       defaults.port = 80;
       defaults.healthCheckUrl = "/";
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "node-pm2") {
       defaults.recipe = "node-pm2";
       defaults.port = undefined;
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "systemd-binary") {
       defaults.recipe = "systemd-binary";
       defaults.port = undefined;
-      defaults.configJson = JSON.stringify({ deploymentProfile: profile.key }, null, 2);
+      defaults.configJson = JSON.stringify(
+        { deploymentProfile: profile.key },
+        null,
+        2,
+      );
     }
     if (profile.key === "static-openresty-https") {
       defaults.recipe = "static-openresty";
@@ -573,7 +656,9 @@ export default function DeploymentsPage() {
 
   function openImageStoreInstall(app: DeploymentImageStoreApp) {
     const targetKey = `img-${app.key}`;
-    const envDefaults = Object.fromEntries(app.env.map((item) => [item.key, item.defaultValue]));
+    const envDefaults = Object.fromEntries(
+      app.env.map((item) => [item.key, item.defaultValue]),
+    );
     setSelectedImageStoreApp(app);
     imageStoreForm.resetFields();
     imageStoreForm.setFieldsValue({
@@ -724,10 +809,16 @@ export default function DeploymentsPage() {
     }
   }
 
-  async function executeRun(input: { targetKey?: string; groupKey?: string; continueRunId?: string }, key: string) {
+  async function executeRun(
+    input: { targetKey?: string; groupKey?: string; continueRunId?: string },
+    key: string,
+  ) {
     setExecutingKey(key);
     try {
-      const detail = await deploymentApi.executeRun({ ...input, createdBy: "local-user" });
+      const detail = await deploymentApi.executeRun({
+        ...input,
+        createdBy: "local-user",
+      });
       setRunDetail(detail);
       setRunDetailOpen(true);
       await loadData();
@@ -749,7 +840,10 @@ export default function DeploymentsPage() {
     const key = `rollback:${targetKey}`;
     setExecutingKey(key);
     try {
-      const detail = await deploymentApi.executeRollback({ targetKey, createdBy: "local-user" });
+      const detail = await deploymentApi.executeRollback({
+        targetKey,
+        createdBy: "local-user",
+      });
       setRunDetail(detail);
       setRunDetailOpen(true);
       await loadData();
@@ -776,7 +870,8 @@ export default function DeploymentsPage() {
     try {
       const result = await deploymentApi.askAiAdvice({
         plan: dryRunPlan,
-        prompt: "请分析这个自动部署 dry-run 计划，给出部署建议、风险解释、审批关注点和执行前检查清单。",
+        prompt:
+          "请分析这个自动部署 dry-run 计划，给出部署建议、风险解释、审批关注点和执行前检查清单。",
       });
       setAiAdvice(result);
       message.success("AI 部署建议已生成");
@@ -853,7 +948,11 @@ export default function DeploymentsPage() {
           <Tag color={record.sourceType === "git" ? "purple" : "blue"}>
             {record.sourceType === "git" ? "Git 仓库" : "本地目录"}
           </Tag>
-          <Text type="secondary">{record.sourceType === "git" ? record.gitRef || "默认分支" : record.workdir || "."}</Text>
+          <Text type="secondary">
+            {record.sourceType === "git"
+              ? record.gitRef || "默认分支"
+              : record.workdir || "."}
+          </Text>
         </Space>
       ),
     },
@@ -867,25 +966,40 @@ export default function DeploymentsPage() {
       title: "状态",
       dataIndex: "enabled",
       width: 90,
-      render: (value) => <Tag color={value ? "green" : "default"}>{value ? "启用" : "禁用"}</Tag>,
+      render: (value) => (
+        <Tag color={value ? "green" : "default"}>{value ? "启用" : "禁用"}</Tag>
+      ),
     },
     {
       title: "操作",
       width: 420,
       render: (_, record) => (
         <Space>
-          <Button size="small" type="primary" ghost onClick={() => void runDryRun({ targetKey: record.targetKey })}>
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            onClick={() => void runDryRun({ targetKey: record.targetKey })}
+          >
             Dry-run
           </Button>
           <Button
             size="small"
             type="primary"
             loading={executingKey === `target:${record.targetKey}`}
-            onClick={() => void executeRun({ targetKey: record.targetKey }, `target:${record.targetKey}`)}
+            onClick={() =>
+              void executeRun(
+                { targetKey: record.targetKey },
+                `target:${record.targetKey}`,
+              )
+            }
           >
             执行
           </Button>
-          <Button size="small" onClick={() => void runRollbackDryRun(record.targetKey)}>
+          <Button
+            size="small"
+            onClick={() => void runRollbackDryRun(record.targetKey)}
+          >
             回滚预览
           </Button>
           <Button
@@ -899,7 +1013,10 @@ export default function DeploymentsPage() {
           <Button size="small" onClick={() => openTargetDrawer(record)}>
             编辑
           </Button>
-          <Popconfirm title="确认删除该部署目标？" onConfirm={() => void deleteTarget(record.targetKey)}>
+          <Popconfirm
+            title="确认删除该部署目标？"
+            onConfirm={() => void deleteTarget(record.targetKey)}
+          >
             <Button size="small" danger>
               删除
             </Button>
@@ -936,28 +1053,43 @@ export default function DeploymentsPage() {
       title: "状态",
       dataIndex: "enabled",
       width: 90,
-      render: (value) => <Tag color={value ? "green" : "default"}>{value ? "启用" : "禁用"}</Tag>,
+      render: (value) => (
+        <Tag color={value ? "green" : "default"}>{value ? "启用" : "禁用"}</Tag>
+      ),
     },
     {
       title: "操作",
       width: 420,
       render: (_, record) => (
         <Space>
-          <Button size="small" type="primary" ghost onClick={() => void runDryRun({ groupKey: record.groupKey })}>
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            onClick={() => void runDryRun({ groupKey: record.groupKey })}
+          >
             Dry-run
           </Button>
           <Button
             size="small"
             type="primary"
             loading={executingKey === `group:${record.groupKey}`}
-            onClick={() => void executeRun({ groupKey: record.groupKey }, `group:${record.groupKey}`)}
+            onClick={() =>
+              void executeRun(
+                { groupKey: record.groupKey },
+                `group:${record.groupKey}`,
+              )
+            }
           >
             执行
           </Button>
           <Button size="small" onClick={() => openGroupDrawer(record)}>
             编辑
           </Button>
-          <Popconfirm title="确认删除该部署组？" onConfirm={() => void deleteGroup(record.groupKey)}>
+          <Popconfirm
+            title="确认删除该部署组？"
+            onConfirm={() => void deleteGroup(record.groupKey)}
+          >
             <Button size="small" danger>
               删除
             </Button>
@@ -978,18 +1110,31 @@ export default function DeploymentsPage() {
         </Space>
       ),
     },
-    { title: "配方", dataIndex: "recipe", render: (value) => recipeTag(String(value)) },
-    { title: "置信度", dataIndex: "confidence", render: (value) => `${value}%` },
+    {
+      title: "配方",
+      dataIndex: "recipe",
+      render: (value) => recipeTag(String(value)),
+    },
+    {
+      title: "置信度",
+      dataIndex: "confidence",
+      render: (value) => `${value}%`,
+    },
     {
       title: "框架",
       dataIndex: "detectedFrameworks",
-      render: (value: string[]) => value.map((item) => <Tag key={item}>{item}</Tag>),
+      render: (value: string[]) =>
+        value.map((item) => <Tag key={item}>{item}</Tag>),
     },
     {
       title: "操作",
       width: 110,
       render: (_, record) => (
-        <Button type="primary" size="small" onClick={() => applyCandidate(record)}>
+        <Button
+          type="primary"
+          size="small"
+          onClick={() => applyCandidate(record)}
+        >
           创建目标
         </Button>
       ),
@@ -998,7 +1143,12 @@ export default function DeploymentsPage() {
 
   const probeColumns: ColumnsType<DeploymentProbeCheck> = [
     { title: "检查项", dataIndex: "label", width: 150 },
-    { title: "状态", dataIndex: "status", width: 100, render: (value) => probeStatusTag(String(value)) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 100,
+      render: (value) => probeStatusTag(String(value)),
+    },
     { title: "说明", dataIndex: "message" },
   ];
 
@@ -1014,12 +1164,19 @@ export default function DeploymentsPage() {
         </Space>
       ),
     },
-    { title: "风险", dataIndex: "risk", width: 110, render: (value) => riskTag(String(value)) },
+    {
+      title: "风险",
+      dataIndex: "risk",
+      width: 110,
+      render: (value) => riskTag(String(value)),
+    },
     {
       title: "审批",
       dataIndex: "approvalRequired",
       width: 100,
-      render: (value) => <Tag color={value ? "red" : "green"}>{value ? "需要" : "不需要"}</Tag>,
+      render: (value) => (
+        <Tag color={value ? "red" : "green"}>{value ? "需要" : "不需要"}</Tag>
+      ),
     },
     {
       title: "命令预览",
@@ -1050,7 +1207,12 @@ export default function DeploymentsPage() {
       ),
     },
     { title: "目标", dataIndex: "targetKey", width: 160 },
-    { title: "状态", dataIndex: "status", width: 110, render: (value) => runStatusTag(String(value)) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 110,
+      render: (value) => runStatusTag(String(value)),
+    },
     { title: "摘要", dataIndex: "summary" },
     {
       title: "操作",
@@ -1065,7 +1227,12 @@ export default function DeploymentsPage() {
               size="small"
               type="primary"
               loading={executingKey === `run:${record.runId}`}
-              onClick={() => void executeRun({ continueRunId: record.runId }, `run:${record.runId}`)}
+              onClick={() =>
+                void executeRun(
+                  { continueRunId: record.runId },
+                  `run:${record.runId}`,
+                )
+              }
             >
               继续
             </Button>
@@ -1087,12 +1254,22 @@ export default function DeploymentsPage() {
         </Space>
       ),
     },
-    { title: "状态", dataIndex: "status", width: 110, render: (value) => runStatusTag(String(value)) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 110,
+      render: (value) => runStatusTag(String(value)),
+    },
     {
       title: "审批",
       dataIndex: "approvalId",
       width: 100,
-      render: (value) => (value ? <Tag color="orange">#{value}</Tag> : <Text type="secondary">-</Text>),
+      render: (value) =>
+        value ? (
+          <Tag color="orange">#{value}</Tag>
+        ) : (
+          <Text type="secondary">-</Text>
+        ),
     },
     {
       title: "命令",
@@ -1111,10 +1288,16 @@ export default function DeploymentsPage() {
       title: "输出",
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Text type={record.exitCode && record.exitCode !== 0 ? "danger" : undefined}>
+          <Text
+            type={
+              record.exitCode && record.exitCode !== 0 ? "danger" : undefined
+            }
+          >
             exit: {record.exitCode ?? "-"}
           </Text>
-          <Text type="secondary">{record.stdoutPreview || record.stderrPreview || "-"}</Text>
+          <Text type="secondary">
+            {record.stdoutPreview || record.stderrPreview || "-"}
+          </Text>
         </Space>
       ),
     },
@@ -1144,9 +1327,13 @@ export default function DeploymentsPage() {
             >
               <Space direction="vertical" size="small">
                 <Space wrap>
-                  <Tag color="blue">{app.image}:{app.tag}</Tag>
+                  <Tag color="blue">
+                    {app.image}:{app.tag}
+                  </Tag>
                   {app.defaultPort ? <Tag>端口 {app.defaultPort}</Tag> : null}
-                  {app.containerPort ? <Tag>容器 {app.containerPort}</Tag> : null}
+                  {app.containerPort ? (
+                    <Tag>容器 {app.containerPort}</Tag>
+                  ) : null}
                 </Space>
                 <Paragraph type="secondary">{app.description}</Paragraph>
                 <Text type="secondary">数据目录：{app.volumePath}</Text>
@@ -1206,7 +1393,11 @@ export default function DeploymentsPage() {
               key={template.key}
               title={template.name}
               actions={[
-                <Button key="apply" type="link" onClick={() => applyTemplate(template)}>
+                <Button
+                  key="apply"
+                  type="link"
+                  onClick={() => applyTemplate(template)}
+                >
                   使用模板
                 </Button>,
               ]}
@@ -1218,7 +1409,9 @@ export default function DeploymentsPage() {
                 </Space>
                 <Paragraph type="secondary">{template.description}</Paragraph>
                 <Text>场景：{template.scenario}</Text>
-                <Text>环境：{template.requiredProfiles.join(" / ") || "-"}</Text>
+                <Text>
+                  环境：{template.requiredProfiles.join(" / ") || "-"}
+                </Text>
               </Space>
             </Card>
           ))}
@@ -1255,15 +1448,25 @@ export default function DeploymentsPage() {
                   <Card
                     key={profile.key}
                     title={profile.name}
-                    extra={<Tag color={category === "组合方案" ? "blue" : "default"}>{category}</Tag>}
+                    extra={
+                      <Tag color={category === "组合方案" ? "blue" : "default"}>
+                        {category}
+                      </Tag>
+                    }
                     actions={[
-                      <Button key="apply" type="link" onClick={() => applyEnvironmentProfile(profile)}>
+                      <Button
+                        key="apply"
+                        type="link"
+                        onClick={() => applyEnvironmentProfile(profile)}
+                      >
                         使用方案
                       </Button>,
                     ]}
                   >
                     <Space direction="vertical" size="small">
-                      <Paragraph type="secondary">{profile.description}</Paragraph>
+                      <Paragraph type="secondary">
+                        {profile.description}
+                      </Paragraph>
                       <Space wrap>
                         {profile.checks.map((check) => (
                           <Tag key={check}>{check}</Tag>
@@ -1288,20 +1491,31 @@ export default function DeploymentsPage() {
             自动部署
           </Title>
           <Paragraph type="secondary">
-            从本地目录或 Git 仓库识别可部署目标，先完成目标、部署组、模板和环境方案管理。
+            从本地目录或 Git
+            仓库识别可部署目标，先完成目标、部署组、模板和环境方案管理。
           </Paragraph>
         </div>
         <Space>
-          <Button icon={<RefreshCw size={16} />} onClick={() => void loadData()}>
+          <Button
+            icon={<RefreshCw size={16} />}
+            onClick={() => void loadData()}
+          >
             刷新
           </Button>
-          <Button icon={<PackageSearch size={16} />} onClick={() => setDetectOpen(true)}>
+          <Button
+            icon={<PackageSearch size={16} />}
+            onClick={() => setDetectOpen(true)}
+          >
             检测项目
           </Button>
           <Button icon={<Plus size={16} />} onClick={() => openGroupDrawer()}>
             新建部署组
           </Button>
-          <Button type="primary" icon={<Rocket size={16} />} onClick={() => openTargetDrawer()}>
+          <Button
+            type="primary"
+            icon={<Rocket size={16} />}
+            onClick={() => openTargetDrawer()}
+          >
             新建目标
           </Button>
         </Space>
@@ -1309,19 +1523,39 @@ export default function DeploymentsPage() {
 
       <div className="prototype-grid prototype-grid-4">
         <Card>
-          <Statistic title="部署目标" value={targets.length} prefix={<Rocket size={18} />} />
+          <Statistic
+            title="部署目标"
+            value={targets.length}
+            prefix={<Rocket size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="部署组" value={groups.length} prefix={<Server size={18} />} />
+          <Statistic
+            title="部署组"
+            value={groups.length}
+            prefix={<Server size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="内置模板" value={templates.length} prefix={<PackageSearch size={18} />} />
+          <Statistic
+            title="内置模板"
+            value={templates.length}
+            prefix={<PackageSearch size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="环境方案" value={profiles.length} prefix={<GitBranch size={18} />} />
+          <Statistic
+            title="环境方案"
+            value={profiles.length}
+            prefix={<GitBranch size={18} />}
+          />
         </Card>
         <Card>
-          <Statistic title="镜像商店" value={imageStoreApps.length} prefix={<PackageSearch size={18} />} />
+          <Statistic
+            title="镜像商店"
+            value={imageStoreApps.length}
+            prefix={<PackageSearch size={18} />}
+          />
         </Card>
       </div>
 
@@ -1336,12 +1570,19 @@ export default function DeploymentsPage() {
       <Tabs className="mt-4" items={tabItems} />
 
       <Modal
-        title={selectedImageStoreApp ? `安装镜像：${selectedImageStoreApp.name}` : "安装镜像"}
+        title={
+          selectedImageStoreApp
+            ? `安装镜像：${selectedImageStoreApp.name}`
+            : "安装镜像"
+        }
         open={imageStoreOpen}
         onCancel={() => setImageStoreOpen(false)}
         onOk={() => void installImageStoreApp()}
         okText="生成部署计划"
-        confirmLoading={Boolean(selectedImageStoreApp && installingImageKey === selectedImageStoreApp.key)}
+        confirmLoading={Boolean(
+          selectedImageStoreApp &&
+          installingImageKey === selectedImageStoreApp.key,
+        )}
         destroyOnHidden
       >
         {selectedImageStoreApp && (
@@ -1356,13 +1597,25 @@ export default function DeploymentsPage() {
               <Form.Item name="appKey" hidden>
                 <Input />
               </Form.Item>
-              <Form.Item name="targetKey" label="目标 Key" rules={[{ required: true, message: "请输入目标 Key" }]}>
+              <Form.Item
+                name="targetKey"
+                label="目标 Key"
+                rules={[{ required: true, message: "请输入目标 Key" }]}
+              >
                 <Input autoCapitalize="off" />
               </Form.Item>
-              <Form.Item name="name" label="显示名称" rules={[{ required: true, message: "请输入显示名称" }]}>
+              <Form.Item
+                name="name"
+                label="显示名称"
+                rules={[{ required: true, message: "请输入显示名称" }]}
+              >
                 <Input autoCapitalize="off" />
               </Form.Item>
-              <Form.Item name="serverAlias" label="目标服务器" rules={[{ required: true, message: "请选择目标服务器" }]}>
+              <Form.Item
+                name="serverAlias"
+                label="目标服务器"
+                rules={[{ required: true, message: "请选择目标服务器" }]}
+              >
                 <Select
                   showSearch
                   placeholder="选择资产服务器"
@@ -1409,13 +1662,25 @@ export default function DeploymentsPage() {
           <Form.Item name="id" hidden>
             <Input />
           </Form.Item>
-          <Form.Item name="targetKey" label="目标 Key" rules={[{ required: true, message: "请输入目标 Key" }]}>
+          <Form.Item
+            name="targetKey"
+            label="目标 Key"
+            rules={[{ required: true, message: "请输入目标 Key" }]}
+          >
             <Input placeholder="my-app-api" autoCapitalize="off" />
           </Form.Item>
-          <Form.Item name="name" label="显示名称" rules={[{ required: true, message: "请输入显示名称" }]}>
+          <Form.Item
+            name="name"
+            label="显示名称"
+            rules={[{ required: true, message: "请输入显示名称" }]}
+          >
             <Input placeholder="业务后端 API" autoCapitalize="off" />
           </Form.Item>
-          <Form.Item name="serverAlias" label="目标服务器" rules={[{ required: true, message: "请选择目标服务器" }]}>
+          <Form.Item
+            name="serverAlias"
+            label="目标服务器"
+            rules={[{ required: true, message: "请选择目标服务器" }]}
+          >
             <Select
               showSearch
               placeholder="选择资产服务器"
@@ -1425,13 +1690,27 @@ export default function DeploymentsPage() {
             />
           </Form.Item>
           <Space.Compact block>
-            <Form.Item name="sourceType" label="项目来源" className="w-1/2" rules={[{ required: true }]}>
+            <Form.Item
+              name="sourceType"
+              label="项目来源"
+              className="w-1/2"
+              rules={[{ required: true }]}
+            >
               <Select
                 onChange={(value) => {
                   if (value === "local") {
-                    targetForm.setFieldsValue({ gitUrl: "", gitRef: "", gitCredentialKey: "" });
+                    targetForm.setFieldsValue({
+                      gitUrl: "",
+                      gitRef: "",
+                      gitCredentialKey: "",
+                    });
                   } else if (value === "image-store") {
-                    targetForm.setFieldsValue({ projectPath: "", gitUrl: "", gitRef: "", gitCredentialKey: "" });
+                    targetForm.setFieldsValue({
+                      projectPath: "",
+                      gitUrl: "",
+                      gitRef: "",
+                      gitCredentialKey: "",
+                    });
                   } else {
                     targetForm.setFieldValue("projectPath", "");
                   }
@@ -1443,7 +1722,12 @@ export default function DeploymentsPage() {
                 ]}
               />
             </Form.Item>
-            <Form.Item name="recipe" label="部署配方" className="w-1/2" rules={[{ required: true }]}>
+            <Form.Item
+              name="recipe"
+              label="部署配方"
+              className="w-1/2"
+              rules={[{ required: true }]}
+            >
               <Select options={recipeOptions} />
             </Form.Item>
           </Space.Compact>
@@ -1451,15 +1735,21 @@ export default function DeploymentsPage() {
             <Space.Compact block>
               <Form.Item name="projectPath" noStyle>
                 <Input
-	                  readOnly
-	                  disabled={targetSourceType === "git" || targetSourceType === "image-store"}
+                  readOnly
+                  disabled={
+                    targetSourceType === "git" ||
+                    targetSourceType === "image-store"
+                  }
                   placeholder="/Users/bin/Documents/GitHub/example"
                   autoCapitalize="off"
                 />
               </Form.Item>
               <Button
                 icon={<FolderOpen size={16} />}
-	                disabled={targetSourceType === "git" || targetSourceType === "image-store"}
+                disabled={
+                  targetSourceType === "git" ||
+                  targetSourceType === "image-store"
+                }
                 onClick={() => void chooseTargetProjectDirectory()}
               >
                 选择
@@ -1475,14 +1765,26 @@ export default function DeploymentsPage() {
           </Form.Item>
           <Space.Compact block>
             <Form.Item name="gitRef" label="分支/Tag/Commit" className="w-1/2">
-              <Input disabled={targetSourceType === "image-store"} placeholder="main / v1.0.0" autoCapitalize="off" />
+              <Input
+                disabled={targetSourceType === "image-store"}
+                placeholder="main / v1.0.0"
+                autoCapitalize="off"
+              />
             </Form.Item>
-            <Form.Item name="gitCredentialKey" label="Git 凭证" className="w-1/2">
+            <Form.Item
+              name="gitCredentialKey"
+              label="Git 凭证"
+              className="w-1/2"
+            >
               <Select
                 allowClear
                 showSearch
-	                disabled={targetSourceType === "image-store"}
-	                placeholder={targetSourceType === "git" ? "从凭证库选择 Git 凭证" : "Git 来源时使用，可预先选择"}
+                disabled={targetSourceType === "image-store"}
+                placeholder={
+                  targetSourceType === "git"
+                    ? "从凭证库选择 Git 凭证"
+                    : "Git 来源时使用，可预先选择"
+                }
                 options={gitCredentialOptions}
                 optionFilterProp="label"
                 notFoundContent="暂无可用 Git 凭证"
@@ -1490,7 +1792,11 @@ export default function DeploymentsPage() {
             </Form.Item>
           </Space.Compact>
           <Space.Compact block>
-            <Form.Item name="dockerBuildMode" label="Dockerfile 构建方式" className="w-1/2">
+            <Form.Item
+              name="dockerBuildMode"
+              label="Dockerfile 构建方式"
+              className="w-1/2"
+            >
               <Select
                 options={[
                   { label: "远程构建（默认）", value: "remote" },
@@ -1506,18 +1812,29 @@ export default function DeploymentsPage() {
             <Input placeholder="." autoCapitalize="off" />
           </Form.Item>
           <Form.Item name="deployRoot" label="远程部署根目录">
-            <Input placeholder="/opt/tauri-ssh/stacks/my-app" autoCapitalize="off" />
+            <Input
+              placeholder="/opt/tauri-ssh/stacks/my-app"
+              autoCapitalize="off"
+            />
           </Form.Item>
           <Space.Compact block>
             <Form.Item name="domain" label="域名" className="w-1/2">
               <Input placeholder="app.example.com" autoCapitalize="off" />
             </Form.Item>
-            <Form.Item name="httpsEnabled" label="HTTPS 自动签证书" valuePropName="checked" className="w-1/2">
+            <Form.Item
+              name="httpsEnabled"
+              label="HTTPS 自动签证书"
+              valuePropName="checked"
+              className="w-1/2"
+            >
               <Switch />
             </Form.Item>
           </Space.Compact>
           <Form.Item name="healthCheckUrl" label="健康检查 URL">
-            <Input placeholder="https://app.example.com/health" autoCapitalize="off" />
+            <Input
+              placeholder="https://app.example.com/health"
+              autoCapitalize="off"
+            />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
@@ -1544,10 +1861,18 @@ export default function DeploymentsPage() {
           <Form.Item name="id" hidden>
             <Input />
           </Form.Item>
-          <Form.Item name="groupKey" label="部署组 Key" rules={[{ required: true, message: "请输入部署组 Key" }]}>
+          <Form.Item
+            name="groupKey"
+            label="部署组 Key"
+            rules={[{ required: true, message: "请输入部署组 Key" }]}
+          >
             <Input placeholder="my-app" autoCapitalize="off" />
           </Form.Item>
-          <Form.Item name="name" label="部署组名称" rules={[{ required: true, message: "请输入部署组名称" }]}>
+          <Form.Item
+            name="name"
+            label="部署组名称"
+            rules={[{ required: true, message: "请输入部署组名称" }]}
+          >
             <Input placeholder="业务系统" autoCapitalize="off" />
           </Form.Item>
           <Form.Item name="description" label="描述">
@@ -1568,12 +1893,23 @@ export default function DeploymentsPage() {
                         rules={[{ required: true, message: "请选择目标" }]}
                         className="min-w-[260px]"
                       >
-                        <Select options={targetOptions} placeholder="选择部署目标" />
+                        <Select
+                          options={targetOptions}
+                          placeholder="选择部署目标"
+                        />
                       </Form.Item>
-                      <Form.Item {...field} name={[field.name, "sortOrder"]} className="w-24">
+                      <Form.Item
+                        {...field}
+                        name={[field.name, "sortOrder"]}
+                        className="w-24"
+                      >
                         <InputNumber min={0} placeholder="排序" />
                       </Form.Item>
-                      <Form.Item {...field} name={[field.name, "enabled"]} valuePropName="checked">
+                      <Form.Item
+                        {...field}
+                        name={[field.name, "enabled"]}
+                        valuePropName="checked"
+                      >
                         <Switch />
                       </Form.Item>
                       <Button danger onClick={() => remove(field.name)}>
@@ -1581,7 +1917,9 @@ export default function DeploymentsPage() {
                       </Button>
                     </Space>
                   ))}
-                  <Button onClick={() => add({ enabled: true })}>添加目标</Button>
+                  <Button onClick={() => add({ enabled: true })}>
+                    添加目标
+                  </Button>
                 </Space>
               )}
             </Form.List>
@@ -1599,7 +1937,12 @@ export default function DeploymentsPage() {
           <Button key="cancel" onClick={() => setDetectOpen(false)}>
             关闭
           </Button>,
-          <Button key="detect" type="primary" loading={detecting} onClick={() => void runDetection()}>
+          <Button
+            key="detect"
+            type="primary"
+            loading={detecting}
+            onClick={() => void runDetection()}
+          >
             开始检测
           </Button>,
         ]}
@@ -1610,11 +1953,18 @@ export default function DeploymentsPage() {
           layout="vertical"
           initialValues={{ sourceType: "local", gitRef: "main" }}
         >
-          <Form.Item name="sourceType" label="项目来源" rules={[{ required: true }]}>
+          <Form.Item
+            name="sourceType"
+            label="项目来源"
+            rules={[{ required: true }]}
+          >
             <Select
               onChange={(value) => {
                 if (value === "local") {
-                  detectForm.setFieldsValue({ gitUrl: "", gitCredentialKey: "" });
+                  detectForm.setFieldsValue({
+                    gitUrl: "",
+                    gitCredentialKey: "",
+                  });
                 } else {
                   detectForm.setFieldValue("projectPath", "");
                 }
@@ -1646,7 +1996,10 @@ export default function DeploymentsPage() {
           </Form.Item>
           <Space.Compact block>
             <Form.Item name="gitUrl" label="Git 仓库 URL" className="w-1/2">
-              <Input placeholder="https://github.com/org/repo.git" autoCapitalize="off" />
+              <Input
+                placeholder="https://github.com/org/repo.git"
+                autoCapitalize="off"
+              />
             </Form.Item>
             <Form.Item name="gitRef" label="分支/Tag/Commit" className="w-1/2">
               <Input placeholder="main" autoCapitalize="off" />
@@ -1656,7 +2009,11 @@ export default function DeploymentsPage() {
             <Select
               allowClear
               showSearch
-              placeholder={detectSourceType === "git" ? "从凭证库选择 Git 凭证" : "Git 来源时使用，可预先选择"}
+              placeholder={
+                detectSourceType === "git"
+                  ? "从凭证库选择 Git 凭证"
+                  : "Git 来源时使用，可预先选择"
+              }
               options={gitCredentialOptions}
               optionFilterProp="label"
               notFoundContent="暂无可用 Git 凭证"
@@ -1667,9 +2024,15 @@ export default function DeploymentsPage() {
         {detection && (
           <Space direction="vertical" className="w-full">
             <Descriptions size="small" bordered>
-              <Descriptions.Item label="来源">{detection.sourceType}</Descriptions.Item>
-              <Descriptions.Item label="项目目录">{detection.projectRoot}</Descriptions.Item>
-              <Descriptions.Item label="Commit">{detection.commit || "-"}</Descriptions.Item>
+              <Descriptions.Item label="来源">
+                {detection.sourceType}
+              </Descriptions.Item>
+              <Descriptions.Item label="项目目录">
+                {detection.projectRoot}
+              </Descriptions.Item>
+              <Descriptions.Item label="Commit">
+                {detection.commit || "-"}
+              </Descriptions.Item>
             </Descriptions>
             <Table
               rowKey="key"
@@ -1698,7 +2061,11 @@ export default function DeploymentsPage() {
               title={dryRunPlan.title}
               description="Dry-run 仅生成计划和风险预览，不会执行部署命令、签发证书或创建数据库/Redis 账号。"
               action={
-                <Button size="small" loading={aiAdviceLoading} onClick={() => void askAiAdvice()}>
+                <Button
+                  size="small"
+                  loading={aiAdviceLoading}
+                  onClick={() => void askAiAdvice()}
+                >
                   AI 分析风险
                 </Button>
               }
@@ -1709,7 +2076,8 @@ export default function DeploymentsPage() {
                 title="AI 部署建议"
                 extra={
                   <Text type="secondary">
-                    {aiAdvice.providerName} / {aiAdvice.model} / {aiAdvice.latencyMs}ms
+                    {aiAdvice.providerName} / {aiAdvice.model} /{" "}
+                    {aiAdvice.latencyMs}ms
                   </Text>
                 }
               >
@@ -1719,19 +2087,37 @@ export default function DeploymentsPage() {
               </Card>
             )}
             <Descriptions size="small" bordered column={3}>
-              <Descriptions.Item label="Plan ID">{dryRunPlan.planId}</Descriptions.Item>
-              <Descriptions.Item label="目标">{dryRunPlan.targetKey}</Descriptions.Item>
-              <Descriptions.Item label="服务器">{dryRunPlan.serverAlias}</Descriptions.Item>
-              <Descriptions.Item label="配方">{recipeTag(dryRunPlan.recipe)}</Descriptions.Item>
-              <Descriptions.Item label="风险">{riskTag(dryRunPlan.risk)}</Descriptions.Item>
+              <Descriptions.Item label="Plan ID">
+                {dryRunPlan.planId}
+              </Descriptions.Item>
+              <Descriptions.Item label="目标">
+                {dryRunPlan.targetKey}
+              </Descriptions.Item>
+              <Descriptions.Item label="服务器">
+                {dryRunPlan.serverAlias}
+              </Descriptions.Item>
+              <Descriptions.Item label="配方">
+                {recipeTag(dryRunPlan.recipe)}
+              </Descriptions.Item>
+              <Descriptions.Item label="风险">
+                {riskTag(dryRunPlan.risk)}
+              </Descriptions.Item>
               <Descriptions.Item label="审批">
                 <Tag color={dryRunPlan.approvalRequired ? "red" : "green"}>
-                  {dryRunPlan.approvalRequired ? "需要审批/二次确认" : "只读或低风险"}
+                  {dryRunPlan.approvalRequired
+                    ? "需要审批/二次确认"
+                    : "只读或低风险"}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="系统">{dryRunPlan.environment.os || "-"}</Descriptions.Item>
-              <Descriptions.Item label="架构">{dryRunPlan.environment.arch || "-"}</Descriptions.Item>
-              <Descriptions.Item label="可用磁盘">{formatDisk(dryRunPlan.environment.diskAvailableKb)}</Descriptions.Item>
+              <Descriptions.Item label="系统">
+                {dryRunPlan.environment.os || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="架构">
+                {dryRunPlan.environment.arch || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="可用磁盘">
+                {formatDisk(dryRunPlan.environment.diskAvailableKb)}
+              </Descriptions.Item>
             </Descriptions>
 
             {dryRunPlan.warnings.length > 0 && (
@@ -1799,18 +2185,34 @@ export default function DeploymentsPage() {
         {runDetail && (
           <Space direction="vertical" className="w-full" size="middle">
             <Descriptions size="small" bordered column={3}>
-              <Descriptions.Item label="Run ID">{runDetail.run.runId}</Descriptions.Item>
-              <Descriptions.Item label="目标">{runDetail.run.targetKey}</Descriptions.Item>
-              <Descriptions.Item label="状态">{runStatusTag(runDetail.run.status)}</Descriptions.Item>
-              <Descriptions.Item label="创建人">{runDetail.run.createdBy}</Descriptions.Item>
-              <Descriptions.Item label="开始时间">{runDetail.run.startedAt || "-"}</Descriptions.Item>
-              <Descriptions.Item label="结束时间">{runDetail.run.finishedAt || "-"}</Descriptions.Item>
+              <Descriptions.Item label="Run ID">
+                {runDetail.run.runId}
+              </Descriptions.Item>
+              <Descriptions.Item label="目标">
+                {runDetail.run.targetKey}
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {runStatusTag(runDetail.run.status)}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建人">
+                {runDetail.run.createdBy}
+              </Descriptions.Item>
+              <Descriptions.Item label="开始时间">
+                {runDetail.run.startedAt || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="结束时间">
+                {runDetail.run.finishedAt || "-"}
+              </Descriptions.Item>
               <Descriptions.Item label="摘要" span={3}>
                 {runDetail.run.summary}
               </Descriptions.Item>
             </Descriptions>
             <Alert
-              type={runDetail.run.status === "approval_required" ? "warning" : "info"}
+              type={
+                runDetail.run.status === "approval_required"
+                  ? "warning"
+                  : "info"
+              }
               showIcon
               message={
                 runDetail.run.status === "approval_required"

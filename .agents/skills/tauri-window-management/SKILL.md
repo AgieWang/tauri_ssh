@@ -1,226 +1,48 @@
 ---
 name: tauri-window-management
 description: |
-  Tauri 窗口管理技能，覆盖多窗口、无边框窗口、系统托盘等桌面应用窗口功能。
+  用于 Tauri Window/WebviewWindow、窗口 label、无边框标题栏、系统托盘和原生窗口生命周期；浏览器测试窗口不触发。
 
   触发场景：
-  - 需要创建多窗口应用
-  - 需要自定义窗口标题栏
-  - 需要实现无边框窗口
-  - 需要使用系统托盘
-  - 需要控制窗口大小/位置
+  - 创建或控制 Tauri `Window`/`WebviewWindow`
+  - 配置无边框窗口、拖拽区、自定义标题栏或透明窗口
+  - 实现系统托盘、最小化到托盘、关闭拦截或窗口恢复
+  - 处理多窗口 label、权限、事件和生命周期
 
-  触发词：窗口、window、多窗口、无边框、标题栏、托盘、tray、最小化、最大化
+  触发词：WebviewWindow、tauri::Window、窗口 label、data-tauri-drag-region、无边框标题栏、system tray、最小化到托盘、窗口生命周期
 ---
 
-# Tauri 窗口管理
+# Tauri 窗口与托盘
 
-## 窗口配置
+## 边界
 
-### tauri.conf.json 窗口配置
+本技能只处理 Tauri 原生窗口。Control Chrome、Codex 内置浏览器、浏览器 tab/window、React 弹窗 Modal 和普通 CSS 布局不应触发。窗口间事件通信使用 `tauri-events`；窗口 Capability 差异使用 `tauri-capabilities`。
 
-```json
-{
-  "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "我的应用",
-        "width": 1024,
-        "height": 768,
-        "minWidth": 800,
-        "minHeight": 600,
-        "resizable": true,
-        "center": true,
-        "decorations": true,
-        "transparent": false,
-        "fullscreen": false,
-        "alwaysOnTop": false,
-        "dragDropEnabled": false
-      }
-    ]
-  }
-}
-```
+## 强制规则
 
----
+1. 先读取 `tauri.conf.json`、窗口创建代码、Capabilities、路由和现有 label 约定。
+2. label 必须唯一且稳定；创建、查找、关闭与权限配置使用同一标识。
+3. 无边框标题栏必须保留拖动、最小化、最大化、关闭、键盘与可访问性路径。
+4. 窗口事件监听必须清理；关闭/隐藏/托盘恢复要区分应用退出语义，避免后台幽灵进程。
+5. 新窗口只获得完成职责所需的最小 Capability，不继承主窗口全部权限。
+6. 平台特性必须验证目标系统；不把单平台成功表述为全平台通过。
+7. `dragDropEnabled` 必须按产品交互选择：页内 HTML5/Ant Design 拖拽受 Tauri 原生文件拖入拦截时可设为 `false` 并重启 dev；需要操作系统文件拖入时不得无条件关闭。
 
-## ⚠️ dragDropEnabled（页内拖拽必关）
+## 执行流程
 
-Tauri 2.x 窗口默认 `dragDropEnabled: true`——WebView 层启用 **OS 原生文件拖入识别**，拦截所有 `dragover/drop` 事件。后果：
+1. 定义窗口角色、label、URL/路由、生命周期、父子关系和权限。
+2. 选择配置创建或运行时创建，复用当前项目模式。
+3. 实现窗口控制、事件清理、重复打开去重和错误反馈。
+4. 验证创建、聚焦、最小化、最大化、关闭、恢复、拖放、多显示器和异常路径。
+5. 前端界面变更必须使用 Codex 内置浏览器或 Control Chrome；原生窗口行为还需真实 Tauri 运行时验证。
 
-- antd Tree / react-dnd / HTML5 原生拖拽 **全部失效**
-- 页内拖拽时光标显示 🚫 禁止图标
-- `onDrop` 回调永远不触发
+## 按需参考
 
-**修复**：窗口配置显式设 `"dragDropEnabled": false`（改后必须重启 `pnpm tauri dev`，前端 HMR 不会重载 Rust 配置）。
+需要窗口 JSON、Rust/TypeScript 创建、无边框标题栏、控制 API 或托盘示例时读取 [references/window-patterns.md](references/window-patterns.md)。
 
-**副作用**：无法"从文件管理器把文件拖进应用"。若必须保留该能力，改用 Dialog 选文件（`tauri-plugin-dialog`），或在 Rust 侧监听 Tauri 的 `on_drag_drop_event` 接管文件投递。两者不可兼得。
+## 完成条件
 
-**判断该不该关**：项目里是否有任何组件需要页内拖拽（Tree 排序、看板卡片、列表 reorder、分栏 resize、富文本拖图片……）？有就关。
-
----
-
-## 多窗口
-
-### Rust 创建新窗口
-
-```rust
-use tauri::Manager;
-use tauri::WebviewWindowBuilder;
-use tauri::WebviewUrl;
-
-#[tauri::command]
-fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
-    let _window = WebviewWindowBuilder::new(
-        &app,
-        "settings",
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("设置")
-    .inner_size(600.0, 400.0)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-```
-
-### TypeScript 创建新窗口
-
-```typescript
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-
-const settingsWindow = new WebviewWindow("settings", {
-  url: "/settings",
-  title: "设置",
-  width: 600,
-  height: 400,
-  center: true,
-});
-
-settingsWindow.once("tauri://created", () => {
-  console.log("设置窗口已创建");
-});
-```
-
----
-
-## 无边框窗口 + 自定义标题栏
-
-### 配置
-
-```json
-{
-  "app": {
-    "windows": [{
-      "decorations": false,
-      "transparent": true
-    }]
-  }
-}
-```
-
-### 自定义标题栏组件
-
-```tsx
-function TitleBar() {
-  return (
-    <div
-      data-tauri-drag-region
-      style={{
-        height: 30,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        background: "#1a1a2e",
-        color: "white",
-        padding: "0 8px",
-        userSelect: "none",
-      }}
-    >
-      <span>我的应用</span>
-      <div>
-        <button onClick={() => appWindow.minimize()}>—</button>
-        <button onClick={() => appWindow.toggleMaximize()}>□</button>
-        <button onClick={() => appWindow.close()}>✕</button>
-      </div>
-    </div>
-  );
-}
-```
-
-> `data-tauri-drag-region` 使该区域可拖拽移动窗口。
-
----
-
-## 窗口控制 API
-
-```typescript
-import { getCurrentWindow } from "@tauri-apps/api/window";
-
-const appWindow = getCurrentWindow();
-
-await appWindow.minimize();          // 最小化
-await appWindow.maximize();          // 最大化
-await appWindow.unmaximize();        // 还原
-await appWindow.toggleMaximize();    // 切换最大化
-await appWindow.close();             // 关闭
-await appWindow.hide();              // 隐藏
-await appWindow.show();              // 显示
-await appWindow.setTitle("新标题");   // 设置标题
-await appWindow.setSize(new LogicalSize(800, 600));  // 设置大小
-await appWindow.center();            // 居中
-await appWindow.setAlwaysOnTop(true); // 置顶
-```
-
----
-
-## 系统托盘
-
-```rust
-use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
-use tauri::menu::{Menu, MenuItem};
-
-pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
-
-    TrayIconBuilder::new()
-        .menu(&menu)
-        .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-                "quit" => app.exit(0),
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
-                _ => {}
-            }
-        })
-        .build(app)?;
-    Ok(())
-}
-```
-
-### 开发 / 生产环境托盘图标区分（橙色角标）
-
-开发时常和正式安装版同时驻留托盘，图标长一样分不清点的是哪个实例。框架内置方案（见 `src-tauri/src/tray.rs` 的 `add_dev_badge`）：**仅 `cfg!(debug_assertions)`** 给托盘图标右下角叠一个橙色小圆点 + tooltip 加 `[DEV]`，正式版用原图。直接改图标 RGBA 像素绘制，不必单独维护 dev 图标资源；正式打包零开销。
-
-> 调整：角标大小/位置在 `add_dev_badge` 里改 `r`（半径=短边×0.18）和 `cx/cy`（默认右下角内缩 1px，若图标右下已有占用可挪右上）。
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 多窗口用同一个 label | 每个窗口 label 必须唯一 |
-| 无边框窗口不加拖拽区域 | 添加 `data-tauri-drag-region` |
-| 关闭窗口不清理资源 | 监听 close-requested 事件清理 |
-| 不处理窗口创建失败 | 窗口可能已存在，需 catch 错误 |
-| 页内 antd Tree/react-dnd 拖拽无反应、光标 🚫 | 窗口配置设 `dragDropEnabled: false`，重启 dev server |
-| dev 实例和正式安装版托盘图标分不清 | `cfg!(debug_assertions)` 时 `add_dev_badge` 叠橙色角标 + tooltip 加 `[DEV]` |
+- label、路由、生命周期、事件和权限映射一致。
+- 无重复窗口、监听泄漏、关闭语义错误或权限扩大。
+- 类型检查、Rust 检查、聚焦测试、构建与真实窗口行为验证通过。
+- UTF-8 无 BOM，`git diff --check` 通过。

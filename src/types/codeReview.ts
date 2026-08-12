@@ -24,9 +24,11 @@ export type CodeReviewTaskStatus =
   | "stale"
   | "cancelled";
 
-export type CodeReviewRiskLevel = "unknown" | "low" | "medium" | "high" | "critical";
+export type CodeReviewRiskLevel =
+  "unknown" | "low" | "medium" | "high" | "critical";
 
-export type CodeReviewPushStatus = "not_requested" | "pushing" | "pushed" | "push_failed";
+export type CodeReviewPushStatus =
+  "not_requested" | "pushing" | "pushed" | "push_failed";
 
 export interface CodeReviewTask {
   id: number;

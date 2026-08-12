@@ -1,18 +1,8 @@
 export type ApprovalStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "cancelled"
-  | "expired";
+  "pending" | "approved" | "rejected" | "cancelled" | "expired";
 
 export type ApprovalRisk =
-  | "readonly"
-  | "L1"
-  | "L2"
-  | "L3"
-  | "review"
-  | "high"
-  | "blocked";
+  "readonly" | "L1" | "L2" | "L3" | "review" | "high" | "blocked";
 
 export interface ApprovalRequest {
   id: number;

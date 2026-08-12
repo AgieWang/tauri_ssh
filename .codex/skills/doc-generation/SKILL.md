@@ -1,299 +1,67 @@
 ---
 name: doc-generation
 description: |
-  项目文档自动生成。基于代码扫描自动生成 Command 文档、模块文档和数据库文档。
+  用于根据当前项目代码生成项目内开发者 Markdown、Command/API 参考、IPC 映射或 SQLite Schema 说明；不管理 VitePress 站点。
 
   触发场景：
-  - 需要生成项目文档
-  - 需要更新 Command/API 文档
-  - 需要生成数据库文档
+  - 用户明确要求生成项目内 Command/API 开发者参考
+  - 用户明确要求生成模块调用链或 IPC 映射文档
+  - 用户明确要求生成 SQLite Schema 或迁移开发文档
 
-  触发词：文档生成、doc-generation、生成文档、Command文档、API文档、数据库文档
+  触发词：开发者文档、Command接口参考、IPC映射文档、SQLite Schema文档、模块开发文档、doc-generation
 ---
 
-# doc-generation - 项目文档自动生成
+# 项目内开发者文档生成
 
-基于 Tauri 项目代码自动生成各类开发文档。
+## 职责边界
 
----
+本技能只生成项目仓库 `docs/` 下供开发者阅读的 Markdown，例如：
 
-## 文档类型
+| 文档类型 | 默认位置 | 主要证据 |
+|---|---|---|
+| Command/API 参考 | `docs/commands/` | Rust Command、注册表、前端 API 封装 |
+| 模块开发文档 | `docs/modules/` | Command → Service → Database、React 页面 |
+| 数据库开发文档 | `docs/database/` | Schema 迁移、DAO、Model、真实 DDL/数据格式 |
+| IPC/事件映射 | `docs/commands/` 或用户指定的 `docs/` 子目录 | `invoke`、Command、`emit/listen` |
 
-| 类型 | 输出路径 | 数据来源 |
-|------|---------|---------|
-| Command 文档 | `docs/commands/` | Rust `#[tauri::command]` 函数扫描 |
-| 模块文档 | `docs/modules/` | Rust 后端 + React 前端代码结构 |
-| 数据库文档 | `docs/database/` | rusqlite Schema 定义 / 迁移文件 |
+以下情况不触发：
 
----
+- VitePress 对外站点、用户手册、站点初始化或 `.docs-meta.json` 同步，改用 `docs-management`。
+- 普通内部方案、决策记录、需求说明或手工撰写的一篇 Markdown。
+- 用户未明确要求生成文档。项目规则禁止主动创建文档。
 
-## 1. Command 文档生成
+## 强制规则
 
-### 1.1 扫描 Tauri Commands
+1. 只有用户明确要求时才创建或更新文档，且文档必须写到项目根 `docs/` 内。
+2. 先读真实源码和当前注册关系，再写结论；不得按目录名、样例或过期文档猜测实现。
+3. Command 文档必须同时核对 `#[tauri::command]`、`generate_handler!` 注册、TypeScript 类型、`src/lib/api/` 封装及真实调用点。
+4. 数据库文档以 Schema/迁移和 DAO 为基础；涉及真实 DDL 或数据格式时，读取配置并通过 Tauri SSH MCP 查询，不能只看示例。
+5. 明确区分“代码中已实现”“运行时已验证”“尚未确认”，不把扫描结果写成生产事实。
+6. 保留用户手工内容。除非用户明确要求重写，不覆盖整篇现有文档；优先更新可识别的生成段落。
+7. 源码、配置和 Markdown 均使用 UTF-8 无 BOM；中文必须可读。
+8. 文档中的示例不得包含真实凭据、生产数据、绝对用户路径或无法验证的返回值。
 
-Tauri 项目通过 `#[tauri::command]` 宏定义前后端通信接口：
+## 生成流程
 
-```bash
-# 扫描所有 Command 定义
-Glob pattern: "src-tauri/src/commands/*.rs"
-```
+1. 明确文档受众、类型、模块范围和目标 `docs/` 子目录。
+2. 读取对应代码链路；必要时核对配置、数据库和运行时证据。
+3. 生成“来源清单”，确保每个接口、字段、权限和错误说明都有证据。
+4. 按目标类型生成或增量更新 Markdown；标注未确认项。
+5. 复核路径、链接、类型名、字段名、Command 注册和前后端命名转换。
+6. 对修改后的文档执行 UTF-8/BOM、乱码、链接和 `git diff --check` 检查。
 
-对每个 Command 文件，提取：
-- `#[tauri::command]` 标记的函数名
-- 函数签名（参数类型 + 返回类型）
-- 函数注释（`///` doc comment）
-- State 依赖（`tauri::State<T>` 参数）
-- 错误类型（`Result<T, E>` 中的 E）
+## 按需读取
 
-### 1.2 扫描前端 invoke 调用
+- Command、模块、数据库、IPC 的扫描范围与字段清单：
+  [source-scanning.md](references/source-scanning.md)
+- 文档结构和输出模板：
+  [developer-doc-templates.md](references/developer-doc-templates.md)
 
-```bash
-# 扫描所有 invoke 调用点
-Grep pattern: "invoke\(" in src/**/*.ts src/**/*.tsx
-```
+只读取当前文档类型对应的章节，不默认加载全部模板。
 
-对每个 `invoke` 调用，提取：
-- 调用的 command 名称（`invoke("command_name", ...)`）
-- 传递的参数
-- 调用所在的页面/组件
+## 完成条件
 
-### 1.3 输出 Command 文档
-
-```markdown
-## {模块名} Commands
-
-### {command_name}
-
-- **描述**: {doc comment}
-- **Rust 函数**: `{fn_name}()`
-- **文件**: `src-tauri/src/commands/{module}.rs`
-- **参数**:
-  | 参数名 | 类型 | 说明 |
-  |--------|------|------|
-  | name | String | 名称 |
-  | config | AppConfig | 配置对象 |
-- **返回值**: `Result<Vec<Item>, AppError>`
-- **State 依赖**: `DbConnection`, `AppState`
-- **前端调用点**:
-  - `src/pages/settings.tsx:45` — `invoke("get_settings")`
-  - `src/lib/api/index.ts:12` — API 封装
-
-### Capabilities 权限要求
-
-| Command | 需要的权限 | 声明文件 |
-|---------|-----------|---------|
-| {command} | `core:default` | `src-tauri/capabilities/default.json` |
-```
-
----
-
-## 2. 模块文档生成
-
-### 2.1 扫描 Rust 后端模块
-
-```bash
-# 列出后端模块
-Glob pattern: "src-tauri/src/commands/*.rs"
-Glob pattern: "src-tauri/src/services/*.rs"
-Glob pattern: "src-tauri/src/database/*.rs"
-Glob pattern: "src-tauri/src/models/*.rs"
-```
-
-### 2.2 扫描 React 前端模块
-
-```bash
-# 列出前端页面
-Glob pattern: "src/pages/**/*.tsx"
-# 列出 Store
-Glob pattern: "src/store/*.ts"
-# 列出 API 封装
-Glob pattern: "src/lib/api/*.ts"
-```
-
-### 2.3 对每个功能模块生成文档
-
-```markdown
-# {模块名} 模块
-
-## 概述
-- **功能**: {功能描述}
-- **涉及层级**: Rust Command + Service + Database + React Page
-
-## Rust 后端
-
-### Command 层
-- **文件**: `src-tauri/src/commands/{module}.rs`
-- **Command 数**: X 个
-- **函数列表**:
-  | 函数 | 描述 | 参数 | 返回值 |
-  |------|------|------|--------|
-  | get_items | 获取列表 | page: u32, size: u32 | Vec<Item> |
-
-### Service 层
-- **文件**: `src-tauri/src/services/{module}.rs`
-- **职责**: 业务逻辑处理
-
-### Database 层
-- **文件**: `src-tauri/src/database/{module}.rs`
-- **表名**: {table_name}
-- **操作**: CRUD + 自定义查询
-
-### Model
-- **文件**: `src-tauri/src/models/{module}.rs`
-- **结构体**: {StructName}
-- **字段数**: X
-
-## React 前端
-
-### 页面
-- **文件**: `src/pages/{module}.tsx`
-- **路由**: `/{module}`
-- **组件**: Ant Design Table + Form
-
-### Store（Zustand）
-- **文件**: `src/store/{module}.ts`
-- **状态字段**: X 个
-- **Action**: X 个
-
-### API 封装
-- **文件**: `src/lib/api/{module}.ts`
-- **invoke 调用**: X 个
-```
-
----
-
-## 3. 数据库文档生成
-
-### 3.1 扫描数据库 Schema
-
-Tauri 项目使用 rusqlite 直接操作 SQLite：
-
-```bash
-# 扫描建表语句
-Grep pattern: "CREATE TABLE" in src-tauri/src/database/*.rs
-Grep pattern: "CREATE TABLE" in src-tauri/migrations/*.sql (如有)
-
-# 扫描 Model 结构体定义
-Grep pattern: "pub struct" in src-tauri/src/models/*.rs
-```
-
-### 3.2 提取表结构信息
-
-对每个表/Model，提取：
-- 表名（`CREATE TABLE` 或 struct 注释）
-- 字段名、类型、约束
-- 索引定义
-- 外键关系
-
-### 3.3 输出数据库文档
-
-```markdown
-# 数据库文档
-
-## 概述
-- **数据库**: SQLite（rusqlite）
-- **存储位置**: 应用数据目录（`app_data_dir()`）
-- **迁移方式**: 代码内嵌 SQL / 迁移文件
-
-## 表清单
-
-| 表名 | 模块 | 说明 | 字段数 |
-|------|------|------|--------|
-| settings | core | 应用设置 | X |
-| items | business | 业务数据 | X |
-
----
-
-## settings（应用设置表）
-
-| 字段名 | 类型 | 可空 | 默认值 | 索引 | 注释 |
-|--------|------|------|--------|------|------|
-| id | INTEGER | NO | 自增 | PK | 主键 |
-| key | TEXT | NO | - | UNIQUE | 设置键 |
-| value | TEXT | YES | NULL | - | 设置值 |
-| created_at | TEXT | NO | CURRENT_TIMESTAMP | - | 创建时间 |
-| updated_at | TEXT | NO | CURRENT_TIMESTAMP | - | 更新时间 |
-
-### Rust Model 对应
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Setting {
-    pub id: i64,
-    pub key: String,
-    pub value: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-```
-
-### TypeScript 类型对应
-
-```typescript
-interface Setting {
-  id: number;
-  key: string;
-  value?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-```
-```
-
----
-
-## 4. IPC 通信文档（Tauri 专属）
-
-### 4.1 生成前后端通信映射
-
-扫描所有 `invoke` 调用和 `#[tauri::command]` 定义，生成完整的 IPC 映射：
-
-```markdown
-## IPC 通信映射
-
-| 前端调用 | Rust Command | 参数 | 返回值 | 页面 |
-|---------|-------------|------|--------|------|
-| invoke("get_items") | get_items() | { page, size } | Vec<Item> | ItemList.tsx |
-| invoke("create_item") | create_item() | { name, desc } | Item | ItemForm.tsx |
-| listen("item-updated") | emit("item-updated") | Item | - | ItemList.tsx |
-```
-
-### 4.2 事件通信文档
-
-```bash
-# 扫描 Rust 端 emit
-Grep pattern: "emit\(" in src-tauri/src/**/*.rs
-# 扫描前端 listen
-Grep pattern: "listen\(" in src/**/*.ts src/**/*.tsx
-```
-
----
-
-## 执行命令
-
-```
-用户: 生成 Command 文档
--> 执行步骤 1，输出 Command 接口文档
-
-用户: 生成数据库文档
--> 执行步骤 3，输出数据库表结构
-
-用户: 生成全部文档
--> 依次执行步骤 1、2、3、4
-
-用户: 生成 IPC 文档
--> 执行步骤 4，输出前后端通信映射
-
-用户: 生成某模块文档
--> 只扫描该模块，执行步骤 2
-```
-
----
-
-## 注意事项
-
-- Tauri Command 是最核心的接口文档来源（等同于传统 Web 项目的 API 文档）
-- 数据库文档基于 Rust 代码中的 SQL 和 Model 定义生成，不直接连接 SQLite 数据库
-- 生成的文档写入 `docs/` 目录，不覆盖用户手动编写的内容
-- IPC 通信映射是 Tauri 项目独有的文档类型，帮助理解前后端数据流
-- serde 的 `#[serde(rename_all = "camelCase")]` 等属性会影响前后端字段命名映射，文档中需标注
+- 输出位于项目 `docs/` 内，范围与用户请求一致。
+- 所有字段、接口和调用关系可追溯到当前代码或明确标注的运行时证据。
+- 没有覆盖无关的手工文档内容，没有写入敏感信息。
+- UTF-8 无 BOM、中文可读，链接和差异检查通过。

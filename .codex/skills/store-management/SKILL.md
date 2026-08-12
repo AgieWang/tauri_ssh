@@ -1,343 +1,85 @@
 ---
 name: store-management
 description: |
-  Tauri 状态管理技能,覆盖 React 前端状态和 Rust 后端状态管理。
+  用于设计 Zustand 全局状态、React 共享状态、Rust AppState 或 tauri-plugin-store 偏好持久化。
 
-  触发场景:
-  - 需要管理前端组件间共享状态
-  - 需要在 Rust 后端管理应用状态
-  - 需要持久化存储(tauri-plugin-store)
-  - 需要设计全局状态架构
+  触发场景：
+  - 新增或重构 Zustand store、selector、action 或跨组件共享状态
+  - 设计 tauri::State<AppState> 的进程内共享资源
+  - 将用户偏好通过 tauri-plugin-store 持久化并恢复
+  - 判断组件局部状态、全局状态、Rust 状态和 SQLite 的职责边界
 
-  触发词: 状态管理、state、store、全局状态、共享状态、Zustand、Context、持久化
+  不应触发：查询业务状态字段、修改流程状态码、数据库记录持久化、普通 useState 局部改动。
+
+  触发词：Zustand、useAppStore、React 全局状态、共享状态架构、tauri::State、AppState、tauri-plugin-store
 ---
 
 # Tauri 状态管理
 
-## 双层状态架构
-
-```
-┌──────────────────────────────────────────┐
-│  前端状态 (React)                          │
-│  ├── 组件内: useState                      │
-│  ├── 全局状态: Zustand (src/store/*.ts)     │
-│  ├── API 封装: src/lib/api/index.ts        │
-│  └── Hooks: src/hooks/useCommand.ts        │
-├──────────────────────────────────────────┤
-│  IPC 桥接 (invoke / listen)                │
-├──────────────────────────────────────────┤
-│  后端状态 (Rust - 三层架构)                 │
-│  ├── 运行时: tauri::State<AppState>        │
-│  │   (定义于 src-tauri/src/state.rs)       │
-│  ├── 持久化: tauri-plugin-store            │
-│  └── 数据库: rusqlite (SQLite)             │
-│      (src-tauri/src/database/)             │
-└──────────────────────────────────────────┘
-```
-
-### 关键文件位置
-
-| 状态类型 | 文件 |
-|---------|------|
-| Rust AppState 定义 | `src-tauri/src/state.rs` |
-| Database 结构体 | `src-tauri/src/database/mod.rs` |
-| Schema 迁移 | `src-tauri/src/database/schema.rs` |
-| 前端 Zustand Store (UI 状态) | `src/store/app.ts` |
-| 前端 Zustand Store (设置状态) | `src/store/settings.ts` |
-| 前端 Store 统一出口 | `src/store/index.ts` |
-| API 类型安全封装 | `src/lib/api/index.ts` |
-| invoke Hook 封装 | `src/hooks/useCommand.ts` |
-
----
-
-## React 前端状态
-
-### 方案 1: useState(组件内状态)
-
-```tsx
-function Counter() {
-  const [count, setCount] = useState(0);
-  return <button onClick={() => setCount(c => c + 1)}>Count: {count}</button>;
-}
-```
-
-### 方案 2: React Context(跨组件共享)
-
-```tsx
-import { createContext, useContext, useState, ReactNode } from "react";
-
-interface AppContextType {
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
-  user: string | null;
-  setUser: (user: string | null) => void;
-}
-
-const AppContext = createContext<AppContextType | null>(null);
-
-function AppProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [user, setUser] = useState<string | null>(null);
-
-  return (
-    <AppContext.Provider value={{ theme, setTheme, user, setUser }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
-
-function useApp() {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be used within AppProvider");
-  return ctx;
-}
-```
-
-### 方案 3: Zustand(轻量全局状态,推荐)
-
-```bash
-pnpm add zustand
-```
-
-#### Store 按职责拆分
-
-Store 不再集中在单文件，而是按职责拆分为独立模块，通过 `index.ts` 统一导出：
-
-```
-src/store/
-├── app.ts        # UI 状态（theme、sidebarCollapsed）
-├── settings.ts   # 设置状态（language、closeBehavior）
-└── index.ts      # Re-export Hub（统一导出入口）
-```
-
-**`src/store/app.ts`** — UI 状态:
-
-```tsx
-import { create } from "zustand";
-
-interface AppStore {
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
-  sidebarCollapsed: boolean;
-  setSidebarCollapsed: (collapsed: boolean) => void;
-  toggleSidebar: () => void;
-}
-
-export const useAppStore = create<AppStore>((set) => ({
-  theme: "light",
-  setTheme: (theme) => set({ theme }),
-  sidebarCollapsed: false,
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-}));
-```
-
-**`src/store/settings.ts`** — 设置状态:
-
-```tsx
-import { create } from "zustand";
-
-interface SettingsStore {
-  language: string;
-  setLanguage: (lang: string) => void;
-  closeBehavior: "quit" | "tray";
-  setCloseBehavior: (behavior: "quit" | "tray") => void;
-}
-
-export const useSettingsStore = create<SettingsStore>((set) => ({
-  language: "zh-CN",
-  setLanguage: (language) => set({ language }),
-  closeBehavior: "quit",
-  setCloseBehavior: (closeBehavior) => set({ closeBehavior }),
-}));
-```
-
-**`src/store/index.ts`** — Re-export Hub:
-
-```tsx
-// 统一导出所有 store，外部始终从 @/store 导入
-export { useAppStore } from "./app";
-export { useSettingsStore } from "./settings";
-```
-
-#### 使用方式
-
-```tsx
-// 从统一入口导入（推荐）
-import { useAppStore, useSettingsStore } from "@/store";
-
-function MyComponent() {
-  const theme = useAppStore((s) => s.theme);
-  const language = useSettingsStore((s) => s.language);
-  return <div>Theme: {theme}, Lang: {language}</div>;
-}
-```
-
----
-
-## Rust 后端状态
-
-### tauri::State<T>(运行时状态)
-
-```rust
-use std::sync::Mutex;
-
-struct AppState {
-    counter: Mutex<u32>,
-    config: Mutex<AppConfig>,
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            counter: Mutex::new(0),
-            config: Mutex::new(AppConfig::default()),
-        }
-    }
-}
-
-// 注册
-tauri::Builder::default()
-    .manage(AppState::default())
-
-// 使用
-#[tauri::command]
-fn increment(state: tauri::State<'_, AppState>) -> Result<u32, String> {
-    let mut counter = state.counter.lock().map_err(|e| e.to_string())?;
-    *counter += 1;
-    Ok(*counter)
-}
-```
-
-### tauri-plugin-store(键值持久化)
-
-```bash
-# Cargo.toml
-tauri-plugin-store = "2"
-# package.json
-pnpm add @tauri-apps/plugin-store
-```
-
-```rust
-// Rust 注册
-tauri::Builder::default()
-    .plugin(tauri_plugin_store::Builder::default().build())
-```
-
-```typescript
-// TypeScript 使用
-import { Store } from "@tauri-apps/plugin-store";
-
-const store = await Store.load("settings.json");
-await store.set("theme", "dark");
-const theme = await store.get<string>("theme");
-await store.save();  // 持久化到磁盘
-```
-
----
-
-## 主题配置规范
-
-主题切换涉及多层协作：Zustand 管理运行时状态、`tauri-plugin-store` 持久化到磁盘、Ant Design `ConfigProvider` 应用主题、CSS Variables 提供设计令牌。
-
-### 数据流
-
-```
-应用启动
-  │
-  ▼
-tauri-plugin-store 读取磁盘偏好 (settings.json)
-  │
-  ▼
-设置 Zustand store (useAppStore.setTheme)
-  │
-  ▼
-App.tsx useEffect → resolveTheme(theme) → resolved = "dark" | "light"
-  │
-  ├──► document.documentElement.setAttribute("data-theme", resolved)
-  │       → :root[data-theme] CSS 变量切换（variables.css）
-  │
-  └──► ConfigProvider theme={getAntdTheme(resolved)}
-          → Ant Design 组件自动响应（antdTheme.ts）
-
-用户切换主题时:
-  useAppStore.toggleTheme() → resolved 更新 → data-theme + ConfigProvider 同步响应
-```
-
-### 关键代码位置
-
-| 职责 | 文件 |
-|------|------|
-| 主题运行时状态 | `src/store/app.ts` (`useAppStore`) |
-| 主题持久化 | `tauri-plugin-store` → `settings.json` |
-| 主题应用 | `src/App.tsx` (`ConfigProvider theme={}`) |
-| 主题 token 配置 | `src/theme/antdTheme.ts` |
-| CSS 设计令牌 | `src/styles/variables.css` |
-
-### 初始化模式
-
-```tsx
-// App.tsx 中初始化主题
-import { Store } from "@tauri-apps/plugin-store";
-import { useAppStore } from "@/store";
-import { getAntdTheme } from "@/theme/antdTheme";
-
-function App() {
-  const theme = useAppStore((s) => s.theme);
-  const setTheme = useAppStore((s) => s.setTheme);
-
-  // 启动时从 plugin-store 加载持久化偏好
-  useEffect(() => {
-    (async () => {
-      const store = await Store.load("settings.json");
-      const saved = await store.get<string>("theme");
-      if (saved === "dark" || saved === "light") {
-        setTheme(saved);
-      }
-    })();
-  }, []);
-
-  return (
-    <ConfigProvider theme={getAntdTheme(theme)}>
-      {/* ... */}
-    </ConfigProvider>
-  );
-}
-```
-
-### 切换时持久化
-
-```tsx
-async function handleThemeToggle() {
-  const next = theme === "light" ? "dark" : "light";
-  setTheme(next); // 更新 Zustand → ConfigProvider 立即响应
-  const store = await Store.load("settings.json");
-  await store.set("theme", next);
-  await store.save(); // 持久化到磁盘
-}
-```
-
----
-
-## 选型建议
-
-| 场景 | 推荐方案 | 文件位置 |
-|------|---------|---------|
-| 组件内简单状态 | `useState` | 组件内 |
-| 全局 UI 状态(主题/侧边栏) | Zustand | `src/store/app.ts` |
-| 全局设置状态(语言/关闭行为) | Zustand | `src/store/settings.ts` |
-| 需要持久化的设置 | tauri-plugin-store + Zustand | plugin-store 持久化 → Zustand 运行时 |
-| 业务数据(配置等) | Rust State + Command (三层架构) | `src-tauri/src/services/` |
-| 大量结构化数据 | rusqlite (SQLite) | `src-tauri/src/database/` |
-| API 调用封装 | 类型安全 invoke 封装 | `src/lib/api/index.ts` |
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 所有状态放前端 | 持久化和业务数据放 Rust 侧 |
-| 过度使用全局状态 | 优先 useState,必要时才升级 |
-| Mutex 不处理 PoisonError | 使用 `.map_err()` 处理 |
-| 不序列化就存 store | 确保数据可 JSON 序列化 |
+## 适用边界
+
+本 Skill 处理应用运行时状态和轻量偏好，不处理业务表中的 `status/state` 字段。仅出现“状态、持久化、store”不足以触发，必须能识别到 Zustand、React 跨组件共享、Rust `AppState` 或 `tauri-plugin-store` 语义。
+
+## 先做状态归属决策
+
+| 数据性质 | 推荐位置 |
+|---|---|
+| 单组件、短生命周期 UI | `useState` / `useReducer` |
+| 跨页面 UI 或会话态 | Zustand，按领域拆分 `src/store/` |
+| Rust 进程共享资源 | `tauri::State<AppState>` |
+| 少量用户偏好 | `tauri-plugin-store` + Zustand 运行时镜像 |
+| 大量结构化业务数据 | Rust Service + SQLite，不放 Zustand/plugin-store |
+| 服务端权威状态 | API/后端为真相源，前端只缓存展示态 |
+
+不能仅为减少 props 就创建全局状态；先确认所有者、生命周期、真相源和恢复策略。
+
+## Zustand 强制规则
+
+1. Store 按领域拆分，从 `@/store` 统一导出；不要形成一个巨型 store。
+2. 组件使用 selector 订阅最小切片，避免订阅整个 store 导致无关重渲染。
+3. state 与 action 使用明确 TypeScript 类型，禁止 `any`。
+4. setter 只负责写值或纯状态转换；路由跳转、请求、刷新、通知等副作用放在调用处或专用 action 中并显式命名。
+5. 异步 action 要处理竞态、过期响应和错误；不能静默覆盖较新的状态。
+6. 详情与代码模式见 [zustand-and-app-state.md](references/zustand-and-app-state.md)。
+
+## Rust AppState 强制规则
+
+- 注册与注入沿用项目已有 `AppState`；Command 只借用状态并调用 Service。
+- `Mutex`/`RwLock` 中不执行长耗时或 `.await` 操作；尽快复制所需值后释放锁。
+- 锁中毒和并发错误返回 `AppError`/`CommandError`，禁止 `unwrap()` 或 `panic!()`。
+- 数据库连接、凭据句柄和运行中任务等共享资源要有清晰所有权与关闭策略。
+
+## 偏好持久化强制规则
+
+- `tauri-plugin-store` 只用于轻量非敏感偏好；结构化业务数据使用 SQLite，凭据使用安全凭据设施。
+- 启动恢复必须校验类型、枚举范围和版本；坏数据使用显式默认值并记录可诊断信息。
+- 运行时状态更新与磁盘保存失败要区分，避免 UI 显示“已保存”但实际未落盘。
+- 插件注册、Capabilities 和主题恢复模式见 [persistence-and-theme.md](references/persistence-and-theme.md)。
+
+## 不应触发示例
+
+- “查询 Jenkins 构建状态为 failed 的记录”——属于业务查询。
+- “把工单状态从 1 改成 2”——属于业务逻辑/数据库任务。
+- “这个按钮需要一个 loading”——局部 `useState` 足够，通常无需本 Skill。
+- “新增 SQLite 表保存历史记录”——使用 `database-ops`。
+
+## 与相关 Skill 的组合
+
+- Zustand 调用 Rust IPC 获取权威数据：本 Skill 负责缓存/展示态，`api-development` 负责契约。
+- 偏好使用 plugin-store：本 Skill 负责数据生命周期，`tauri-plugins`/`tauri-capabilities` 负责插件和权限细节。
+- 主题状态：本 Skill 负责状态和恢复，`theme-system` 负责设计令牌与组件主题。
+- 服务端或 SQLite 数据：后端仍是真相源，不把 Zustand 当离线数据库。
+
+## 最小验证矩阵
+
+- 首次启动、已有有效偏好、损坏偏好和保存失败。
+- 两个组件同时订阅/更新时不存在丢失更新。
+- 切页、刷新、重启和外部事件不会造成状态循环。
+
+## 完成条件
+
+- 状态所有者、真相源、生命周期和持久化边界明确。
+- selector、action 和并发更新不会制造隐藏副作用或状态漂移。
+- plugin-store 数据经过类型校验，权限与插件注册完整。
+- 前端格式化、类型检查和聚焦测试通过；页面行为变更已用内置浏览器或 Chrome 验证。
+- UTF-8 无 BOM，`git diff --check` 通过。

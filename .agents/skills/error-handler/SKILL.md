@@ -1,522 +1,111 @@
 ---
 name: error-handler
 description: |
-  Tauri 异常处理技能，覆盖 Rust 错误处理和 React 错误边界。
+  用于实现或重构 Rust 到 React 的错误建模、传播、展示与恢复边界。
 
   触发场景：
-  - 需要设计错误处理策略
-  - 需要处理 Rust Command 中的错误
-  - 需要处理前端 invoke 调用失败
-  - 需要实现全局错误处理
+  - 需要新增或调整 `AppError` 及业务错误类型
+  - 需要设计 Command、Service、Database 的错误传播
+  - 需要统一前端 API 错误处理、用户提示或恢复动作
+  - 需要实现 React ErrorBoundary 或全局异常边界
 
-  触发词：异常、错误处理、Error、Result、try-catch、panic、崩溃、错误边界
+  触发词：AppError、thiserror、错误传播、错误建模、Result映射、ErrorBoundary、invoke错误处理、恢复策略
 ---
 
-# Tauri 异常处理
+# Tauri 错误处理实现
 
-## 分层错误处理策略
+## 能力边界
 
-```
-前端 (React)                         后端 (Rust)
-┌──────────────────────┐          ┌──────────────────────┐
-│ getErrorMessage()    │          │ AppError 枚举        │
-│ getErrorCode()       │          │ CommandError struct   │
-│ ErrorBoundary        │          │ thiserror            │
-│ try-catch            │ ◄─IPC─► │ Result<T, CommandError>│
-│ Ant Design Result    │          │ 三层错误传播          │
-└──────────────────────┘          └──────────────────────┘
-```
+本 Skill 负责“如何实现错误传播和恢复”，不负责诊断一个已发生故障的根因。
 
----
+- 运行故障排查优先使用 `bug-detective`。
+- 所有权、借用、生命周期、trait 或 Send/Sync 编译语义使用 `rust-fundamentals`。
+- 普通业务修改若未改变错误模型，不因出现 `Result` 或 `try-catch` 自动触发。
+- 只有用户授权实现/重构时才修改代码。
 
-## Rust 错误处理
+## 目标模型
 
-### 1. AppError 枚举（src-tauri/src/error.rs）
-
-```rust
-use thiserror::Error;
-
-/// 应用统一错误类型
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("数据库错误: {0}")]
-    Database(#[from] rusqlite::Error),
-
-    #[error("JSON 解析错误: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("未找到: {0}")]
-    NotFound(String),
-
-    #[error("参数无效: {0}")]
-    InvalidInput(String),
-
-    #[error("{0}")]
-    Custom(String),
-}
-
-/// 让 AppError 转换为 String（向后兼容）
-impl From<AppError> for String {
-    fn from(err: AppError) -> String {
-        err.to_string()
-    }
-}
-
-/// Command 层返回的结构化错误（序列化为 JSON 传给前端）
-#[derive(Debug, Clone, Serialize)]
-pub struct CommandError {
-    pub code: String,
-    pub message: String,
-}
-
-impl From<AppError> for CommandError {
-    fn from(err: AppError) -> Self {
-        let code = match &err {
-            AppError::Io(_) => "IO_ERROR",
-            AppError::Database(_) => "DATABASE_ERROR",
-            AppError::Json(_) => "JSON_ERROR",
-            AppError::NotFound(_) => "NOT_FOUND",
-            AppError::InvalidInput(_) => "INVALID_INPUT",
-            AppError::Custom(_) => "INTERNAL",
-        };
-        CommandError {
-            code: code.to_string(),
-            message: err.to_string(),
-        }
-    }
-}
+```text
+Database/基础设施错误
+  -> AppError（保留类型和上下文）
+  -> Service（添加业务语义）
+  -> Command（稳定 IPC 错误契约）
+  -> src/lib/api（统一转换）
+  -> 页面提示或 ErrorBoundary（可行动、不过度暴露）
 ```
 
-#### 错误码映射表
-
-| AppError 变体 | 错误码 | 含义 |
-|--------------|--------|------|
-| `Io(...)` | `IO_ERROR` | 文件/IO 操作错误 |
-| `Database(...)` | `DATABASE_ERROR` | 数据库操作错误 |
-| `Json(...)` | `JSON_ERROR` | JSON 解析/序列化错误 |
-| `NotFound(...)` | `NOT_FOUND` | 资源未找到 |
-| `InvalidInput(...)` | `INVALID_INPUT` | 输入参数无效 |
-| `Custom(...)` | `INTERNAL` | 内部/自定义错误 |
-
-### 2. 三层错误传播
-
-#### Database 层（返回 AppError）
-
-```rust
-// database/mod.rs
-impl Database {
-    pub fn get_config(&self, key: &str) -> Result<Option<String>, AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
-
-        let mut stmt = conn.prepare("SELECT value FROM app_config WHERE key = ?1")?;
-
-        let result = stmt
-            .query_row([key], |row| row.get::<_, String>(0))
-            .ok();
-
-        Ok(result)
-    }
-}
-```
-
-#### Service 层（转换业务错误）
-
-```rust
-// services/config_service.rs
-impl ConfigService {
-    pub fn get_required(&self, db: &Database, key: &str) -> Result<String, AppError> {
-        db.get_config(key)?
-            .ok_or_else(|| AppError::NotFound(format!("配置 {} 不存在", key)))
-    }
-}
-```
-
-#### Command 层（转换为 CommandError 给前端）
-
-```rust
-// commands/config.rs
-use tauri::State;
-use crate::error::CommandError;
-
-#[tauri::command]
-pub fn get_config(db: State<'_, Database>, key: String) -> Result<String, CommandError> {
-    db.get_config(&key)
-        .map_err(CommandError::from)?  // AppError -> CommandError
-        .ok_or_else(|| CommandError::from(AppError::NotFound(format!("配置 {} 不存在", key))))
-}
-```
-
-### 3. Mutex 安全处理
-
-```rust
-// ✅ 正确：使用 map_err 转换 Mutex 错误
-let conn = self.conn.lock()
-    .map_err(|e| AppError::Custom(format!("锁定失败: {}", e)))?;
-
-// ❌ 错误：使用 unwrap（会 panic）
-let conn = self.conn.lock().unwrap();
-```
-
-### 4. 错误传播模式
-
-```rust
-// ✅ 推荐：使用 ? 自动传播
-#[tauri::command]
-fn read_config(path: String) -> Result<String, AppError> {
-    let content = std::fs::read_to_string(&path)?;  // IoError 自动转换
-    if content.is_empty() {
-        return Err(AppError::InvalidInput("配置文件为空".into()));
-    }
-    Ok(content)
-}
-
-// ❌ 错误：使用 unwrap/expect
-#[tauri::command]
-fn bad_read(path: String) -> String {
-    std::fs::read_to_string(&path).unwrap()  // panic! 崩溃整个应用
-}
-```
-
----
-
-## React 错误处理
-
-### 1. invoke 错误处理（使用 getErrorMessage）
-
-```tsx
-import { message } from "antd";
-import { invoke } from "@tauri-apps/api/core";
-import { getErrorMessage, getErrorCode } from "@/lib/api/client";
-
-// ✅ 标准模式：使用 try-catch + getErrorMessage
-async function loadData() {
-  try {
-    const result = await invoke<DataType>("get_data");
-    setData(result);
-    message.success("加载成功");
-  } catch (error) {
-    message.error(getErrorMessage(error));  // 解析 CommandError 中的 message
-    console.error("加载失败:", error);
-  }
-}
-
-// ✅ 条件错误处理：根据错误码执行不同逻辑
-async function loadUser(id: number) {
-  try {
-    const user = await invoke<User>("get_user", { id });
-    setUser(user);
-  } catch (error) {
-    if (getErrorCode(error) === "NOT_FOUND") {
-      message.warning("用户不存在，即将跳转...");
-      navigate("/users");
-    } else {
-      message.error(getErrorMessage(error));
-    }
-  }
-}
-```
-
-### 2. 前端错误解析工具（src/lib/api/client.ts）
-
-```typescript
-// src/lib/api/client.ts
-
-/** CommandError 结构（与 Rust CommandError 对齐） */
-interface CommandError {
-  code: string;
-  message: string;
-}
-
-/** 解析 invoke 抛出的错误为 CommandError */
-export function parseCommandError(error: unknown): CommandError | null {
-  if (typeof error === "string") {
-    try {
-      const parsed = JSON.parse(error);
-      if (parsed.code && parsed.message) return parsed;
-    } catch {
-      // 非 JSON 字符串，返回 null
-    }
-  }
-  return null;
-}
-
-/** 从错误中提取用户可读的消息 */
-export function getErrorMessage(error: unknown): string {
-  const cmdErr = parseCommandError(error);
-  if (cmdErr) return cmdErr.message;
-  return String(error);
-}
-
-/** 从错误中提取错误码（用于条件判断） */
-export function getErrorCode(error: unknown): string | null {
-  const cmdErr = parseCommandError(error);
-  return cmdErr?.code ?? null;
-}
-```
-
-### 3. 封装 API 调用（src/lib/api/index.ts）
-
-```typescript
-import { invoke } from "@tauri-apps/api/core";
-import { getErrorMessage } from "@/lib/api/client";
-import type { AppConfig } from "@/types";
-
-/** 配置管理 API */
-export const configApi = {
-  getAll: () => invoke<AppConfig[]>("get_all_config"),
-  get: (key: string) => invoke<string>("get_config", { key }),
-  set: (key: string, value: string) =>
-    invoke<void>("set_config", { key, value }),
-  delete: (key: string) => invoke<void>("delete_config", { key }),
-};
-
-// 使用时统一处理错误
-try {
-  const configs = await configApi.getAll();
-} catch (error) {
-  message.error(getErrorMessage(error));  // 使用 getErrorMessage 而非 String(error)
-}
-```
-
-### 4. ErrorBoundary 组件（Ant Design Result）
-
-```tsx
-import { Component, ReactNode } from "react";
-import { Result, Button } from "antd";
-
-interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
-}
-
-interface State {
-  hasError: boolean;
-  error: Error | null;
-}
-
-export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: any) {
-    console.error("ErrorBoundary 捕获错误:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback || (
-        <Result
-          status="error"
-          title="应用出现错误"
-          subTitle={this.state.error?.message}
-          extra={
-            <Button type="primary" onClick={() => window.location.reload()}>
-              刷新页面
-            </Button>
-          }
-        />
-      );
-    }
-    return this.props.children;
-  }
-}
-```
-
-### 5. 全局错误处理 Hook
-
-```tsx
-import { useState } from "react";
-import { message } from "antd";
-import { invoke } from "@tauri-apps/api/core";
-import { getErrorMessage, getErrorCode } from "@/lib/api/client";
-
-export function useErrorHandler() {
-  const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function safeInvoke<T>(
-    cmd: string,
-    args?: Record<string, unknown>,
-    showSuccessMsg?: string
-  ): Promise<T | null> {
-    setLoading(true);
-    setError(null);
-    setErrorCode(null);
-
-    try {
-      const result = await invoke<T>(cmd, args);
-      if (showSuccessMsg) {
-        message.success(showSuccessMsg);
-      }
-      return result;
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      const code = getErrorCode(e);
-      setError(msg);
-      setErrorCode(code);
-      message.error(msg);
-      console.error(`Command "${cmd}" 失败 [${code}]:`, msg);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return {
-    error,
-    errorCode,
-    loading,
-    safeInvoke,
-    clearError: () => { setError(null); setErrorCode(null); },
-  };
-}
-
-// 使用示例
-const { loading, safeInvoke } = useErrorHandler();
-
-async function handleSave() {
-  const result = await safeInvoke<string>(
-    "set_config",
-    { key: "theme", value: "dark" },
-    "保存成功"
-  );
-  if (result) {
-    // 成功后的逻辑
-  }
-}
-```
-
----
-
-## 错误流程图
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       Rust 后端                              │
-├─────────────────────────────────────────────────────────────┤
-│  Database::get_config()                                     │
-│    ↓ 返回 Result<Option<String>, AppError>                 │
-│  Service::get_required()                                    │
-│    ↓ 业务校验，转换 None 为 AppError::NotFound             │
-│  Command::get_config()                                      │
-│    ↓ CommandError::from(AppError) → { code, message }      │
-│    ↓ 返回 Result<T, CommandError>（序列化为 JSON）          │
-└─────────────────────────────────────────────────────────────┘
-                             ↓ IPC (invoke) → JSON 错误字符串
-┌─────────────────────────────────────────────────────────────┐
-│                      React 前端                              │
-├─────────────────────────────────────────────────────────────┤
-│  try { await configApi.get("theme") }                      │
-│  catch (error) {                                            │
-│    getErrorMessage(error)  → 用户可读的错误消息             │
-│    getErrorCode(error)     → "NOT_FOUND" 等错误码          │
-│    message.error(getErrorMessage(error))                    │
-│  }                                                          │
-│    ↓ 用户看到 Ant Design 错误提示                           │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| Rust 中 `unwrap()` 处理可能失败的操作 | 使用 `?` 运算符 + `Result<T, AppError>` |
-| 不定义统一错误类型 | 使用 `thiserror` 定义 `AppError` 枚举 |
-| Command 返回 `Result<T, String>` | 返回 `Result<T, CommandError>`（结构化错误） |
-| 前端不 catch invoke 错误 | 所有 `invoke` 调用都用 `try-catch` |
-| 前端用 `String(error)` 显示错误 | 使用 `getErrorMessage(error)` 解析错误消息 |
-| 前端不区分错误类型 | 使用 `getErrorCode(error)` 进行条件处理 |
-| 错误信息不可读 | 提供用户友好的中文错误提示 |
-| Mutex 使用 `unwrap()` | 使用 `map_err` 转换为 `AppError::Custom` |
-| 前端用 `alert()` 显示错误 | 使用 Ant Design `message.error()` |
-| 不处理 ErrorBoundary | 在根组件添加 `<ErrorBoundary>` |
-
----
-
-## 完整示例（三层 + 前端）
-
-### Rust 后端
-
-```rust
-// error.rs
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error("数据库错误: {0}")]
-    Database(#[from] rusqlite::Error),
-    #[error("未找到: {0}")]
-    NotFound(String),
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CommandError {
-    pub code: String,
-    pub message: String,
-}
-
-impl From<AppError> for CommandError {
-    fn from(err: AppError) -> Self {
-        let code = match &err {
-            AppError::Database(_) => "DATABASE_ERROR",
-            AppError::NotFound(_) => "NOT_FOUND",
-            // ... 其他变体
-        };
-        CommandError { code: code.to_string(), message: err.to_string() }
-    }
-}
-
-// database/mod.rs
-impl Database {
-    pub fn get_user(&self, id: i64) -> Result<Option<User>, AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
-        // ... SQL 查询
-    }
-}
-
-// services/user_service.rs
-impl UserService {
-    pub fn get_required(&self, db: &Database, id: i64) -> Result<User, AppError> {
-        db.get_user(id)?
-            .ok_or_else(|| AppError::NotFound(format!("用户 {} 不存在", id)))
-    }
-}
-
-// commands/user.rs
-#[tauri::command]
-pub fn get_user(db: State<'_, Database>, id: i64) -> Result<User, CommandError> {
-    let service = UserService::new();
-    service.get_required(&db, id)
-        .map_err(CommandError::from)
-}
-```
-
-### React 前端
-
-```tsx
-import { message } from "antd";
-import { invoke } from "@tauri-apps/api/core";
-import { getErrorMessage, getErrorCode } from "@/lib/api/client";
-
-async function loadUser(id: number) {
-  try {
-    const user = await invoke<User>("get_user", { id });
-    setUser(user);
-  } catch (error) {
-    if (getErrorCode(error) === "NOT_FOUND") {
-      message.warning("用户不存在");
-    } else {
-      message.error(getErrorMessage(error));
-    }
-  }
-}
-```
+## Rust 侧规则
+
+1. 使用 `thiserror` 定义有限、语义明确的 `AppError` 变体。
+2. 底层错误通过 `#[from]` 或显式 `map_err` 保留原因；不要在每层反复字符串化。
+3. Database 层返回数据访问错误，Service 层增加业务上下文，Command 层只转换为稳定 IPC 契约。
+4. 不对可能失败的业务路径使用 `unwrap()`、`expect()` 或 `panic!()`。
+5. 锁中毒、子进程、网络、文件和序列化错误必须显式传播；日志携带上下文但不能泄露凭据。
+6. 区分可重试、用户输入、权限、未找到、冲突和内部错误，避免全部归为 `Custom(String)`。
+7. 对外错误信息稳定、可理解；内部诊断细节写日志，并做好脱敏。
+
+## IPC 契约规则
+
+- 当前项目以 `src-tauri/src/error.rs` 的 `CommandError { code, message }` 作为结构化 IPC 错误契约；新增 Command 必须返回 `Result<T, CommandError>`，不得退化为 `Result<T, String>`。
+- `AppError -> CommandError` 在 Command 边界完成；保留的 `AppError -> String` 仅用于向后兼容，不作为新代码模板。
+- Rust 的 `CommandError` 必须与 `src/lib/api/client.ts` 的同名接口保持 `code`、`message` 字段一致。
+- 前端统一通过 `parseCommandError`、`getErrorCode` 和 `getErrorMessage` 识别错误，不在页面重复解析 JSON 或凭字符串内容判断业务分支。
+- 不把数据库实现、绝对路径、SQL、token、密码或完整堆栈直接返回 UI。
+- 若错误需要重试、重新认证或用户修正输入，契约应提供足够的机器可判定信息。
+- API 封装集中处理通用转换，页面只处理与当前交互相关的恢复动作。
+
+## React 侧规则
+
+1. 所有 `invoke` 通过 `src/lib/api/` 封装，并显式处理失败。
+2. 预期业务错误用就近反馈：`Form.Item`、`message`、`Alert`、空状态或重试按钮。
+3. 渲染期未捕获异常由 ErrorBoundary 兜底；它不能替代异步 `try/catch`。
+4. 提示必须说明用户能做什么，不直接展示未知对象或敏感底层信息。
+5. 异步操作在 `finally` 恢复 loading；防止重复提交、组件卸载后更新和过期响应覆盖。
+
+## 实现流程
+
+### 1. 读取现状
+
+- 阅读 `src-tauri/src/error.rs`、相邻 Command/Service/Database 和 `src/lib/api/`。
+- 记录现有错误变体、转换边界、日志方式和页面反馈模式。
+- 确认本次是新增错误类别、补上下文、统一契约还是恢复 UI。
+
+### 2. 设计传播路径
+
+- 定义错误产生层、需要保留的内部原因和对用户暴露的信息。
+- 说明错误码/类别、可重试性、恢复动作和日志级别。
+- 对跨层新增字段同步更新 Rust/TypeScript 类型与测试。
+
+### 3. 最小实现
+
+- 在最靠近错误源的位置转换一次，并沿层级传播。
+- 保持 Command 薄、Service 语义化、Database 专注数据访问。
+- 不借错误处理重构扩大业务逻辑范围。
+
+### 4. 验证失败路径
+
+- 对每个新类别至少验证成功、预期失败和未知内部失败。
+- 断言错误类别/码和用户可见行为，而非只匹配易变的完整文本。
+- 页面变更必须使用 Codex 内置浏览器或 Control Chrome 验证提示和恢复操作。
+
+## 常见反模式
+
+- `unwrap()` 把可恢复故障变成进程崩溃。
+- `.ok()` 丢弃错误、空 `catch` 或返回空数组/零值/成功状态，造成静默失败。
+- 每层都 `to_string()`，导致类型和上下文丢失。
+- 对用户展示完整内部错误或凭据。
+- ErrorBoundary 包办异步请求错误。
+- 捕获所有错误后仅记录日志，却不向调用方传播或提供明确降级状态。
+
+## 按需参考
+
+需要 Rust、IPC 和 React 的代码模板时，读取 [references/error-propagation-patterns.md](references/error-propagation-patterns.md)。
+
+## 完成条件
+
+- 错误从源头到 UI 的类型、上下文和恢复行为清晰一致。
+- 新 Command 使用 `Result<T, CommandError>`，前端使用 `getErrorCode/getErrorMessage`，没有契约退化。
+- 没有 panic、`.ok()` 丢错、空 `catch`、敏感信息泄露或静默默认值。
+- 成功和失败路径都有针对性测试。
+- 前端失败状态经过真实浏览器验证。
+- 修改已格式化，并通过相关检查、测试及 `git diff --check`。

@@ -1,3 +1,13 @@
+#[allow(dead_code)]
+mod knowledge;
+#[allow(dead_code)]
+pub mod knowledge_domain;
+
+#[allow(unused_imports)]
+pub use knowledge::*;
+#[allow(unused_imports)]
+pub use knowledge_domain::*;
+
 use serde::{Deserialize, Serialize};
 
 /// 应用配置
@@ -99,6 +109,7 @@ pub struct AiProvider {
     pub region: String,
     pub protocol: String,
     pub default_model: String,
+    pub embedding_model: String,
     pub status: String,
     pub endpoint: String,
     pub auth_type: String,
@@ -123,6 +134,8 @@ pub struct UpsertAiProviderInput {
     pub region: String,
     pub protocol: String,
     pub default_model: String,
+    #[serde(default)]
+    pub embedding_model: String,
     pub status: String,
     pub endpoint: String,
     pub auth_type: String,
@@ -154,6 +167,36 @@ pub struct AiProviderModelListResult {
     pub provider_key: String,
     pub models: Vec<String>,
     pub source: String,
+}
+
+/// 发往远程 Embedding Provider 的后端内部请求。
+/// 文本仅在已通过知识库治理检查后由调用方传入，禁止由前端直接调用。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderEmbeddingInput {
+    pub provider_key: String,
+    pub model: Option<String>,
+    pub inputs: Vec<String>,
+    pub dimensions: Option<i64>,
+}
+
+/// 远程 Embedding Provider 的规范化返回值。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderEmbeddingResult {
+    pub provider_key: String,
+    pub provider_name: String,
+    pub model: String,
+    pub dimension: i64,
+    pub vectors: Vec<Vec<f32>>,
+    pub latency_ms: i64,
+    pub input_count: i64,
+    pub input_characters: i64,
+    pub attempts: i64,
+    pub retry_wait_ms: i64,
+    pub rate_limited: bool,
 }
 
 /// AI Provider 场景路由。

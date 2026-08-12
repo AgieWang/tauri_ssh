@@ -11,6 +11,10 @@
 - **WHEN** 用户创建知识项目并登记版本 `v1.6.0`、Tag 和基线 Commit
 - **THEN** 系统保存项目与版本映射，并允许后续文档、禅道实体和代码快照关联该版本
 
+#### Scenario: Associate multiple registered Git workspaces
+- **WHEN** 用户在知识项目表单中搜索并选择多个已加载的 Git 工作区
+- **THEN** 系统保存去重后的工作区标识列表，并保留首个标识作为旧单工作区读取路径的兼容值
+
 #### Scenario: Unrecognized version is not treated as latest
 - **WHEN** 同步内容无法通过声明、映射或路径规则识别版本
 - **THEN** 系统将其标记为 `unversioned`，且不得自动归入最新发布版本
@@ -21,6 +25,10 @@
 #### Scenario: Register local directory source
 - **WHEN** 用户通过目录选择器授权一个本地目录并设置包含和排除规则
 - **THEN** 系统仅登记该授权根目录及其规则，不允许来源读取根目录之外的文件
+
+#### Scenario: Register multiple Git workspace sources
+- **WHEN** 用户搜索并多选多个已加载的 Git 工作区
+- **THEN** 系统为每个工作区分别保存一个具有独立同步游标和 Commit 基线的知识来源，不得把多个仓库拼接为同一来源
 
 #### Scenario: Disable a source
 - **WHEN** 用户禁用某个知识源

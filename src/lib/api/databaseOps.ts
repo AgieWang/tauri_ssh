@@ -44,14 +44,18 @@ export const databaseOpsApi = {
         }),
   testConnection: (key: string) =>
     hasTauriRuntime()
-      ? invoke<DatabaseConnectionTestResult>("test_database_connection", { key })
+      ? invoke<DatabaseConnectionTestResult>("test_database_connection", {
+          key,
+        })
       : devApiFetch<DatabaseConnectionTestResult>(
           `/database/connections/${encodeURIComponent(key)}/test`,
           { method: "POST" },
         ),
   executeReadonlyQuery: (input: DatabaseQueryInput) =>
     hasTauriRuntime()
-      ? invoke<DatabaseQueryResult>("execute_database_readonly_query", { input })
+      ? invoke<DatabaseQueryResult>("execute_database_readonly_query", {
+          input,
+        })
       : devApiFetch<DatabaseQueryResult>("/database/query", {
           method: "POST",
           body: JSON.stringify(input),
@@ -86,7 +90,9 @@ export const databaseOpsApi = {
         }),
   updateQueryResultCell: (input: DatabaseCellUpdateInput) =>
     hasTauriRuntime()
-      ? invoke<DatabaseCellUpdateResult>("update_database_query_result_cell", { input })
+      ? invoke<DatabaseCellUpdateResult>("update_database_query_result_cell", {
+          input,
+        })
       : devApiFetch<DatabaseCellUpdateResult>("/database/query/cell", {
           method: "POST",
           body: JSON.stringify(input),

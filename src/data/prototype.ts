@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-export type RiskLevel = "L0" | "L1" | "L2" | "L3" | "readonly" | "blocked" | "ai";
+export type RiskLevel =
+  "L0" | "L1" | "L2" | "L3" | "readonly" | "blocked" | "ai";
 
 export interface ServerRecord {
   alias: string;
@@ -153,10 +154,34 @@ export const logTabs = [
 ];
 
 export const files = [
-  { name: "app.yml", type: "YAML", size: "6.4 KB", modified: "今日 10:22", permission: "可写需审批" },
-  { name: "logs", type: "Directory", size: "-", modified: "今日", permission: "可读" },
-  { name: "deploy.sh", type: "Shell", size: "3.2 KB", modified: "昨日", permission: "执行需审批" },
-  { name: "nginx.conf", type: "Conf", size: "9.1 KB", modified: "周一", permission: "只读" },
+  {
+    name: "app.yml",
+    type: "YAML",
+    size: "6.4 KB",
+    modified: "今日 10:22",
+    permission: "可写需审批",
+  },
+  {
+    name: "logs",
+    type: "Directory",
+    size: "-",
+    modified: "今日",
+    permission: "可读",
+  },
+  {
+    name: "deploy.sh",
+    type: "Shell",
+    size: "3.2 KB",
+    modified: "昨日",
+    permission: "执行需审批",
+  },
+  {
+    name: "nginx.conf",
+    type: "Conf",
+    size: "9.1 KB",
+    modified: "周一",
+    permission: "只读",
+  },
 ];
 
 export const mcpTools = [

@@ -8,7 +8,9 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use tower_http::cors::CorsLayer;
+use serde::Deserialize;
+use std::process::Command;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::error::{AppError, CommandError};
 use crate::models::{
@@ -58,6 +60,12 @@ use crate::services::deployment::DeploymentService;
 use crate::services::git_workspace::GitWorkspaceService;
 use crate::services::jenkins::JenkinsService;
 use crate::services::jumpserver::JumpServerService;
+use crate::services::knowledge::KnowledgeService;
+use crate::services::knowledge_domain::documents::KnowledgeDocumentService;
+use crate::services::knowledge_embedding::KnowledgeEmbeddingService;
+use crate::services::knowledge_local_embedding::KnowledgeLocalEmbeddingService;
+use crate::services::knowledge_policy::KnowledgePolicyService;
+use crate::services::knowledge_retrieval::KnowledgeRetrievalService;
 use crate::services::mcp::McpService;
 use crate::services::resource_monitor::ResourceMonitorService;
 use crate::services::secure_credential::SecureCredentialService;
@@ -65,18 +73,42 @@ use crate::services::sftp::SftpService;
 use crate::services::ssh_server::SshServerService;
 use crate::services::system_settings::SystemSettingsService;
 use crate::services::terminal::{TerminalPtyCommand, TerminalService};
+use crate::shared::local_api::local_api_addr;
 use crate::state::AppState;
 use sha2::{Digest, Sha256};
 use tauri::Manager;
-
-const DEV_API_ADDR: &str = "127.0.0.1:17321";
 
 #[derive(Clone)]
 struct DevApiState {
     app_handle: tauri::AppHandle,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ZentaoMappingQuery {
+    connection_id: Option<i64>,
+}
+
 type DevApiResult<T> = Result<Json<T>, DevApiError>;
+
+/// Dev API 只监听回环地址；CORS 同样只允许本机 Vite 开发服务器。
+///
+/// 端口可以在并行桌面验收时覆盖，不能把固定的 1422 端口当作安全边界。
+/// 这里显式拒绝 `https`、非回环主机、路径和用户信息，避免将调试 API
+/// 暴露给公网网页或局域网网页。
+fn is_loopback_dev_origin(origin: &HeaderValue) -> bool {
+    let Ok(origin) = origin.to_str() else {
+        return false;
+    };
+    let Some(authority) = origin.strip_prefix("http://") else {
+        return false;
+    };
+    let Some((host, port)) = authority.rsplit_once(':') else {
+        return false;
+    };
+
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]") && port.parse::<u16>().is_ok()
+}
 
 fn approval_flow_status(approval: &ApprovalRequest) -> &'static str {
     if approval.status == "approved" {
@@ -112,6 +144,7 @@ impl IntoResponse for DevApiError {
         let status = match self.0.code.as_str() {
             "NOT_FOUND" => StatusCode::NOT_FOUND,
             "INVALID_INPUT" => StatusCode::BAD_REQUEST,
+            "KNOWLEDGE_FTS_REBUILD_REQUIRED" => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self.0)).into_response()
@@ -132,10 +165,146 @@ pub fn start(app_handle: tauri::AppHandle) {
     });
 }
 
+/// 重新确保本地 HTTP/MCP 监听器可用。
+///
+/// 开关从关闭切换为开启时，旧版本或异常退出留下的同端口监听器可能阻止
+/// 当前实例绑定端口。这里只处理配置的本地监听端口，并跳过当前 Tauri 进程，
+/// 避免为了重启 MCP 把宿主应用自身终止。
+pub fn restart(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let should_start = match tokio::task::spawn_blocking(restart_local_listener).await {
+            Ok(Ok(should_start)) => should_start,
+            Ok(Err(error)) => {
+                log::warn!("MCP 端口清理失败，仍尝试启动本地 API: {}", error);
+                true
+            }
+            Err(error) => {
+                log::warn!("MCP 端口清理任务失败，仍尝试启动本地 API: {}", error);
+                true
+            }
+        };
+        if should_start {
+            start(app_handle);
+        } else {
+            log::info!("本地 HTTP/MCP API 已在当前进程监听，无需重复启动");
+        }
+    });
+}
+
+fn restart_local_listener() -> Result<bool, String> {
+    let address = local_api_addr()?;
+    let current_pid = std::process::id();
+    for pid in listener_process_ids(address.port())? {
+        if pid != current_pid {
+            if is_mcp_process(pid)? {
+                terminate_process(pid)?;
+            } else {
+                return Err(format!(
+                    "端口 {} 已被非 MCP 进程 {} 占用，未执行强制终止",
+                    address.port(),
+                    pid
+                ));
+            }
+        }
+    }
+    Ok(listener_process_ids(address.port())?.is_empty())
+}
+
+fn is_mcp_process(pid: u32) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    let result = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let result = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output();
+
+    let output = result.map_err(|error| format!("读取 MCP 进程 {} 信息失败: {}", pid, error))?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    let command = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    Ok(command.contains("tauri_ssh") || command.contains("tauri-ssh") || command.contains("mcp"))
+}
+
+fn terminate_process(pid: u32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let result = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let result = Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .output();
+
+    let output = result.map_err(|error| format!("终止 MCP 进程 {} 失败: {}", pid, error))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "终止 MCP 进程 {} 失败: {}",
+            pid,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+fn listener_process_ids(port: u16) -> Result<Vec<u32>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("lsof")
+            .args(["-nP", "-t", &format!("-iTCP:{}", port), "-sTCP:LISTEN"])
+            .output()
+            .map_err(|error| format!("读取 MCP 端口监听进程失败: {}", error))?;
+        if !output.status.success() && output.stdout.is_empty() {
+            return Ok(Vec::new());
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("netstat")
+            .args(["-ano", "-p", "tcp"])
+            .output()
+            .map_err(|error| format!("读取 MCP 端口监听进程失败: {}", error))?;
+        let port_suffix = format!(":{}", port);
+        return Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() >= 5
+                    && fields[0].eq_ignore_ascii_case("TCP")
+                    && fields[1].ends_with(&port_suffix)
+                    && fields[3].eq_ignore_ascii_case("LISTENING")
+                {
+                    fields[4].parse::<u32>().ok()
+                } else {
+                    None
+                }
+            })
+            .collect());
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = port;
+        Ok(Vec::new())
+    }
+}
+
 async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let origin = HeaderValue::from_static("http://localhost:1422");
+    let local_api_addr = local_api_addr()?;
     let cors = CorsLayer::new()
-        .allow_origin(origin)
+        .allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
+            is_loopback_dev_origin(origin)
+        }))
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -568,6 +737,371 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             get(list_jenkins_queue),
         )
         .route("/dev-api/jenkins/queue/item", post(poll_jenkins_queue_item))
+        .route(
+            "/dev-api/knowledge/documents",
+            get(list_knowledge_documents),
+        )
+        .route(
+            "/dev-api/knowledge/documents/deleted",
+            get(list_deleted_knowledge_documents),
+        )
+        .route(
+            "/dev-api/knowledge/projects",
+            get(list_knowledge_projects).post(upsert_knowledge_project),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id",
+            delete(delete_knowledge_project),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/releases",
+            get(list_knowledge_releases),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/search",
+            post(search_knowledge_catalog),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/terms",
+            get(list_knowledge_project_terms).post(upsert_knowledge_project_term),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/terms/:term_id",
+            delete(delete_knowledge_project_term),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/qa/ask",
+            post(ask_knowledge_scoped_question),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/qa/sessions",
+            get(list_knowledge_qa_sessions),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/qa/sessions/:session_id",
+            get(get_knowledge_qa_session).delete(delete_knowledge_qa_session),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/qa/rounds",
+            post(persist_knowledge_qa_round),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/ai-drafts",
+            post(create_knowledge_analysis_ai_draft),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/code-sources",
+            get(list_knowledge_analysis_code_sources),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/code-snapshots",
+            get(list_knowledge_analysis_code_snapshots),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/code-snapshots/git",
+            post(capture_knowledge_analysis_git_snapshot),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/code-snapshots/:snapshot_id/analyze",
+            post(analyze_knowledge_analysis_snapshot),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/analysis/code-snapshots/documents/generate",
+            post(generate_knowledge_analysis_documents),
+        )
+        .route(
+            "/dev-api/knowledge/analysis/ai-drafts/:draft_id/confirm",
+            post(confirm_knowledge_analysis_ai_draft),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/graph",
+            post(query_knowledge_project_graph),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/graph/build",
+            post(build_knowledge_project_graph),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/repository-bindings",
+            get(list_knowledge_project_repository_bindings)
+                .post(replace_knowledge_project_repository_bindings),
+        )
+        .route(
+            "/dev-api/knowledge/projects/:project_id/version-manifests",
+            post(create_knowledge_project_version_manifest),
+        )
+        .route(
+            "/dev-api/knowledge/version-manifests/:release_id",
+            get(get_knowledge_project_version_manifest),
+        )
+        .route(
+            "/dev-api/knowledge/version-manifests/:release_id/completeness",
+            get(get_knowledge_project_version_completeness),
+        )
+        .route(
+            "/dev-api/knowledge/repository-bindings/:repository_binding_id/inspect",
+            post(inspect_knowledge_project_repository_binding),
+        )
+        .route(
+            "/dev-api/knowledge/repository-bindings/:repository_binding_id",
+            delete(unlink_knowledge_project_repository_binding),
+        )
+        .route(
+            "/dev-api/knowledge/releases",
+            post(upsert_knowledge_release),
+        )
+        .route(
+            "/dev-api/knowledge/releases/:release_id",
+            delete(delete_knowledge_release),
+        )
+        .route(
+            "/dev-api/knowledge/sources",
+            get(list_knowledge_sources).post(upsert_knowledge_source),
+        )
+        .route(
+            "/dev-api/knowledge/sources/batch",
+            post(upsert_knowledge_sources_atomically),
+        )
+        .route(
+            "/dev-api/knowledge/sources/:source_id",
+            delete(delete_knowledge_source),
+        )
+        .route(
+            "/dev-api/knowledge/sources/scope-preview",
+            post(preview_knowledge_source_scope),
+        )
+        .route(
+            "/dev-api/knowledge/sources/sync",
+            post(start_knowledge_source_sync),
+        )
+        .route("/dev-api/knowledge/jobs", get(list_knowledge_jobs))
+        .route(
+            "/dev-api/knowledge/jobs/:job_key/cancel",
+            post(cancel_knowledge_job),
+        )
+        .route(
+            "/dev-api/knowledge/jobs/:job_key/retry",
+            post(retry_knowledge_job),
+        )
+        .route(
+            "/dev-api/knowledge/documents/:document_id",
+            get(get_knowledge_document_detail).delete(soft_delete_knowledge_document),
+        )
+        .route(
+            "/dev-api/knowledge/documents/:document_id/deletion-preview",
+            get(preview_knowledge_document_deletion),
+        )
+        .route(
+            "/dev-api/knowledge/documents/:document_id/restore",
+            post(restore_knowledge_document),
+        )
+        .route(
+            "/dev-api/knowledge/documents/:document_id/versions",
+            get(list_knowledge_document_versions),
+        )
+        .route(
+            "/dev-api/knowledge/document-versions/:document_version_id/chunks",
+            get(list_knowledge_document_chunks),
+        )
+        .route(
+            "/dev-api/knowledge/document-versions/compare",
+            post(compare_knowledge_document_versions),
+        )
+        .route(
+            "/dev-api/knowledge/document-versions/restore-draft",
+            post(restore_knowledge_document_version_to_draft),
+        )
+        .route(
+            "/dev-api/knowledge/document-versions/:document_version_id/parse",
+            post(parse_and_index_knowledge_document_version),
+        )
+        .route(
+            "/dev-api/knowledge/citations/:chunk_id",
+            get(get_knowledge_citation_detail),
+        )
+        .route(
+            "/dev-api/knowledge/parse-preview",
+            post(preview_knowledge_parse_and_chunk),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/fingerprint",
+            post(calculate_knowledge_embedding_fingerprint),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles",
+            get(list_knowledge_embedding_profiles).post(upsert_knowledge_embedding_profile),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/local/runtime",
+            get(get_knowledge_local_embedding_runtime_status),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/remote-enabled",
+            get(get_knowledge_remote_embedding_enabled),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/local/import",
+            post(import_knowledge_local_embedding_model),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/local/download",
+            post(download_knowledge_local_embedding_model),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/local/cache/:model_key",
+            delete(remove_knowledge_local_embedding_model),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/test-local",
+            post(test_knowledge_local_embedding_profile),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/test-remote",
+            post(test_knowledge_remote_embedding_profile),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/rebuild-estimate",
+            post(estimate_knowledge_embedding_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/local-batch",
+            post(build_knowledge_local_embedding_batch),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/remote-batch",
+            post(build_knowledge_remote_embedding_batch),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/rebuild/begin",
+            post(begin_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/rebuild/validate",
+            get(validate_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/rebuild/complete",
+            post(complete_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/activate",
+            post(activate_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/rollback",
+            post(rollback_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/profiles/:profile_id/retire",
+            post(retire_knowledge_embedding_profile_rebuild),
+        )
+        .route(
+            "/dev-api/knowledge/embedding/search",
+            post(search_active_knowledge_vectors),
+        )
+        .route("/dev-api/knowledge/search/fts", post(search_knowledge_fts))
+        .route(
+            "/dev-api/knowledge/search/fts/rebuild",
+            post(rebuild_knowledge_fts),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/connections",
+            get(list_zentao_connections).post(upsert_zentao_connection),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/connections/:connection_id",
+            delete(delete_zentao_connection),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/connections/:connection_id/probe",
+            post(probe_zentao_connection),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/connections/:connection_id/scopes",
+            get(discover_zentao_remote_scopes),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/mappings",
+            get(list_zentao_project_mappings).post(upsert_zentao_project_mapping),
+        )
+        .route(
+            "/dev-api/knowledge/experiences/import",
+            post(import_knowledge_ai_experiences),
+        )
+        .route(
+            "/dev-api/knowledge/rag/context-preview",
+            post(preview_knowledge_rag_context),
+        )
+        .route("/dev-api/knowledge/ask", post(ask_knowledge))
+        .route(
+            "/dev-api/knowledge/evaluation/run",
+            post(run_fixed_knowledge_retrieval_evaluation),
+        )
+        .route("/dev-api/knowledge/zentao/sync", post(sync_zentao_mapping))
+        .route(
+            "/dev-api/knowledge/zentao/documents/generate",
+            post(generate_zentao_fact_documents),
+        )
+        .route(
+            "/dev-api/knowledge/zentao/ai-summary/generate",
+            post(generate_zentao_ai_summary),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/:snapshot_id/analyze",
+            post(analyze_knowledge_code_snapshot),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/documents/generate",
+            post(generate_knowledge_code_documents),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/symbols/search",
+            post(search_knowledge_code_symbols),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/:snapshot_id/files",
+            get(list_knowledge_code_files),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/:snapshot_id/files/:file_id/content",
+            get(get_knowledge_code_file_content),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/call-graph",
+            post(get_knowledge_code_call_graph),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/compare",
+            post(compare_knowledge_code_snapshots),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/impact",
+            post(analyze_knowledge_code_impact),
+        )
+        .route(
+            "/dev-api/knowledge/code-sources",
+            get(list_knowledge_code_sources).post(upsert_knowledge_code_source),
+        )
+        .route(
+            "/dev-api/knowledge/code-sources/:source_id/scope-preview",
+            get(preview_knowledge_code_source_scope),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots",
+            get(list_knowledge_code_snapshots),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/git",
+            post(capture_knowledge_git_snapshot),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/dirty-worktree",
+            post(capture_knowledge_dirty_worktree_snapshot),
+        )
+        .route(
+            "/dev-api/knowledge/code-snapshots/local-directory",
+            post(capture_knowledge_local_directory_snapshot),
+        )
         .route("/dev-api/terminal/execute", post(execute_terminal_command))
         .route("/dev-api/terminal/ws", get(terminal_websocket))
         .route("/dev-api/sftp/list", post(sftp_list))
@@ -585,11 +1119,11 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         .layer(cors)
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(DEV_API_ADDR)
+    let listener = tokio::net::TcpListener::bind(local_api_addr)
         .await
         .map_err(|error| error.to_string())?;
 
-    log::info!("Local HTTP/MCP API 已启动: http://{}", DEV_API_ADDR);
+    log::info!("Local HTTP/MCP API 已启动: http://{}", local_api_addr);
     axum::serve(listener, app)
         .await
         .map_err(|error| error.to_string())
@@ -597,6 +1131,1241 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true }))
+}
+
+async fn list_knowledge_documents(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<crate::models::KnowledgePage<crate::models::KnowledgeDocument>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_documents(
+        &state.db,
+        Some(input),
+    )?))
+}
+
+async fn list_deleted_knowledge_documents(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<crate::models::KnowledgePage<crate::models::KnowledgeDocument>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeDocumentService::list_deleted_documents(
+        &state.db,
+        Some(input),
+    )?))
+}
+
+async fn list_knowledge_projects(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<crate::models::KnowledgePage<crate::models::KnowledgeProject>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_projects(
+        &state.db,
+        Some(input),
+    )?))
+}
+
+async fn list_knowledge_releases(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeRelease>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_releases(
+        &state.db, project_id,
+    )?))
+}
+
+/// 浏览器开发 API 与桌面搜索 Command 使用同一领域 Service，确保游标、快照变更提示
+/// 和项目范围校验不会因浏览器回退路径而漂移。
+async fn search_knowledge_catalog(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::knowledge_domain::search::KnowledgeCatalogSearchInput>,
+) -> DevApiResult<crate::models::knowledge_domain::search::KnowledgeCatalogSearchPage> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::search::KnowledgeCatalogSearchService::search(
+            &state.db, input,
+        )?,
+    ))
+}
+
+/// 开发 API 复用桌面术语 Service，并校验 URL 与请求体的项目一致，不能绕过项目范围。
+async fn list_knowledge_project_terms(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::knowledge_domain::terminology::KnowledgeProjectTerm>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::terminology::KnowledgeProjectTerminologyService::list(
+            &state.db, project_id,
+        )?,
+    ))
+}
+
+async fn upsert_knowledge_project_term(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<
+        crate::models::knowledge_domain::terminology::UpsertKnowledgeProjectTermInput,
+    >,
+) -> DevApiResult<crate::models::knowledge_domain::terminology::KnowledgeProjectTerm> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::terminology::KnowledgeProjectTerminologyService::upsert(
+            &state.db, input,
+        )?,
+    ))
+}
+
+async fn delete_knowledge_project_term(
+    State(ctx): State<DevApiState>,
+    Path((project_id, term_id)): Path<(i64, i64)>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_domain::terminology::KnowledgeProjectTerminologyService::delete(
+        &state.db, project_id, term_id,
+    )?;
+    Ok(Json(()))
+}
+
+/// 浏览器开发回退也只能提问 URL 对应的项目；版本、仓库与证据过滤继续由领域 Service
+/// 统一执行，避免本地浏览器路径绕开桌面 IPC 的范围约束。
+async fn ask_knowledge_scoped_question(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::knowledge_domain::qa::KnowledgeScopedQuestionInput>,
+) -> DevApiResult<crate::models::KnowledgeAskResult> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::qa::KnowledgeScopedQuestionService::ask(
+            &state.db,
+            &app_data_dir,
+            input,
+        )
+        .await?,
+    ))
+}
+
+async fn list_knowledge_qa_sessions(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::knowledge_domain::qa::KnowledgeQaSession>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::qa::KnowledgeScopedQuestionService::list_sessions(
+            &state.db, project_id,
+        )?,
+    ))
+}
+
+async fn get_knowledge_qa_session(
+    State(ctx): State<DevApiState>,
+    Path((project_id, session_id)): Path<(i64, i64)>,
+) -> DevApiResult<crate::models::knowledge_domain::qa::KnowledgeQaSessionDetail> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::qa::KnowledgeScopedQuestionService::get_session(
+            &state.db, project_id, session_id,
+        )?,
+    ))
+}
+
+async fn persist_knowledge_qa_round(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::knowledge_domain::qa::PersistKnowledgeQaRoundInput>,
+) -> DevApiResult<crate::models::knowledge_domain::qa::KnowledgeQaSessionDetail> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::qa::KnowledgeScopedQuestionService::persist_round(
+            &state.db, input,
+        )?,
+    ))
+}
+
+async fn delete_knowledge_qa_session(
+    State(ctx): State<DevApiState>,
+    Path((project_id, session_id)): Path<(i64, i64)>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_domain::qa::KnowledgeScopedQuestionService::delete_session(
+        &state.db, project_id, session_id,
+    )?;
+    Ok(Json(()))
+}
+
+/// Dev API 与桌面 Command 共用同一服务，路径中的项目 ID 仅用来阻止浏览器调试路径
+/// 伪造跨项目 AI 分析请求。
+async fn create_knowledge_analysis_ai_draft(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<
+        crate::models::knowledge_domain::analysis::CreateKnowledgeAnalysisDraftInput,
+    >,
+) -> DevApiResult<crate::models::knowledge_domain::analysis::KnowledgeAnalysisDraft> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::create_ai_draft(
+            &state.db, input,
+        )
+        .await?,
+    ))
+}
+
+/// 浏览器回退与桌面 IPC 使用相同的项目范围 Service；不得先返回全量数据再由前端过滤。
+async fn list_knowledge_analysis_code_sources(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeSource>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::list_project_code_sources(
+            &state.db, project_id,
+        )?,
+    ))
+}
+
+async fn list_knowledge_analysis_code_snapshots(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeSnapshot>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::list_project_code_snapshots(
+            &state.db,
+            project_id,
+            input.source_id,
+        )?,
+    ))
+}
+
+async fn capture_knowledge_analysis_git_snapshot(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<crate::models::CaptureKnowledgeGitSnapshotInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::capture_git_snapshot(
+            &state.db, project_id, input,
+        )
+        .await?,
+    ))
+}
+
+async fn analyze_knowledge_analysis_snapshot(
+    State(ctx): State<DevApiState>,
+    Path((project_id, snapshot_id)): Path<(i64, i64)>,
+) -> DevApiResult<crate::models::KnowledgeCodeAnalysisResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::analyze_snapshot(
+            &state.db,
+            project_id,
+            snapshot_id,
+        )
+        .await?,
+    ))
+}
+
+async fn generate_knowledge_analysis_documents(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(input): Json<crate::models::GenerateKnowledgeCodeDocumentsInput>,
+) -> DevApiResult<crate::models::GenerateKnowledgeCodeDocumentsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::generate_documents(
+            &state.db, project_id, input,
+        )?,
+    ))
+}
+
+/// 确认接口不接受项目 ID 覆盖草稿归属；草稿所在分析运行会在服务层重新读取并校验。
+async fn confirm_knowledge_analysis_ai_draft(
+    State(ctx): State<DevApiState>,
+    Path(draft_id): Path<i64>,
+    Json(input): Json<
+        crate::models::knowledge_domain::analysis::ConfirmKnowledgeAnalysisDraftInput,
+    >,
+) -> DevApiResult<crate::models::knowledge_domain::analysis::ConfirmKnowledgeAnalysisDraftResult> {
+    if input.draft_id != draft_id {
+        return Err(AppError::InvalidInput("请求路径与分析草稿 ID 不一致".to_string()).into());
+    }
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::analysis::KnowledgeAnalysisService::confirm_ai_draft(
+            &state.db, input,
+        )?,
+    ))
+}
+
+/// 浏览器开发 API 只把路径用于二次范围校验，实际构建与查询仍复用桌面端图谱 Service。
+async fn build_knowledge_project_graph(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::knowledge_domain::graph::KnowledgeGraphBuildInput>,
+) -> DevApiResult<crate::models::knowledge_domain::graph::KnowledgeGraphBuildResult> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::graph::KnowledgeGraphService::build(&state.db, input)?,
+    ))
+}
+
+async fn query_knowledge_project_graph(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::knowledge_domain::graph::KnowledgeGraphQueryInput>,
+) -> DevApiResult<crate::models::knowledge_domain::graph::KnowledgeGraphProjection> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::graph::KnowledgeGraphService::query(&state.db, input)?,
+    ))
+}
+
+/// 浏览器开发 API 复用目录 Service，与桌面 Command 一致地校验工作区登记、发布开关和审计。
+async fn list_knowledge_project_repository_bindings(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeRepositoryBinding>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::list_repository_bindings(
+            &state.db, project_id,
+        )?,
+    ))
+}
+
+async fn replace_knowledge_project_repository_bindings(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::KnowledgeRepositoryBindingInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeRepositoryBinding>> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    // JSON 载荷仍保留 projectId，以便与桌面 Command 保持同一 DTO；路径只用于 Dev API 路由。
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::replace_repository_bindings(
+            &state.db, input,
+        )?,
+    ))
+}
+
+/// 浏览器开发 API 与桌面 Command 使用同一个不可变版本清单 Service，路径参数只用于
+/// 路由约束，不能替代 DTO 中的项目作用域。
+async fn create_knowledge_project_version_manifest(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+    Json(mut input): Json<crate::models::KnowledgeProjectVersionManifestInput>,
+) -> DevApiResult<crate::models::KnowledgeProjectVersionManifestResult> {
+    if input.project_id != project_id {
+        return Err(AppError::InvalidInput("请求路径与项目 ID 不一致".to_string()).into());
+    }
+    input.project_id = project_id;
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::create_project_version_manifest(
+            &state.db, input,
+        )
+        .await?,
+    ))
+}
+
+async fn get_knowledge_project_version_manifest(
+    State(ctx): State<DevApiState>,
+    Path(release_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeProjectVersionManifestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::get_project_version_manifest(
+            &state.db, release_id,
+        )?,
+    ))
+}
+
+/// 开发浏览器与桌面端共用版本完整度规则，便于页面只验证交互而不绕过真实本地数据。
+async fn get_knowledge_project_version_completeness(
+    State(ctx): State<DevApiState>,
+    Path(release_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeProjectVersionCompleteness> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::get_project_version_completeness(
+            &state.db, release_id,
+        )?,
+    ))
+}
+
+async fn inspect_knowledge_project_repository_binding(
+    State(ctx): State<DevApiState>,
+    Path(repository_binding_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeRepositoryAvailability> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        crate::services::knowledge_domain::catalog::KnowledgeCatalogService::inspect_repository_binding(
+            &state.db,
+            repository_binding_id,
+        )
+        .await?,
+    ))
+}
+
+async fn unlink_knowledge_project_repository_binding(
+    State(ctx): State<DevApiState>,
+    Path(repository_binding_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_domain::catalog::KnowledgeCatalogService::unlink_repository_binding(
+        &state.db,
+        repository_binding_id,
+    )?;
+    Ok(Json(()))
+}
+
+/// 浏览器 Dev API 与桌面 Command 共用同一知识 Service，避免开发验收路径绕过
+/// 项目、版本、来源及 Embedding Profile 的校验和审计。
+async fn upsert_knowledge_project(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeProjectInput>,
+) -> DevApiResult<crate::models::KnowledgeProject> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_project(&state.db, input)?))
+}
+
+async fn delete_knowledge_project(
+    State(ctx): State<DevApiState>,
+    Path(project_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    KnowledgeService::delete_project(&state.db, project_id)?;
+    Ok(Json(()))
+}
+
+async fn upsert_knowledge_release(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeReleaseInput>,
+) -> DevApiResult<crate::models::KnowledgeRelease> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_release(&state.db, input)?))
+}
+
+async fn delete_knowledge_release(
+    State(ctx): State<DevApiState>,
+    Path(release_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    KnowledgeService::delete_release(&state.db, release_id)?;
+    Ok(Json(()))
+}
+
+async fn list_knowledge_sources(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeSource>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_sources(
+        &state.db,
+        input.project_id,
+    )?))
+}
+
+/// 浏览器验收与桌面 Command 均委托同一 Service；连接中的 credential_key 仍由模型
+/// 的序列化边界剔除，浏览器永远只看到是否已配置凭据。
+async fn list_zentao_connections(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<Vec<crate::models::ZentaoConnection>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_zentao_connections(&state.db)?))
+}
+
+async fn upsert_zentao_connection(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertZentaoConnectionInput>,
+) -> DevApiResult<crate::models::ZentaoConnection> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_zentao_connection(
+        &state.db, input,
+    )?))
+}
+
+async fn delete_zentao_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    KnowledgeService::delete_zentao_connection(&state.db, connection_id)?;
+    Ok(Json(()))
+}
+
+async fn probe_zentao_connection(
+    State(ctx): State<DevApiState>,
+    Path(connection_id): Path<i64>,
+) -> DevApiResult<crate::models::ZentaoCapabilityProbeResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::probe_zentao_connection(&state.db, connection_id).await?,
+    ))
+}
+
+async fn discover_zentao_remote_scopes(
+    State(ctx): State<DevApiState>,
+    Path(connection_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::ZentaoRemoteScopeItem>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::discover_zentao_remote_scopes(&state.db, connection_id).await?,
+    ))
+}
+
+async fn list_zentao_project_mappings(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<ZentaoMappingQuery>,
+) -> DevApiResult<Vec<crate::models::ZentaoProjectMapping>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_zentao_project_mappings(
+        &state.db,
+        input.connection_id,
+    )?))
+}
+
+async fn upsert_zentao_project_mapping(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertZentaoProjectMappingInput>,
+) -> DevApiResult<crate::models::ZentaoProjectMapping> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_zentao_project_mapping(
+        &state.db, input,
+    )?))
+}
+
+async fn import_knowledge_ai_experiences(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::ImportKnowledgeExperiencesInput>,
+) -> DevApiResult<crate::models::ImportKnowledgeExperiencesResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::import_ai_experiences(
+        &state.db, input,
+    )?))
+}
+
+async fn upsert_knowledge_source(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeSourceInput>,
+) -> DevApiResult<crate::models::KnowledgeSource> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_source(&state.db, input)?))
+}
+
+async fn upsert_knowledge_sources_atomically(
+    State(ctx): State<DevApiState>,
+    Json(inputs): Json<Vec<crate::models::UpsertKnowledgeSourceInput>>,
+) -> DevApiResult<Vec<crate::models::KnowledgeSource>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_sources_atomically(
+        &state.db, inputs,
+    )?))
+}
+
+async fn delete_knowledge_source(
+    State(ctx): State<DevApiState>,
+    Path(source_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    KnowledgeService::delete_source(&state.db, source_id)?;
+    Ok(Json(()))
+}
+
+async fn preview_knowledge_source_scope(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeSourceInput>,
+) -> DevApiResult<crate::models::KnowledgeSourceScopePreview> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::preview_source_scope(
+        &state.db, input,
+    )?))
+}
+
+async fn start_knowledge_source_sync(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::StartKnowledgeSourceSyncInput>,
+) -> DevApiResult<crate::models::KnowledgeJob> {
+    Ok(Json(KnowledgeService::start_source_sync_job(
+        ctx.app_handle.clone(),
+        input,
+    )?))
+}
+
+async fn list_knowledge_jobs(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<std::collections::HashMap<String, String>>,
+) -> DevApiResult<Vec<crate::models::KnowledgeJob>> {
+    let state = app_state(&ctx);
+    let limit = input
+        .get("limit")
+        .and_then(|value| value.parse::<i64>().ok());
+    Ok(Json(KnowledgeService::list_jobs(&state.db, limit)?))
+}
+
+async fn cancel_knowledge_job(
+    State(ctx): State<DevApiState>,
+    Path(job_key): Path<String>,
+) -> DevApiResult<crate::models::KnowledgeJob> {
+    Ok(Json(KnowledgeService::cancel_job(
+        &ctx.app_handle,
+        &job_key,
+    )?))
+}
+
+async fn retry_knowledge_job(
+    State(ctx): State<DevApiState>,
+    Path(job_key): Path<String>,
+) -> DevApiResult<crate::models::KnowledgeJob> {
+    Ok(Json(KnowledgeService::retry_job(
+        ctx.app_handle.clone(),
+        &job_key,
+    )?))
+}
+
+async fn list_knowledge_embedding_profiles(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<Vec<crate::models::KnowledgeEmbeddingProfile>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::list_profiles(&state.db)?))
+}
+
+async fn upsert_knowledge_embedding_profile(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeEmbeddingProfileInput>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingProfile> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::upsert_profile(
+        &state.db, input,
+    )?))
+}
+
+/// 开发浏览器仅通过同一受控本地模型服务读取运行时元数据，不暴露缓存内的模型正文。
+async fn get_knowledge_local_embedding_runtime_status(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<crate::models::KnowledgeLocalEmbeddingRuntimeStatus> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_rollout::KnowledgeRolloutService::require(
+        &state.db,
+        "local_embedding",
+    )?;
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    Ok(Json(KnowledgeLocalEmbeddingService::runtime_status(
+        &app_data_dir,
+    )?))
+}
+
+/// 离线模型导入仍由后端执行完整哈希校验；Dev API 不直接读取或返回模型文件内容。
+async fn import_knowledge_local_embedding_model(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::ImportKnowledgeLocalEmbeddingModelInput>,
+) -> DevApiResult<crate::models::KnowledgeLocalEmbeddingModelImportResult> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_rollout::KnowledgeRolloutService::require(
+        &state.db,
+        "local_embedding",
+    )?;
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    Ok(Json(KnowledgeLocalEmbeddingService::import_model(
+        &app_data_dir,
+        input,
+    )?))
+}
+
+/// 下载地址只由受控配置提供，与桌面 Command 一样拒绝浏览器传入任意远程 URL。
+async fn download_knowledge_local_embedding_model(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DownloadKnowledgeLocalEmbeddingModelInput>,
+) -> DevApiResult<crate::models::KnowledgeLocalEmbeddingModelImportResult> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_rollout::KnowledgeRolloutService::require(
+        &state.db,
+        "local_embedding",
+    )?;
+    let mirror_url = state
+        .db
+        .get_config("knowledge.local_embedding.internal_mirror_url")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::InvalidInput("尚未配置内部模型镜像地址".to_string()))?;
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    Ok(Json(
+        KnowledgeLocalEmbeddingService::download_model_from_mirror(
+            &app_data_dir,
+            &mirror_url,
+            input,
+            |_| {},
+        )
+        .await?,
+    ))
+}
+
+async fn remove_knowledge_local_embedding_model(
+    State(ctx): State<DevApiState>,
+    Path(model_key): Path<String>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    crate::services::knowledge_rollout::KnowledgeRolloutService::require(
+        &state.db,
+        "local_embedding",
+    )?;
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    KnowledgeLocalEmbeddingService::remove_model(
+        &app_data_dir,
+        crate::models::RemoveKnowledgeLocalEmbeddingModelInput { model_key },
+    )?;
+    Ok(Json(()))
+}
+
+async fn test_knowledge_local_embedding_profile(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingProfileTestResult> {
+    let state = app_state(&ctx);
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    Ok(Json(KnowledgeEmbeddingService::test_local_profile(
+        &state.db,
+        &app_data_dir,
+        profile_id,
+    )?))
+}
+
+async fn test_knowledge_remote_embedding_profile(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingProfileTestResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeEmbeddingService::test_remote_profile(&state.db, profile_id).await?,
+    ))
+}
+
+async fn get_knowledge_remote_embedding_enabled(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<bool> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::remote_embedding_enabled(
+        &state.db,
+    )?))
+}
+
+async fn get_knowledge_document_detail(
+    State(ctx): State<DevApiState>,
+    Path(document_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeDocumentDetail> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::get_document_detail(
+        &state.db,
+        document_id,
+    )?))
+}
+
+/// 浏览器开发接口与桌面 Command 使用同一删除预览 Service，避免遗漏受限文档过滤。
+async fn preview_knowledge_document_deletion(
+    State(ctx): State<DevApiState>,
+    Path(document_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeDocumentDeletionImpactPreview> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeDocumentService::preview_deletion(
+        &state.db,
+        document_id,
+    )?))
+}
+
+async fn soft_delete_knowledge_document(
+    State(ctx): State<DevApiState>,
+    Path(document_id): Path<i64>,
+) -> DevApiResult<()> {
+    let state = app_state(&ctx);
+    KnowledgeDocumentService::soft_delete(&state.db, document_id)?;
+    Ok(Json(()))
+}
+
+async fn restore_knowledge_document(
+    State(ctx): State<DevApiState>,
+    Path(document_id): Path<i64>,
+) -> DevApiResult<crate::models::RestoreKnowledgeDocumentResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeDocumentService::restore(
+        &state.db,
+        document_id,
+    )?))
+}
+
+async fn list_knowledge_document_versions(
+    State(ctx): State<DevApiState>,
+    Path(document_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeDocumentVersion>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_document_versions(
+        &state.db,
+        document_id,
+    )?))
+}
+
+async fn list_knowledge_document_chunks(
+    State(ctx): State<DevApiState>,
+    Path(document_version_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeChunk>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_document_chunks(
+        &state.db,
+        document_version_id,
+    )?))
+}
+
+async fn compare_knowledge_document_versions(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::CompareKnowledgeDocumentVersionsInput>,
+) -> DevApiResult<crate::models::KnowledgeDocumentComparison> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::compare_document_versions(
+        &state.db, input,
+    )?))
+}
+
+/// 开发接口与桌面 Command 共享同一恢复 Service，确保浏览器验收也获得并发冲突时的当前正文。
+async fn restore_knowledge_document_version_to_draft(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RestoreKnowledgeDocumentVersionToDraftInput>,
+) -> DevApiResult<crate::models::RestoreKnowledgeDocumentVersionToDraftResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeDocumentService::restore_version_to_draft(
+        &state.db, input,
+    )?))
+}
+
+async fn parse_and_index_knowledge_document_version(
+    State(ctx): State<DevApiState>,
+    Path(document_version_id): Path<i64>,
+    Json(options): Json<Option<crate::models::KnowledgeChunkOptions>>,
+) -> DevApiResult<crate::models::KnowledgeParseAndChunkResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::parse_and_index_document_version(
+        &state.db,
+        document_version_id,
+        options,
+    )?))
+}
+
+async fn get_knowledge_citation_detail(
+    State(ctx): State<DevApiState>,
+    Path(chunk_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeCitationDetail> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::get_citation_detail(
+        &state.db, chunk_id,
+    )?))
+}
+
+async fn preview_knowledge_parse_and_chunk(
+    Json(input): Json<crate::models::KnowledgeParseAndChunkInput>,
+) -> DevApiResult<crate::models::KnowledgeParseAndChunkResult> {
+    Ok(Json(KnowledgeService::preview_parse_and_chunk(input)?))
+}
+
+async fn calculate_knowledge_embedding_fingerprint(
+    Json(input): Json<crate::models::KnowledgeEmbeddingFingerprintInput>,
+) -> DevApiResult<String> {
+    Ok(Json(KnowledgeEmbeddingService::calculate_fingerprint(
+        &input,
+    )?))
+}
+
+async fn estimate_knowledge_embedding_rebuild(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::EstimateKnowledgeEmbeddingRebuildInput>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingRebuildEstimate> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::estimate_rebuild(
+        &state.db, input,
+    )?))
+}
+
+/// 浏览器开发验收与 Tauri Command 走同一批处理 Service，避免开发 API 绕过任务
+/// checkpoint、取消和本地模型安全边界。
+async fn build_knowledge_local_embedding_batch(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::BuildKnowledgeEmbeddingBatchInput>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingBatchResult> {
+    let state = app_state(&ctx);
+    let app_data_dir = ctx
+        .app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Custom(error.to_string()))?;
+    Ok(Json(
+        KnowledgeEmbeddingService::build_local_embedding_batch(&state.db, &app_data_dir, input)?,
+    ))
+}
+
+/// 浏览器验收路径调用与 Tauri Command 相同的远程 Service；策略校验不在 Dev API
+/// 中复制，避免开发环境意外绕过来源授权或敏感内容阻断。
+async fn build_knowledge_remote_embedding_batch(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::BuildKnowledgeEmbeddingBatchInput>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingBatchResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeEmbeddingService::build_remote_embedding_batch(&state.db, input).await?,
+    ))
+}
+
+async fn begin_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingLifecycleResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::begin_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn validate_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingIndexValidation> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::validate_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn complete_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingLifecycleResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::complete_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn activate_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingLifecycleResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::activate_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn rollback_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingLifecycleResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::rollback_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn retire_knowledge_embedding_profile_rebuild(
+    State(ctx): State<DevApiState>,
+    Path(profile_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeEmbeddingLifecycleResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::retire_profile_rebuild(
+        &state.db, profile_id,
+    )?))
+}
+
+async fn search_active_knowledge_vectors(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::KnowledgeVectorSearchInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeSearchHit>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeEmbeddingService::search_active_vectors(
+        &state.db, input,
+    )?))
+}
+
+/// 浏览器开发回环与桌面 FTS Command 共用检索服务，避免预览环境绕过项目、版本和敏感级别硬过滤。
+async fn search_knowledge_fts(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::KnowledgeSearchInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeSearchHit>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeRetrievalService::search_fts(
+        &state.db, input,
+    )?))
+}
+
+/// 浏览器开发验收与桌面 Command 走同一 Service 重建全文索引，确保旧库索引失配时
+/// 的恢复动作不会只存在于原生窗口，且不会绕过发布阶段校验。
+async fn rebuild_knowledge_fts(State(ctx): State<DevApiState>) -> DevApiResult<i64> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::rebuild_fts(&state.db)?))
+}
+
+async fn preview_knowledge_rag_context(
+    State(ctx): State<DevApiState>,
+    Json(search): Json<crate::models::KnowledgeSearchInput>,
+) -> DevApiResult<crate::models::KnowledgeRagContextPreview> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeRetrievalService::preview_rag_context(
+        &state.db, search,
+    )?))
+}
+
+async fn ask_knowledge(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::KnowledgeAskInput>,
+) -> DevApiResult<crate::models::KnowledgeAskResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeRetrievalService::ask(&state.db, input).await?,
+    ))
+}
+
+async fn run_fixed_knowledge_retrieval_evaluation(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::RunKnowledgeRetrievalEvaluationInput>,
+) -> DevApiResult<crate::models::KnowledgeRetrievalEvaluationRun> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeRetrievalService::run_fixed_evaluation(
+        &state.db, input,
+    )?))
+}
+
+async fn analyze_knowledge_code_snapshot(
+    State(ctx): State<DevApiState>,
+    Path(snapshot_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeCodeAnalysisResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::analyze_code_snapshot(&state.db, snapshot_id).await?,
+    ))
+}
+
+async fn list_knowledge_code_sources(
+    State(ctx): State<DevApiState>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeSource>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_code_sources(&state.db)?))
+}
+
+async fn upsert_knowledge_code_source(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::UpsertKnowledgeCodeSourceInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSource> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::upsert_code_source(
+        &state.db, input,
+    )?))
+}
+
+async fn preview_knowledge_code_source_scope(
+    State(ctx): State<DevApiState>,
+    Path(source_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeSourceScopePreview> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::preview_code_source_scope(
+        &state.db, source_id,
+    )?))
+}
+
+async fn list_knowledge_code_snapshots(
+    State(ctx): State<DevApiState>,
+    Query(input): Query<crate::models::KnowledgeListInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeSnapshot>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        state.db.list_knowledge_code_snapshots(input.source_id)?,
+    ))
+}
+
+async fn capture_knowledge_git_snapshot(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::CaptureKnowledgeGitSnapshotInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::capture_git_snapshot(&state.db, input).await?,
+    ))
+}
+
+async fn capture_knowledge_dirty_worktree_snapshot(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::CaptureKnowledgeDirtyWorktreeSnapshotInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::capture_dirty_worktree_snapshot(&state.db, input).await?,
+    ))
+}
+
+async fn capture_knowledge_local_directory_snapshot(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::CaptureKnowledgeLocalDirectorySnapshotInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSnapshot> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::capture_local_directory_snapshot(
+        &state.db, input,
+    )?))
+}
+
+async fn generate_knowledge_code_documents(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::GenerateKnowledgeCodeDocumentsInput>,
+) -> DevApiResult<crate::models::GenerateKnowledgeCodeDocumentsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::generate_code_snapshot_documents(
+        &state.db, input,
+    )?))
+}
+
+async fn search_knowledge_code_symbols(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::SearchKnowledgeCodeSymbolsInput>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeSymbol>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::search_code_symbols(
+        &state.db, input,
+    )?))
+}
+
+async fn list_knowledge_code_files(
+    State(ctx): State<DevApiState>,
+    Path(snapshot_id): Path<i64>,
+) -> DevApiResult<Vec<crate::models::KnowledgeCodeFile>> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::list_code_files(
+        &state.db,
+        snapshot_id,
+    )?))
+}
+
+async fn get_knowledge_code_file_content(
+    State(ctx): State<DevApiState>,
+    Path((snapshot_id, file_id)): Path<(i64, i64)>,
+) -> DevApiResult<crate::models::KnowledgeCodeFileContent> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::get_code_file_content(
+        &state.db,
+        snapshot_id,
+        file_id,
+    )?))
+}
+
+async fn get_knowledge_code_call_graph(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::KnowledgeCodeCallGraphInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeCallGraph> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::code_call_graph(&state.db, input)?))
+}
+
+async fn compare_knowledge_code_snapshots(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::CompareKnowledgeCodeSnapshotsInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeSnapshotComparison> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::compare_code_snapshots(
+        &state.db, input,
+    )?))
+}
+
+async fn analyze_knowledge_code_impact(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::AnalyzeKnowledgeCodeImpactInput>,
+) -> DevApiResult<crate::models::KnowledgeCodeCallGraph> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::analyze_code_impact(
+        &state.db, input,
+    )?))
+}
+
+async fn sync_zentao_mapping(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::SyncZentaoMappingInput>,
+) -> DevApiResult<Vec<crate::models::ZentaoSyncResult>> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::sync_zentao_mapping(&state.db, input).await?,
+    ))
+}
+
+async fn generate_zentao_fact_documents(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::GenerateZentaoKnowledgeDocumentsInput>,
+) -> DevApiResult<crate::models::GenerateZentaoKnowledgeDocumentsResult> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::generate_zentao_fact_documents(
+        &state.db, input,
+    )?))
+}
+
+async fn generate_zentao_ai_summary(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::GenerateZentaoAiSummaryInput>,
+) -> DevApiResult<crate::models::GenerateZentaoAiSummaryResult> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        KnowledgeService::generate_zentao_ai_summary(&state.db, input).await?,
+    ))
 }
 
 async fn get_system_settings(
@@ -1871,7 +3640,7 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "ai_experience_upsert_controlled",
-            "description": "新增或更新经验库条目，默认生成 Markdown 文件并写入本地经验库。",
+            "description": "为新增或更新经验库条目创建审批请求；不会在未批准时写入本地经验库。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1883,9 +3652,26 @@ fn mcp_tool_schemas() -> Vec<serde_json::Value> {
                     "solution": { "type": "string" },
                     "scenario": { "type": "string" },
                     "tags": { "type": "array", "items": { "type": "string" } },
-                    "enabled": { "type": "boolean" }
+                    "enabled": { "type": "boolean" },
+                    "requester": { "type": "string" },
+                    "reason": { "type": "string" }
                 },
                 "required": ["title"]
+            }
+        }),
+        serde_json::json!({
+            "name": "ai_experience_upsert_approved",
+            "description": "在审批通过后新增或更新经验库条目；只写本地经验库，不隐式写 Git 或禅道。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "approvalId": { "type": "number" }, "id": { "type": "number" },
+                    "experienceKey": { "type": "string" }, "title": { "type": "string" },
+                    "symptom": { "type": "string" }, "cause": { "type": "string" },
+                    "solution": { "type": "string" }, "scenario": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } }, "enabled": { "type": "boolean" }
+                },
+                "required": ["approvalId", "title"]
             }
         }),
         serde_json::json!({
@@ -2619,6 +4405,50 @@ fn secure_credential_plan_tool_schemas() -> Vec<serde_json::Value> {
             "required": ["credentialKey"]
         }
     }));
+    // 知识 MCP 工具只开放经文档 `allow_mcp`、来源状态和敏感检测共同放行的读取能力。
+    // 不提供路径、Git 或禅道写入入口；关系确认另走明确审批。
+    tools.extend([
+        serde_json::json!({
+            "name": "knowledge_projects_list",
+            "description": "列出启用的团队知识项目元数据。",
+            "inputSchema": { "type": "object", "properties": { "keyword": { "type": "string" }, "limit": { "type": "number" } } }
+        }),
+        serde_json::json!({
+            "name": "knowledge_releases_list",
+            "description": "列出一个知识项目的发布版本。",
+            "inputSchema": { "type": "object", "properties": { "projectId": { "type": "number" } }, "required": ["projectId"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_search",
+            "description": "以项目、版本和敏感度硬过滤执行团队知识混合检索；只返回允许 MCP 的引用。",
+            "inputSchema": { "type": "object", "properties": { "search": { "type": "object" } }, "required": ["search"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_document_detail",
+            "description": "读取允许 MCP 的知识文档及其有效版本。",
+            "inputSchema": { "type": "object", "properties": { "documentId": { "type": "number" } }, "required": ["documentId"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_citation_detail",
+            "description": "读取允许 MCP 的知识引用详情。",
+            "inputSchema": { "type": "object", "properties": { "chunkId": { "type": "number" } }, "required": ["chunkId"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_ask",
+            "description": "基于允许 MCP 的知识证据问答；远程模型仍受独立远程 AI 授权约束。",
+            "inputSchema": { "type": "object", "properties": { "input": { "type": "object" } }, "required": ["input"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_relation_confirm_controlled",
+            "description": "为本地知识关系确认创建审批请求；不会修改 Git 或禅道。",
+            "inputSchema": { "type": "object", "properties": { "relationId": { "type": "number" }, "confirmed": { "type": "boolean" }, "requester": { "type": "string" }, "reason": { "type": "string" } }, "required": ["relationId", "confirmed"] }
+        }),
+        serde_json::json!({
+            "name": "knowledge_relation_confirm_approved",
+            "description": "在审批通过后确认或取消确认本地知识关系；不会修改 Git 或禅道。",
+            "inputSchema": { "type": "object", "properties": { "approvalId": { "type": "number" }, "relationId": { "type": "number" }, "confirmed": { "type": "boolean" } }, "required": ["approvalId", "relationId", "confirmed"] }
+        }),
+    ]);
     tools
 }
 
@@ -4477,28 +6307,63 @@ async fn call_mcp_tool_inner(
         }
         "ai_experience_upsert_controlled" => {
             let state = app_state(ctx);
-            let experience = AiSkillService::upsert_experience(
-                &ctx.app_handle,
+            let input = mcp_experience_upsert_input(&arguments)?;
+            let command = mcp_experience_upsert_command(&input)?;
+            let resource = input
+                .experience_key
+                .clone()
+                .unwrap_or_else(|| "new".to_string());
+            let approval = ApprovalService::create(
                 &state.db,
-                UpsertAiExperienceInput {
-                    id: optional_i64(&arguments, "id"),
-                    experience_key: optional_string(&arguments, "experienceKey"),
-                    title: required_string(&arguments, "title")?,
-                    symptom: optional_string(&arguments, "symptom"),
-                    cause: optional_string(&arguments, "cause"),
-                    solution: optional_string(&arguments, "solution"),
-                    scenario: optional_string(&arguments, "scenario").or(Some("mcp".into())),
-                    source: Some("mcp".into()),
-                    tags: Some(optional_string_array(&arguments, "tags")),
-                    references_json: None,
-                    markdown_path: None,
-                    enabled: optional_bool(&arguments, "enabled").or(Some(true)),
+                CreateApprovalRequestInput {
+                    source: "mcp".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: "ai_experience_upsert".into(),
+                    risk: "L2".into(),
+                    command,
+                    resource,
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "MCP 请求写入本地经验库".into()),
+                    summary: format!("写入经验库条目：{}", input.title),
+                    // 审批记录只保留可比对的哈希和标题，不能把经验正文作为审计副本。
+                    payload_json: Some(
+                        serde_json::json!({
+                            "title": input.title,
+                            "requestHash": mcp_experience_upsert_command(&input)?,
+                        })
+                        .to_string(),
+                    ),
+                    expires_at: None,
                 },
             )?;
-            Ok(serde_json::json!({
-                "action": "saved",
-                "experience": experience
-            }))
+            Ok(
+                serde_json::json!({ "action": approval_flow_action(&approval), "risk": "L2", "approval": approval }),
+            )
+        }
+        "ai_experience_upsert_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let input = mcp_experience_upsert_input(&arguments)?;
+            let command = mcp_experience_upsert_command(&input)?;
+            let resource = input
+                .experience_key
+                .clone()
+                .unwrap_or_else(|| "new".to_string());
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "ai_experience_upsert",
+                "",
+                Some(&command),
+                Some(&resource),
+            )?;
+            Ok(serde_json::to_value(AiSkillService::upsert_experience(
+                &ctx.app_handle,
+                &state.db,
+                input,
+            )?)?)
         }
         "ai_runbooks_list" => {
             let state = app_state(ctx);
@@ -5290,6 +7155,177 @@ async fn call_mcp_tool_inner(
                 }
             }))
         }
+        "knowledge_projects_list" => {
+            let state = app_state(ctx);
+            let input = crate::models::KnowledgeListInput {
+                project_id: None,
+                release_id: None,
+                source_id: None,
+                keyword: optional_string(&arguments, "keyword"),
+                status: Some("enabled".to_string()),
+                offset: Some(0),
+                limit: Some(
+                    optional_i64(&arguments, "limit")
+                        .unwrap_or(100)
+                        .clamp(1, 200),
+                ),
+            };
+            Ok(serde_json::to_value(KnowledgeService::list_projects(
+                &state.db,
+                Some(input),
+            )?)?)
+        }
+        "knowledge_releases_list" => {
+            let state = app_state(ctx);
+            let project_id = required_i64(&arguments, "projectId")?;
+            Ok(serde_json::to_value(KnowledgeService::list_releases(
+                &state.db, project_id,
+            )?)?)
+        }
+        "knowledge_search" => {
+            let state = app_state(ctx);
+            let search = mcp_knowledge_search_input(&arguments, "search")?;
+            let mut result = KnowledgeRetrievalService::search_hybrid(
+                &state.db,
+                crate::models::KnowledgeHybridSearchInput {
+                    filters: search,
+                    query_vector: None,
+                    relation_depth: Some(1),
+                },
+            )?;
+            result.hits = filter_mcp_knowledge_hits(&state.db, result.hits)?;
+            Ok(serde_json::to_value(result)?)
+        }
+        "knowledge_document_detail" => {
+            let state = app_state(ctx);
+            let detail = KnowledgeService::get_document_detail(
+                &state.db,
+                required_i64(&arguments, "documentId")?,
+            )?;
+            let content = detail
+                .versions
+                .iter()
+                .filter(|version| version.valid)
+                .map(|version| version.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            KnowledgePolicyService::authorize_mcp_document(&state.db, &detail.document, &content)?;
+            Ok(serde_json::to_value(detail)?)
+        }
+        "knowledge_citation_detail" => {
+            let state = app_state(ctx);
+            let detail = KnowledgeService::get_citation_detail(
+                &state.db,
+                required_i64(&arguments, "chunkId")?,
+            )?;
+            KnowledgePolicyService::authorize_mcp_document(
+                &state.db,
+                &detail.document,
+                &detail.chunk.content,
+            )?;
+            Ok(serde_json::to_value(detail)?)
+        }
+        "knowledge_ask" => {
+            let state = app_state(ctx);
+            let input = arguments
+                .get("input")
+                .cloned()
+                .ok_or_else(|| AppError::InvalidInput("参数 'input' 不能为空".into()))?;
+            let input = serde_json::from_value::<crate::models::KnowledgeAskInput>(input)
+                .map_err(|error| AppError::InvalidInput(format!("知识问答参数无效: {error}")))?;
+            let preview =
+                KnowledgeRetrievalService::preview_rag_context(&state.db, input.search.clone())?;
+            for citation in &preview.citations {
+                let Some(document_id) = citation.document_id else {
+                    return Err(AppError::InvalidInput(
+                        "MCP 不接受无文档归属的知识引用".into(),
+                    ));
+                };
+                let document = state
+                    .db
+                    .get_knowledge_document_by_id(document_id)?
+                    .ok_or_else(|| AppError::NotFound(format!("知识文档不存在: {document_id}")))?;
+                KnowledgePolicyService::authorize_mcp_document(
+                    &state.db,
+                    &document,
+                    &citation.excerpt,
+                )?;
+            }
+            Ok(serde_json::to_value(
+                KnowledgeRetrievalService::ask(&state.db, input).await?,
+            )?)
+        }
+        "knowledge_relation_confirm_controlled" => {
+            let state = app_state(ctx);
+            let relation_id = required_i64(&arguments, "relationId")?;
+            let confirmed = optional_bool(&arguments, "confirmed")
+                .ok_or_else(|| AppError::InvalidInput("参数 'confirmed' 不能为空".into()))?;
+            let relation = KnowledgeService::list_relations(
+                &state.db,
+                crate::models::ListKnowledgeRelationsInput {
+                    entity_type: None,
+                    entity_key: None,
+                    project_ids: Vec::new(),
+                    release_ids: Vec::new(),
+                    sensitivities: Vec::new(),
+                    confirmed_only: Some(false),
+                    limit: Some(500),
+                },
+            )?
+            .into_iter()
+            .find(|item| item.id == relation_id)
+            .ok_or_else(|| AppError::NotFound(format!("知识关系不存在: {relation_id}")))?;
+            let command = format!("confirmed={confirmed}");
+            let approval = ApprovalService::create(
+                &state.db,
+                CreateApprovalRequestInput {
+                    source: "mcp".into(),
+                    requester: optional_string(&arguments, "requester")
+                        .unwrap_or_else(|| "mcp-client".into()),
+                    server_alias: String::new(),
+                    action: "knowledge_relation_confirm".into(),
+                    risk: "L2".into(),
+                    command: command.clone(),
+                    resource: relation.id.to_string(),
+                    reason: optional_string(&arguments, "reason")
+                        .unwrap_or_else(|| "MCP 请求确认本地知识关系".into()),
+                    summary: format!(
+                        "{}知识关系 {}",
+                        if confirmed { "确认" } else { "取消确认" },
+                        relation.id
+                    ),
+                    payload_json: Some(
+                        serde_json::json!({"relationId": relation.id, "confirmed": confirmed})
+                            .to_string(),
+                    ),
+                    expires_at: None,
+                },
+            )?;
+            Ok(
+                serde_json::json!({"action": approval_flow_action(&approval), "risk": "L2", "approval": approval}),
+            )
+        }
+        "knowledge_relation_confirm_approved" => {
+            let state = app_state(ctx);
+            let approval_id = required_i64(&arguments, "approvalId")?;
+            let relation_id = required_i64(&arguments, "relationId")?;
+            let confirmed = optional_bool(&arguments, "confirmed")
+                .ok_or_else(|| AppError::InvalidInput("参数 'confirmed' 不能为空".into()))?;
+            let command = format!("confirmed={confirmed}");
+            require_approved_request(
+                &state.db,
+                approval_id,
+                "knowledge_relation_confirm",
+                "",
+                Some(&command),
+                Some(&relation_id.to_string()),
+            )?;
+            Ok(serde_json::to_value(KnowledgeService::confirm_relation(
+                &state.db,
+                relation_id,
+                confirmed,
+            )?)?)
+        }
         _ => Err(AppError::InvalidInput(format!(
             "不支持的 MCP 工具：{}",
             tool_name
@@ -5363,6 +7399,8 @@ fn mcp_tool_risk(tool_name: &str) -> &'static str {
         || tool_name == "deployment_dry_run"
         || tool_name == "deployment_rollback_dry_run"
         || tool_name == "deployment_ai_advice"
+        || tool_name == "knowledge_relation_confirm_controlled"
+        || tool_name == "knowledge_relation_confirm_approved"
         || tool_name.contains("create_file")
         || tool_name.contains("create_directory")
     {
@@ -5540,6 +7578,114 @@ fn find_ai_skill(
             .ok_or_else(|| AppError::NotFound(format!("Skill '{}' 不存在", skill_key)));
     }
     Err(AppError::InvalidInput("请提供 id 或 skillKey".into()))
+}
+
+/// MCP 请求显式构造检索过滤器，缺省值与桌面页面一致，且默认不返回正文。所有内容
+/// 输出还会在 `filter_mcp_knowledge_hits` 经过文档级授权，不能把缺失字段理解为放宽。
+fn mcp_knowledge_search_input(
+    arguments: &serde_json::Value,
+    key: &str,
+) -> Result<crate::models::KnowledgeSearchInput, AppError> {
+    let value = arguments
+        .get(key)
+        .ok_or_else(|| AppError::InvalidInput(format!("参数 '{key}' 不能为空")))?;
+    let query = value
+        .get("query")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| AppError::InvalidInput("知识检索 query 不能为空".into()))?;
+    Ok(crate::models::KnowledgeSearchInput {
+        query,
+        project_ids: json_i64_array(value, "projectIds"),
+        release_ids: json_i64_array(value, "releaseIds"),
+        source_ids: json_i64_array(value, "sourceIds"),
+        document_types: json_string_array(value, "documentTypes"),
+        sensitivities: json_string_array(value, "sensitivities"),
+        snapshot_id: value.get("snapshotId").and_then(serde_json::Value::as_i64),
+        limit: value
+            .get("limit")
+            .and_then(serde_json::Value::as_i64)
+            .or(Some(20)),
+        include_context: Some(false),
+    })
+}
+
+fn filter_mcp_knowledge_hits(
+    db: &crate::database::Database,
+    hits: Vec<crate::models::KnowledgeSearchHit>,
+) -> Result<Vec<crate::models::KnowledgeSearchHit>, AppError> {
+    let mut allowed = Vec::new();
+    for hit in hits {
+        let Some(document_id) = hit.citation.document_id else {
+            continue;
+        };
+        let Some(document) = db.get_knowledge_document_by_id(document_id)? else {
+            continue;
+        };
+        if KnowledgePolicyService::authorize_mcp_document(db, &document, &hit.content).is_ok() {
+            allowed.push(hit);
+        }
+    }
+    Ok(allowed)
+}
+
+fn json_i64_array(value: &serde_json::Value, key: &str) -> Vec<i64> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_i64)
+                .filter(|id| *id > 0)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn json_string_array(value: &serde_json::Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn mcp_experience_upsert_input(
+    arguments: &serde_json::Value,
+) -> Result<UpsertAiExperienceInput, AppError> {
+    Ok(UpsertAiExperienceInput {
+        id: optional_i64(arguments, "id"),
+        experience_key: optional_string(arguments, "experienceKey"),
+        title: required_string(arguments, "title")?,
+        symptom: optional_string(arguments, "symptom"),
+        cause: optional_string(arguments, "cause"),
+        solution: optional_string(arguments, "solution"),
+        scenario: optional_string(arguments, "scenario").or(Some("mcp".into())),
+        source: Some("mcp".into()),
+        tags: Some(optional_string_array(arguments, "tags")),
+        references_json: None,
+        markdown_path: None,
+        enabled: optional_bool(arguments, "enabled").or(Some(true)),
+    })
+}
+
+/// 把审批绑定到完整的经验写入请求，同时不把正文放进审批或审计记录。
+fn mcp_experience_upsert_command(input: &UpsertAiExperienceInput) -> Result<String, AppError> {
+    let payload = serde_json::to_vec(input)?;
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    Ok(format!("experience_upsert:{:x}", hasher.finalize()))
 }
 
 fn required_string(arguments: &serde_json::Value, key: &str) -> Result<String, AppError> {
@@ -8385,4 +10531,89 @@ fn audit_terminal_command_error(
             approval_id: None,
         },
     );
+}
+
+#[cfg(test)]
+mod knowledge_mcp_tests {
+    use axum::{
+        http::{HeaderValue, StatusCode},
+        response::IntoResponse,
+    };
+
+    use super::{
+        is_loopback_dev_origin, mcp_knowledge_search_input, mcp_tool_schemas, DevApiError,
+    };
+    use crate::error::CommandError;
+
+    #[test]
+    fn dev_api_cors_allows_only_loopback_http_origins() {
+        for origin in [
+            "http://localhost:1422",
+            "http://127.0.0.1:1423",
+            "http://[::1]:1424",
+        ] {
+            assert!(
+                is_loopback_dev_origin(&HeaderValue::from_str(origin).expect("valid header")),
+                "expected allowed origin: {origin}"
+            );
+        }
+
+        for origin in [
+            "https://localhost:1422",
+            "http://192.168.1.8:1422",
+            "http://localhost:1422/path",
+            "http://localhost:invalid",
+            "http://localhost:1422@evil.example",
+        ] {
+            assert!(
+                !is_loopback_dev_origin(&HeaderValue::from_str(origin).expect("valid header")),
+                "expected rejected origin: {origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_fts_index_uses_a_recoverable_conflict_response() {
+        let response = DevApiError(CommandError {
+            code: "KNOWLEDGE_FTS_REBUILD_REQUIRED".to_string(),
+            message: "请重建全文索引".to_string(),
+        })
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn knowledge_mcp_tools_are_exposed_with_approval_boundary() {
+        let names = mcp_tool_schemas()
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>();
+        for expected in [
+            "knowledge_projects_list",
+            "knowledge_releases_list",
+            "knowledge_search",
+            "knowledge_document_detail",
+            "knowledge_citation_detail",
+            "knowledge_ask",
+            "knowledge_relation_confirm_controlled",
+            "knowledge_relation_confirm_approved",
+            "ai_experience_upsert_approved",
+        ] {
+            assert!(names.contains(expected), "missing MCP tool: {expected}");
+        }
+    }
+
+    #[test]
+    fn mcp_knowledge_search_defaults_to_metadata_only() {
+        let input = mcp_knowledge_search_input(
+            &serde_json::json!({"search": {"query": "v1.6.0 的实现", "projectIds": [7]}}),
+            "search",
+        )
+        .expect("valid MCP search input");
+        assert_eq!(input.project_ids, vec![7]);
+        assert_eq!(input.include_context, Some(false));
+        assert_eq!(input.limit, Some(20));
+    }
 }

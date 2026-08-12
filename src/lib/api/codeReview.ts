@@ -10,7 +10,9 @@ import type {
 } from "@/types";
 
 function requireTauriRuntime(): never {
-  throw new Error("代码审核需要读取和操作本地 Git 工作区，请在 Tauri 桌面端使用该功能。");
+  throw new Error(
+    "代码审核需要读取和操作本地 Git 工作区，请在 Tauri 桌面端使用该功能。",
+  );
 }
 
 export const codeReviewApi = {

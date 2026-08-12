@@ -1,6 +1,5 @@
 {
-  "$schema": "https://developers.openai.com/codex/hooks-schema.json",
-  "_comment": "tauri 项目 Codex hooks 配置。需配合 .codex/config.toml 中 [features] hooks=true 启用。",
+  "description": "tauri 项目 Codex hooks 配置。Skill Hook 使用确定性候选路由，异常时无阻断降级；需配合 .codex/config.toml 中 [features] hooks=true 启用。",
   "hooks": {
     "SessionStart": [
       {
@@ -21,7 +20,7 @@
           {
             "type": "command",
             "command": "node .codex/hooks/skill-forced-eval.cjs",
-            "statusMessage": "强制技能评估",
+            "statusMessage": "路由并评估技能",
             "timeout": 10
           }
         ]

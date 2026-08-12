@@ -1,0 +1,297 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]: Tauri SSH
+      - menu [ref=e9]:
+        - menuitem "工作台" [ref=e10] [cursor=pointer]
+        - menuitem "资产" [expanded] [ref=e17] [cursor=pointer]
+        - menu [ref=e22]:
+          - menuitem "服务器" [ref=e23] [cursor=pointer]
+          - menuitem "凭据保险库" [ref=e28] [cursor=pointer]
+        - menuitem "安全" [expanded] [ref=e33] [cursor=pointer]
+        - menu [ref=e39]:
+          - menuitem "概览" [ref=e40] [cursor=pointer]
+          - menuitem "凭证库" [ref=e47] [cursor=pointer]
+          - menuitem "Git 工作区" [ref=e52] [cursor=pointer]
+          - menuitem "代码审核" [ref=e58] [cursor=pointer]
+          - menuitem "会话" [ref=e65] [cursor=pointer]
+          - menuitem "MCP 接入" [ref=e70] [cursor=pointer]
+          - menuitem "审计" [ref=e78] [cursor=pointer]
+          - menuitem "策略" [ref=e83] [cursor=pointer]
+        - menuitem "运维" [expanded] [ref=e86] [cursor=pointer]
+        - menu [ref=e90]:
+          - menuitem "终端 + AI" [ref=e91] [cursor=pointer]
+          - menuitem "日志监听" [ref=e95] [cursor=pointer]
+          - menuitem "SFTP 文件" [ref=e98] [cursor=pointer]
+          - menuitem "数据库管理" [ref=e105] [cursor=pointer]
+          - menuitem "资源监控" [ref=e111] [cursor=pointer]
+          - menuitem "自动部署" [ref=e115] [cursor=pointer]
+          - menuitem "Jenkins" [ref=e122] [cursor=pointer]
+        - menuitem "AI / MCP" [expanded] [ref=e128] [cursor=pointer]
+        - menu [ref=e133]:
+          - menuitem "AI Provider" [ref=e134] [cursor=pointer]
+          - menuitem "MCP Server" [ref=e139] [cursor=pointer]
+          - menuitem "Skill 管理" [ref=e147] [cursor=pointer]
+          - menuitem "团队知识库" [ref=e151] [cursor=pointer]
+          - menuitem "堡垒机会话" [ref=e155] [cursor=pointer]
+        - menuitem "治理" [expanded] [ref=e159] [cursor=pointer]
+        - menu [ref=e164]:
+          - menuitem "审计日志" [ref=e165] [cursor=pointer]
+          - menuitem "审批队列" [ref=e170] [cursor=pointer]
+          - menuitem "系统设置" [active] [ref=e175] [cursor=pointer]
+  - generic [ref=e180]:
+    - banner [ref=e181]:
+      - button [ref=e183] [cursor=pointer]:
+        - img "menu-fold" [ref=e185]
+      - generic [ref=e189]:
+        - button "sync v0.2.5 DEV" [ref=e190] [cursor=pointer]:
+          - img "sync" [ref=e192]
+          - generic [ref=e196]: v0.2.5 DEV
+        - button "AI 放行 关" [ref=e197] [cursor=pointer]:
+          - generic [ref=e202]: AI 放行
+          - generic [ref=e203]: 关
+        - button [ref=e204] [cursor=pointer]
+        - button [ref=e208] [cursor=pointer]:
+          - img "setting" [ref=e210]
+        - generic [ref=e213]:
+          - button "最小化" [ref=e214] [cursor=pointer]
+          - button "最大化" [ref=e216] [cursor=pointer]
+          - button "关闭" [ref=e219] [cursor=pointer]
+    - main [ref=e223]:
+      - generic [ref=e925]:
+        - generic [ref=e926]:
+          - generic [ref=e927]:
+            - heading "系统设置" [level=2] [ref=e928]
+            - text: 主题、更新、日志、数据备份、保留期和跨平台行为设置。
+          - generic [ref=e930]:
+            - button "刷 新" [ref=e932] [cursor=pointer]
+            - button "导出设置" [ref=e935] [cursor=pointer]
+        - generic [ref=e937]:
+          - generic [ref=e939]:
+            - generic [ref=e940]: 基础设置
+            - generic [ref=e942]:
+              - button "恢复默认" [ref=e944] [cursor=pointer]
+              - button "保存设置" [ref=e947] [cursor=pointer]
+          - generic [ref=e951]:
+            - generic [ref=e953]:
+              - generic "主题" [ref=e955]: "* 主题"
+              - generic [ref=e959] [cursor=pointer]:
+                - generic "跟随系统" [ref=e960]:
+                  - text: 跟随系统
+                  - combobox "* 主题" [ref=e961]
+                - img "down" [ref=e963]
+            - generic [ref=e967]:
+              - generic "自动更新" [ref=e969]
+              - switch "自动更新" [checked] [ref=e973] [cursor=pointer]:
+                - generic [ref=e975]:
+                  - generic: 开启
+                  - generic: 关闭
+            - generic [ref=e977]:
+              - generic "MCP Server" [ref=e979]:
+                - text: MCP Server
+                - img "question-circle" [ref=e981]
+              - switch "MCP Server question-circle" [ref=e988] [cursor=pointer]:
+                - generic [ref=e990]:
+                  - generic: 开启
+                  - generic: 关闭
+            - generic [ref=e992]:
+              - generic "随系统启动" [ref=e994]:
+                - text: 随系统启动
+                - img "question-circle" [ref=e996]
+              - switch "随系统启动 question-circle" [checked] [ref=e1003] [cursor=pointer]:
+                - generic [ref=e1005]:
+                  - generic: 开启
+                  - generic: 关闭
+            - generic [ref=e1007]:
+              - generic "审计保留天数" [ref=e1009]: "* 审计保留天数"
+              - generic [ref=e1013]:
+                - generic [ref=e1014]:
+                  - spinbutton "* 审计保留天数" [ref=e1015]: "90"
+                  - generic:
+                    - button "Increase Value" [ref=e1016] [cursor=pointer]:
+                      - img "up" [ref=e1017]
+                    - button "Decrease Value" [ref=e1020] [cursor=pointer]:
+                      - img "down" [ref=e1021]
+                - generic [ref=e1024]: 天
+            - generic [ref=e1026]:
+              - generic "日志级别" [ref=e1028]: "* 日志级别"
+              - generic [ref=e1032] [cursor=pointer]:
+                - generic "Info" [ref=e1033]:
+                  - text: Info
+                  - combobox "* 日志级别" [ref=e1034]
+                - img "down" [ref=e1036]
+            - generic [ref=e1040]:
+              - generic "备份位置" [ref=e1042]: "* 备份位置"
+              - textbox "* 备份位置" [ref=e1046]:
+                - /placeholder: 应用数据目录 / backups
+                - text: 应用数据目录 / backups
+            - generic [ref=e1048]:
+              - generic "数据库导出目录" [ref=e1050]: "* 数据库导出目录"
+              - textbox "* 数据库导出目录" [ref=e1054]:
+                - /placeholder: ~/Downloads
+                - text: /Users/bin/Downloads
+            - generic [ref=e1056]:
+              - generic "首发平台" [ref=e1058]: "* 首发平台"
+              - generic [ref=e1062] [cursor=pointer]:
+                - generic "macOS + Windows" [ref=e1063]:
+                  - text: macOS + Windows
+                  - combobox "* 首发平台" [ref=e1064]
+                - img "down" [ref=e1066]
+            - generic [ref=e1070]:
+              - generic "关闭行为" [ref=e1072]: "* 关闭行为"
+              - generic [ref=e1076] [cursor=pointer]:
+                - generic "关闭到托盘" [ref=e1077]:
+                  - text: 关闭到托盘
+                  - combobox "* 关闭行为" [ref=e1078]
+                - img "down" [ref=e1080]
+            - generic [ref=e1084]:
+              - generic "语言" [ref=e1086]: "* 语言"
+              - generic [ref=e1090] [cursor=pointer]:
+                - generic "简体中文" [ref=e1091]:
+                  - text: 简体中文
+                  - combobox "* 语言" [ref=e1092]
+                - img "down" [ref=e1094]
+        - generic [ref=e1097]:
+          - generic [ref=e1099]:
+            - generic [ref=e1100]: 危险命令黑名单
+            - button "新增" [ref=e1106] [cursor=pointer]
+          - generic [ref=e1110]:
+            - generic [ref=e1111]:
+              - text: 正则匹配，命中即
+              - code [ref=e1113]: blocked
+              - text: （所有策略档位都生效，含
+              - code [ref=e1115]: trusted
+              - text: ）。 内置
+              - strong [ref=e1117]: "24"
+              - text: 条 + 用户自加
+              - strong [ref=e1119]: "0"
+              - text: 条。
+            - generic [ref=e1122]:
+              - table [ref=e1126]:
+                - rowgroup [ref=e1132]:
+                  - row [ref=e1133]:
+                    - columnheader "正则" [ref=e1134]
+                    - columnheader "说明" [ref=e1135]
+                    - columnheader "来源" [ref=e1136]
+                    - columnheader "操作" [ref=e1137]
+                - rowgroup [ref=e1138]:
+                  - row [ref=e1139]:
+                    - cell [ref=e1140]:
+                      - code [ref=e1142]: (?:^|[\s;&|])rm\s+-[a-z]*r[a-z]*f?[a-z]*\s+(?:/|~|\$home|\*)
+                    - cell [ref=e1143]:
+                      - strong [ref=e1145]: rm -rf / ~
+                    - cell "内置" [ref=e1146]
+                    - cell [ref=e1148]:
+                      - button [disabled] [ref=e1149]
+                  - row [ref=e1150]:
+                    - cell [ref=e1151]:
+                      - code [ref=e1153]: (?:^|[\s;&|])rm\s+-[a-z]*f[a-z]*r[a-z]*\s+(?:/|~|\$home|\*)
+                    - cell [ref=e1154]:
+                      - strong [ref=e1156]: rm -fr 等价形态
+                    - cell "内置" [ref=e1157]
+                    - cell [ref=e1159]:
+                      - button [disabled] [ref=e1160]
+                  - row [ref=e1161]:
+                    - cell [ref=e1162]:
+                      - code [ref=e1164]: \bmkfs[\.\w]*\b
+                    - cell [ref=e1165]:
+                      - strong [ref=e1167]: mkfs.* 磁盘格式化
+                    - cell "内置" [ref=e1168]
+                    - cell [ref=e1170]:
+                      - button [disabled] [ref=e1171]
+                  - row [ref=e1172]:
+                    - cell [ref=e1173]:
+                      - code [ref=e1175]: \bmke2fs\b
+                    - cell [ref=e1176]:
+                      - strong [ref=e1178]: mke2fs 磁盘格式化
+                    - cell "内置" [ref=e1179]
+                    - cell [ref=e1181]:
+                      - button [disabled] [ref=e1182]
+                  - row [ref=e1183]:
+                    - cell [ref=e1184]:
+                      - code [ref=e1186]: \bwipefs\b
+                    - cell [ref=e1187]:
+                      - strong [ref=e1189]: wipefs 擦除文件系统签名
+                    - cell "内置" [ref=e1190]
+                    - cell [ref=e1192]:
+                      - button [disabled] [ref=e1193]
+                  - row [ref=e1194]:
+                    - cell [ref=e1195]:
+                      - code [ref=e1197]: \bdd\b[^\n]*\bof=/dev/
+                    - cell [ref=e1198]:
+                      - strong [ref=e1200]: dd of=/dev/ 直接写块设备
+                    - cell "内置" [ref=e1201]
+                    - cell [ref=e1203]:
+                      - button [disabled] [ref=e1204]
+                  - row [ref=e1205]:
+                    - cell [ref=e1206]:
+                      - code [ref=e1208]: ":\\s*\\(\\s*\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"
+                    - cell [ref=e1209]:
+                      - strong [ref=e1211]: "fork bomb :(){:|:&};:"
+                    - cell "内置" [ref=e1212]
+                    - cell [ref=e1214]:
+                      - button [disabled] [ref=e1215]
+                  - row [ref=e1216]:
+                    - cell [ref=e1217]:
+                      - code [ref=e1219]: ">\\s*/dev/sd[a-z]"
+                    - cell [ref=e1220]:
+                      - strong [ref=e1222]: 重定向到 /dev/sd*
+                    - cell "内置" [ref=e1223]
+                    - cell [ref=e1225]:
+                      - button [disabled] [ref=e1226]
+                  - row [ref=e1227]:
+                    - cell [ref=e1228]:
+                      - code [ref=e1230]: \bchmod\s+-r\s+0*777\s+/(?:\s|$)
+                    - cell [ref=e1231]:
+                      - strong [ref=e1233]: chmod -R 777 /
+                    - cell "内置" [ref=e1234]
+                    - cell [ref=e1236]:
+                      - button [disabled] [ref=e1237]
+                  - row [ref=e1238]:
+                    - cell [ref=e1239]:
+                      - code [ref=e1241]: \bchown\s+-r\s+\w+\s+/(?:\s|$)
+                    - cell [ref=e1242]:
+                      - strong [ref=e1244]: chown -R x /
+                    - cell "内置" [ref=e1245]
+                    - cell [ref=e1247]:
+                      - button [disabled] [ref=e1248]
+              - list [ref=e1249]:
+                - listitem "上一页" [ref=e1250]:
+                  - button [disabled] [ref=e1251]:
+                    - img "left" [ref=e1252]
+                - listitem "1" [ref=e1255] [cursor=pointer]
+                - listitem "2" [ref=e1257] [cursor=pointer]
+                - listitem "3" [ref=e1259] [cursor=pointer]
+                - listitem "下一页" [ref=e1261] [cursor=pointer]:
+                  - button [ref=e1262]:
+                    - img "right" [ref=e1263]
+        - generic [ref=e1266]:
+          - generic [ref=e1267]: 当前状态
+          - table [ref=e1273]:
+            - rowgroup [ref=e1274]:
+              - row [ref=e1275]:
+                - rowheader "主题" [ref=e1276]
+                - cell "system" [ref=e1277]
+                - rowheader "自动更新" [ref=e1278]
+                - cell "开启" [ref=e1279]
+                - rowheader "MCP Server" [ref=e1280]
+                - cell "关闭" [ref=e1281]
+              - row [ref=e1282]:
+                - rowheader "随系统启动" [ref=e1283]
+                - cell "开启" [ref=e1284]
+                - rowheader "审计保留" [ref=e1285]
+                - cell "90 天" [ref=e1286]
+                - rowheader "日志级别" [ref=e1287]
+                - cell "info" [ref=e1288]
+              - row [ref=e1289]:
+                - rowheader "备份位置" [ref=e1290]
+                - cell "应用数据目录 / backups" [ref=e1291]
+                - rowheader "数据库导出目录" [ref=e1292]
+                - cell "/Users/bin/Downloads" [ref=e1293]
+                - rowheader "关闭行为" [ref=e1294]
+                - cell "关闭到托盘" [ref=e1295]
+              - row [ref=e1296]:
+                - rowheader "AI 临时放行" [ref=e1297]
+                - cell "截至 2026/8/2 00:15:56" [ref=e1298]
+                - rowheader "危险命令规则" [ref=e1299]
+                - cell "24 条" [ref=e1300]

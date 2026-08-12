@@ -14,6 +14,14 @@ edition = "2021"
 name = "tauri_ssh_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# 本地 Embedding 能力默认随应用提供；模型文件和 ONNX Runtime 仍只从已校验的
+# 本地安装包加载，不会因启用 feature 自动联网下载。
+default = ["local-embedding-fastembed"]
+# ONNX Runtime 由经过校验的离线模型包在运行时动态加载，避免构建机隐式下载二进制；
+# 默认构建仍提供本地 Embedding 能力，但不会自动下载模型或运行时文件。
+local-embedding-fastembed = ["dep:fastembed", "fastembed/ort-load-dynamic"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -24,8 +32,10 @@ tauri-plugin-store = "2"
 tauri-plugin-log = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9.34"
 thiserror = "2"
-rusqlite = { version = "0.31", features = ["bundled"] }
+# 与 SQLx 0.9 共用 libsqlite3-sys 0.37，避免同一进程重复链接 SQLite 原生库。
+rusqlite = { version = "0.39", features = ["bundled"] }
 log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-updater = "2"
@@ -37,9 +47,19 @@ base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql", "postgres", "json", "chrono"], default-features = false }
+# 不启用 SQLx 的 mysql-rsa 可选功能，避免引入无上游修复的 rsa 时序攻击依赖。
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-ring", "mysql", "postgres", "json", "chrono"], default-features = false }
 redis = { version = "0.32", features = ["tokio-comp"] }
 regex = "1"
+globset = { version = "0.4.19", default-features = false }
+fastembed = { version = "=5.17.0", default-features = false, features = ["hf-hub-rustls-tls"], optional = true }
+# 文档解析仅处理受限的静态内容；依赖版本已通过 macOS 夹具和 RustSec 审计验证。
+calamine = "=0.36.1"
+lopdf = { version = "=0.44.0", default-features = false }
+quick-xml = "=0.41.0"
+zip = { version = "=7.2.0", default-features = false, features = ["deflate"] }
+ammonia = "=4.1.4"
+svg-hush = "=0.9.6"
 
 # ─── 远程访问网关（移动端伴侣） ─────────────
 # 详见 src/remote/ 模块和 .claude/skills/remote-gateway/skill.md

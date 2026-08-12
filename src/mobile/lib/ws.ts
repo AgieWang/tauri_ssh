@@ -15,7 +15,7 @@ export interface MobileWSOptions {
   onClose?: (ev: CloseEvent) => void;
   onError?: (ev: Event) => void;
   pingIntervalMs?: number; // 默认 25_000
-  maxBackoffMs?: number;   // 默认 30_000
+  maxBackoffMs?: number; // 默认 30_000
 }
 
 export interface MobileWS {
@@ -43,7 +43,9 @@ export function createMobileWS(opt: MobileWSOptions): MobileWS {
     const fullPath = path.startsWith("/") ? path : `/${path}`;
     // Token 通过 query 传（WebSocket 没有 Authorization header）
     const sep = fullPath.includes("?") ? "&" : "?";
-    return ep.token ? `${wsBase}${fullPath}${sep}token=${encodeURIComponent(ep.token)}` : `${wsBase}${fullPath}`;
+    return ep.token
+      ? `${wsBase}${fullPath}${sep}token=${encodeURIComponent(ep.token)}`
+      : `${wsBase}${fullPath}`;
   }
 
   function connect() {

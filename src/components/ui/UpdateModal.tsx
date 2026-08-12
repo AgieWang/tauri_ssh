@@ -120,7 +120,11 @@ export function UpdateModal({
               <Text strong>更新日志：</Text>
               <div
                 className="mt-2 p-3 rounded-md"
-                style={{ background: "rgba(0,0,0,0.04)", maxHeight: 200, overflow: "auto" }}
+                style={{
+                  background: "rgba(0,0,0,0.04)",
+                  maxHeight: 200,
+                  overflow: "auto",
+                }}
               >
                 <Text style={{ whiteSpace: "pre-wrap" }}>{update.body}</Text>
               </div>

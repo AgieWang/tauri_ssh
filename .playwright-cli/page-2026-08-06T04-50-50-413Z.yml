@@ -1,0 +1,264 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e3]:
+    - complementary [ref=f1e4]:
+      - generic [ref=f1e6]:
+        - generic [ref=f1e7]: Tauri SSH
+        - menu [ref=f1e9]:
+          - menuitem "工作台" [ref=f1e10] [cursor=pointer]
+          - menuitem "资产" [expanded] [ref=f1e17] [cursor=pointer]
+          - menu [ref=f1e22]:
+            - menuitem "服务器" [ref=f1e23] [cursor=pointer]
+            - menuitem "凭据保险库" [ref=f1e28] [cursor=pointer]
+          - menuitem "安全" [expanded] [ref=f1e33] [cursor=pointer]
+          - menu [ref=f1e39]:
+            - menuitem "概览" [ref=f1e40] [cursor=pointer]
+            - menuitem "凭证库" [ref=f1e47] [cursor=pointer]
+            - menuitem "Git 工作区" [ref=f1e52] [cursor=pointer]
+            - menuitem "代码审核" [ref=f1e58] [cursor=pointer]
+            - menuitem "会话" [ref=f1e65] [cursor=pointer]
+            - menuitem "MCP 接入" [ref=f1e70] [cursor=pointer]
+            - menuitem "审计" [ref=f1e78] [cursor=pointer]
+            - menuitem "策略" [ref=f1e83] [cursor=pointer]
+          - menuitem "运维" [expanded] [ref=f1e86] [cursor=pointer]
+          - menu [ref=f1e90]:
+            - menuitem "终端 + AI" [ref=f1e91] [cursor=pointer]
+            - menuitem "日志监听" [ref=f1e95] [cursor=pointer]
+            - menuitem "SFTP 文件" [ref=f1e98] [cursor=pointer]
+            - menuitem "数据库管理" [ref=f1e105] [cursor=pointer]
+            - menuitem "资源监控" [ref=f1e111] [cursor=pointer]
+            - menuitem "自动部署" [ref=f1e115] [cursor=pointer]
+            - menuitem "Jenkins" [ref=f1e122] [cursor=pointer]
+          - menuitem "AI / MCP" [expanded] [ref=f1e128] [cursor=pointer]
+          - menu [ref=f1e133]:
+            - menuitem "AI Provider" [ref=f1e134] [cursor=pointer]
+            - menuitem "MCP Server" [ref=f1e139] [cursor=pointer]
+            - menuitem "Skill 管理" [ref=f1e147] [cursor=pointer]
+            - menuitem "团队知识库" [ref=f1e151] [cursor=pointer]
+            - menuitem "堡垒机会话" [ref=f1e155] [cursor=pointer]
+          - menuitem "治理" [expanded] [ref=f1e159] [cursor=pointer]
+          - menu [ref=f1e164]:
+            - menuitem "审计日志" [ref=f1e165] [cursor=pointer]
+            - menuitem "审批队列" [ref=f1e170] [cursor=pointer]
+            - menuitem "系统设置" [ref=f1e175] [cursor=pointer]
+    - generic [ref=f1e180]:
+      - banner [ref=f1e181]:
+        - button [ref=f1e183] [cursor=pointer]:
+          - img "menu-fold" [ref=f1e185]
+        - generic [ref=f1e189]:
+          - button "sync v0.2.5 DEV" [ref=f1e190] [cursor=pointer]:
+            - img "sync" [ref=f1e192]
+            - generic [ref=f1e196]: v0.2.5 DEV
+          - button "AI 放行 关" [ref=f1e197] [cursor=pointer]:
+            - generic [ref=f1e202]: AI 放行
+            - generic [ref=f1e203]: 关
+          - button [ref=f1e204] [cursor=pointer]
+          - button [ref=f1e208] [cursor=pointer]:
+            - img "setting" [ref=f1e210]
+          - generic [ref=f1e213]:
+            - button "最小化" [ref=f1e214] [cursor=pointer]
+            - button "最大化" [ref=f1e216] [cursor=pointer]
+            - button "关闭" [ref=f1e219] [cursor=pointer]
+      - main [ref=f1e223]:
+        - generic [ref=f1e224]:
+          - generic [ref=f1e225]:
+            - generic [ref=f1e226]:
+              - heading "MCP 接入中心" [level=2] [ref=f1e227]
+              - text: 把 Tauri SSH 暴露的 MCP 服务接到 Claude Code / Codex / Cursor / Cline / Zed / OpenCode 等 Agent 工具。
+            - generic [ref=f1e229]:
+              - generic [ref=f1e230]: MCP 已关闭
+              - switch "MCP Server" [ref=f1e233] [cursor=pointer]:
+                - generic [ref=f1e235]:
+                  - generic: 开启
+                  - generic: 关闭
+              - button "刷新" [ref=f1e237] [cursor=pointer]
+          - generic [ref=f1e245]:
+            - generic [ref=f1e247]:
+              - generic [ref=f1e248]: 端点状态（仅本地 127.0.0.1）
+              - button "复制端点" [ref=f1e257] [cursor=pointer]
+            - generic [ref=f1e259]:
+              - alert [ref=f1e599]:
+                - img "exclamation-circle" [ref=f1e601]
+                - generic [ref=f1e604]:
+                  - generic [ref=f1e605]: MCP Server 已关闭
+                  - generic [ref=f1e606]: 可在系统设置中开启。开发环境默认关闭，release 版本默认开启。
+              - generic [ref=f1e268]:
+                - generic [ref=f1e269]:
+                  - text: Streamable HTTP 端点
+                  - generic [ref=f1e270]: http://127.0.0.1:17321/mcp
+                - generic [ref=f1e271]:
+                  - text: stdio bridge 命令
+                  - generic [ref=f1e272]: npx -y mcp-remote http://127.0.0.1:17321/mcp
+                - generic [ref=f1e273]:
+                  - generic [ref=f1e607]: MCP Server 已关闭；可在系统设置中开启。
+                  - generic [ref=f1e608]: 系统设置已关闭 MCP 调用。
+          - generic [ref=f1e276]:
+            - generic [ref=f1e278]:
+              - generic [ref=f1e279]: 一键接入 AI 客户端
+              - generic [ref=f1e284]: 点击后写入 scoped 配置，重启对应客户端生效
+            - generic [ref=f1e286]:
+              - generic [ref=f1e287]:
+                - generic [ref=f1e292]:
+                  - generic [ref=f1e293]:
+                    - strong [ref=f1e296]: Claude Code
+                    - generic [ref=f1e297]: 可接入
+                  - generic [ref=f1e299]: Anthropic 官方 CLI，写入用户级 ~/.claude.json。
+                  - generic [ref=f1e300]: /Users/bin/.claude.json
+                - button "一键接入" [ref=f1e301] [cursor=pointer]
+              - generic [ref=f1e303]:
+                - generic [ref=f1e308]:
+                  - generic [ref=f1e309]:
+                    - strong [ref=f1e312]: Codex
+                    - generic [ref=f1e313]: 已接入
+                  - generic [ref=f1e315]: Codex CLI / Desktop，写入 ~/.codex/config.toml。
+                  - generic [ref=f1e316]: /Users/bin/.codex/config.toml
+                - button "重新接入" [ref=f1e317] [cursor=pointer]
+              - generic [ref=f1e319]:
+                - generic [ref=f1e324]:
+                  - generic [ref=f1e325]:
+                    - strong [ref=f1e328]: Cursor
+                    - generic [ref=f1e329]: 未发现配置
+                  - generic [ref=f1e331]: AI 编辑器，写入 ~/.cursor/mcp.json。
+                  - generic [ref=f1e332]: /Users/bin/.cursor/mcp.json
+                - button "一键接入" [ref=f1e333] [cursor=pointer]
+              - generic [ref=f1e335]:
+                - generic [ref=f1e340]:
+                  - generic [ref=f1e341]:
+                    - strong [ref=f1e344]: Cline
+                    - generic [ref=f1e345]: 未发现配置
+                  - generic [ref=f1e347]: VS Code AI 编程插件，写入 ~/.cline/mcp.json。
+                  - generic [ref=f1e348]: /Users/bin/.cline/mcp.json
+                - button "一键接入" [ref=f1e349] [cursor=pointer]
+              - generic [ref=f1e351]:
+                - generic [ref=f1e356]:
+                  - generic [ref=f1e357]:
+                    - strong [ref=f1e360]: Zed Editor
+                    - generic [ref=f1e361]: 未发现配置
+                  - generic [ref=f1e363]: Rust 高性能编辑器，写入 ~/.config/zed/settings.json。
+                  - generic [ref=f1e364]: /Users/bin/.config/zed/settings.json
+                - button "一键接入" [ref=f1e365] [cursor=pointer]
+              - generic [ref=f1e367]:
+                - generic [ref=f1e372]:
+                  - generic [ref=f1e373]:
+                    - strong [ref=f1e376]: OpenCode
+                    - generic [ref=f1e377]: 未发现配置
+                  - generic [ref=f1e379]: 开源多模型 CLI，写入 ~/.config/opencode/opencode.json。
+                  - generic [ref=f1e380]: /Users/bin/.config/opencode/opencode.json
+                - button "一键接入" [ref=f1e381] [cursor=pointer]
+              - generic [ref=f1e383]:
+                - generic [ref=f1e388]:
+                  - generic [ref=f1e389]:
+                    - strong [ref=f1e392]: Continue
+                    - generic [ref=f1e393]: 未发现配置
+                  - generic [ref=f1e395]: VS Code / JetBrains AI 编程助手，写入 ~/.continue/config.json。
+                  - generic [ref=f1e396]: /Users/bin/.continue/config.json
+                - button "一键接入" [ref=f1e397] [cursor=pointer]
+              - generic [ref=f1e399]:
+                - generic [ref=f1e404]:
+                  - generic [ref=f1e405]:
+                    - strong [ref=f1e408]: Windsurf
+                    - generic [ref=f1e409]: 未发现配置
+                  - generic [ref=f1e411]: Windsurf AI 编辑器，写入 ~/.codeium/windsurf/mcp_config.json。
+                  - generic [ref=f1e412]: /Users/bin/.codeium/windsurf/mcp_config.json
+                - button "一键接入" [ref=f1e413] [cursor=pointer]
+              - generic [ref=f1e415]:
+                - generic [ref=f1e420]:
+                  - generic [ref=f1e421]:
+                    - strong [ref=f1e424]: Roo Code
+                    - generic [ref=f1e425]: 未发现配置
+                  - generic [ref=f1e427]: VS Code Agent 插件，写入 ~/.roo/mcp.json。
+                  - generic [ref=f1e428]: /Users/bin/.roo/mcp.json
+                - button "一键接入" [ref=f1e429] [cursor=pointer]
+              - generic [ref=f1e431]:
+                - generic [ref=f1e436]:
+                  - generic [ref=f1e437]:
+                    - strong [ref=f1e440]: Qwen Code
+                    - generic [ref=f1e441]: 未发现配置
+                  - generic [ref=f1e443]: 通义系 CLI / Agent 工具，写入 ~/.qwen/mcp.json。
+                  - generic [ref=f1e444]: /Users/bin/.qwen/mcp.json
+                - button "一键接入" [ref=f1e445] [cursor=pointer]
+          - generic [ref=f1e447]:
+            - generic [ref=f1e448]:
+              - generic [ref=f1e449]: 工具权限
+              - generic [ref=f1e459]:
+                - table [ref=f1e463]:
+                  - rowgroup [ref=f1e464]:
+                    - row [ref=f1e465]:
+                      - columnheader "工具" [ref=f1e466]
+                      - columnheader "策略" [ref=f1e467]
+                      - columnheader "审计" [ref=f1e468]
+                  - rowgroup [ref=f1e469]:
+                    - row [ref=f1e470]:
+                      - cell "mcp_status" [ref=f1e471]
+                      - cell "只读" [ref=f1e472]
+                      - cell "记录调用来源" [ref=f1e473]
+                    - row [ref=f1e474]:
+                      - cell "ssh_servers_list" [ref=f1e475]
+                      - cell "只读，返回脱敏服务器元数据" [ref=f1e476]
+                      - cell "记录客户端与数量" [ref=f1e477]
+                    - row [ref=f1e478]:
+                      - cell "ssh_server_detail" [ref=f1e479]
+                      - cell "只读，返回单台服务器脱敏详情" [ref=f1e480]
+                      - cell "记录服务器别名" [ref=f1e481]
+                    - row [ref=f1e482]:
+                      - cell "ssh_test_connection" [ref=f1e483]
+                      - cell "只读连通性探测" [ref=f1e484]
+                      - cell "记录服务器别名和测试结果" [ref=f1e485]
+                    - row [ref=f1e486]:
+                      - cell "terminal_execute_readonly" [ref=f1e487]
+                      - cell "只允许命令白名单内的只读命令" [ref=f1e488]
+                      - cell "记录命令、退出码和耗时" [ref=f1e489]
+                    - row [ref=f1e490]:
+                      - cell "sftp_list" [ref=f1e491]
+                      - cell "只读目录浏览" [ref=f1e492]
+                      - cell "记录服务器和路径" [ref=f1e493]
+                    - row [ref=f1e494]:
+                      - cell "sftp_read_text" [ref=f1e495]
+                      - cell "只读文本读取，限制大小" [ref=f1e496]
+                      - cell "记录服务器、路径和截断状态" [ref=f1e497]
+                    - row [ref=f1e498]:
+                      - cell "log_tail_snapshot" [ref=f1e499]
+                      - cell "只读 tail 快照，限制行数" [ref=f1e500]
+                      - cell "记录服务器、日志路径和行数" [ref=f1e501]
+                    - row [ref=f1e502]:
+                      - cell "log_search" [ref=f1e503]
+                      - cell "只读日志关键词搜索" [ref=f1e504]
+                      - cell "记录服务器、日志路径和匹配数" [ref=f1e505]
+                    - row [ref=f1e506]:
+                      - cell "deployment_templates_list" [ref=f1e507]
+                      - cell "只读，返回内置部署配方和适用场景" [ref=f1e508]
+                      - cell "记录客户端和配方数量" [ref=f1e509]
+                - list [ref=f1e510]:
+                  - listitem "上一页" [ref=f1e511]:
+                    - button [disabled] [ref=f1e512]:
+                      - img "left" [ref=f1e513]
+                  - listitem "1" [ref=f1e516] [cursor=pointer]
+                  - listitem "2" [ref=f1e518] [cursor=pointer]
+                  - listitem "3" [ref=f1e520] [cursor=pointer]
+                  - listitem "4" [ref=f1e522] [cursor=pointer]
+                  - listitem "5" [ref=f1e524] [cursor=pointer]
+                  - listitem "向后 5 页" [ref=f1e526] [cursor=pointer]:
+                    - generic [ref=f1e528]:
+                      - img "double-right" [ref=f1e529]
+                      - generic [ref=f1e532]: •••
+                  - listitem "20" [ref=f1e533] [cursor=pointer]
+                  - listitem "下一页" [ref=f1e535] [cursor=pointer]:
+                    - button [ref=f1e536]:
+                      - img "right" [ref=f1e537]
+            - generic [ref=f1e540]:
+              - generic [ref=f1e541]: 手动接入
+              - generic [ref=f1e549]:
+                - tablist [ref=f1e550]:
+                  - generic [ref=f1e552]:
+                    - tab "stdio 接入（Claude Code / Cursor / Cline / OpenCode 通用）" [selected] [ref=f1e554] [cursor=pointer]
+                    - tab "Streamable HTTP 接入（支持 HTTP MCP 的客户端）" [ref=f1e556] [cursor=pointer]
+                    - tab "Codex config.toml 片段" [ref=f1e558] [cursor=pointer]
+                  - button [ref=f1e560]:
+                    - img "ellipsis" [ref=f1e561]
+                - tabpanel [ref=f1e566]:
+                  - generic [ref=f1e567]:
+                    - generic [ref=f1e568]: stdio
+                    - button "复制" [ref=f1e569] [cursor=pointer]
+                  - generic [ref=f1e575]: "{ \"mcpServers\": { \"tauri-ssh\": { \"args\": [ \"-y\", \"mcp-remote\", \"http://127.0.0.1:17321/mcp\" ], \"command\": \"npx\", \"env\": { \"TAURI_SSH_MCP_HTTP\": \"http://127.0.0.1:17321/mcp\" } } } }"
+  - generic [ref=f1e610]:
+    - img "check-circle" [ref=f1e611]
+    - generic [ref=f1e614]: MCP Server 已关闭

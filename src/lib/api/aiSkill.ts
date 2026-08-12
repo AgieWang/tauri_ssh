@@ -75,7 +75,9 @@ export const aiSkillApi = {
         }),
   listExperiences: (keyword?: string) =>
     hasTauriRuntime()
-      ? invoke<AiExperience[]>("list_ai_experiences", { keyword: keyword ?? null })
+      ? invoke<AiExperience[]>("list_ai_experiences", {
+          keyword: keyword ?? null,
+        })
       : devApiFetch<AiExperience[]>(
           `/ai-experiences${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ""}`,
         ),

@@ -1,0 +1,96 @@
+{
+  "fixtureVersion": "knowledge-retrieval-baseline-v1",
+  "project": {
+    "projectKey": "payment-platform",
+    "aliases": ["支付平台", "pay-center"],
+    "releases": ["v2.3.1", "v2.4.0"]
+  },
+  "documents": [
+    {
+      "documentKey": "req-refund-1042-v231",
+      "release": "v2.3.1",
+      "type": "requirement",
+      "path": "docs/requirements/REQ-1042-refund-approval.md",
+      "content": "# REQ-1042 退款审批\nv2.3.1 要求退款金额超过 1000 元时进入人工审批。"
+    },
+    {
+      "documentKey": "impl-refund-1042-v231",
+      "release": "v2.3.1",
+      "type": "implementation",
+      "path": "src/services/refundApproval.ts",
+      "content": "RefundApprovalService.approveRefund 调用 POST /api/refunds/{refundId}/approve，并写入 refund_approval.approver_id 字段。"
+    },
+    {
+      "documentKey": "sql-refund-1042-v231",
+      "release": "v2.3.1",
+      "type": "database",
+      "path": "migrations/V231__refund_approval.sql",
+      "content": "ALTER TABLE refund_approval ADD COLUMN approver_id BIGINT NOT NULL; SELECT approver_id FROM refund_approval WHERE refund_id = ?;"
+    },
+    {
+      "documentKey": "req-refund-1042-v240",
+      "release": "v2.4.0",
+      "type": "requirement",
+      "path": "docs/requirements/REQ-1042-refund-approval.md",
+      "content": "# REQ-1042 退款审批后续演进\nv2.4.0 将人工审批阈值调整为 500 元，并新增风控复核。"
+    },
+    {
+      "documentKey": "conflict-refund-v231",
+      "release": "v2.3.1",
+      "type": "test",
+      "path": "test/reports/refund-approval.md",
+      "content": "REQ-1042 测试记录显示大额退款审批用例失败，暂不能声明 v2.3.1 已验证通过。"
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact-requirement-id",
+      "query": "支付平台 v2.3.1 的 REQ-1042 是什么？",
+      "mustMatch": ["req-refund-1042-v231"],
+      "mustNotMatchAsPrimary": ["req-refund-1042-v240"]
+    },
+    {
+      "id": "chinese-semantic-term",
+      "query": "大额退款为什么需要人工复核？",
+      "mustMatch": ["req-refund-1042-v231", "impl-refund-1042-v231"]
+    },
+    {
+      "id": "source-path",
+      "query": "src/services/refundApproval.ts 的实现",
+      "mustMatch": ["impl-refund-1042-v231"]
+    },
+    {
+      "id": "code-symbol",
+      "query": "RefundApprovalService.approveRefund",
+      "mustMatch": ["impl-refund-1042-v231"]
+    },
+    {
+      "id": "api-route",
+      "query": "POST /api/refunds/{refundId}/approve",
+      "mustMatch": ["impl-refund-1042-v231"]
+    },
+    {
+      "id": "field-and-sql",
+      "query": "refund_approval 表 approver_id 字段",
+      "mustMatch": ["sql-refund-1042-v231", "impl-refund-1042-v231"]
+    },
+    {
+      "id": "version-isolation",
+      "query": "v2.3.1 当时的退款审批阈值",
+      "mustMatch": ["req-refund-1042-v231"],
+      "mustNotMatchAsPrimary": ["req-refund-1042-v240"]
+    },
+    {
+      "id": "conflicting-evidence",
+      "query": "REQ-1042 在 v2.3.1 是否测试通过？",
+      "mustMatch": ["conflict-refund-v231"],
+      "expectedEvidenceGap": "测试记录失败，不得声称已验证通过"
+    },
+    {
+      "id": "refusal-no-evidence",
+      "query": "不存在的 REQ-999999 具体实现方案",
+      "mustMatch": [],
+      "expectedRefusal": true
+    }
+  ]
+}

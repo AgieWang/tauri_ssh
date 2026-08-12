@@ -1,217 +1,111 @@
 ---
 name: rust-fundamentals
 description: |
-  Rust 语言基础技能,覆盖 Tauri 开发中常用的 Rust 核心概念。
+  用于分析和解决 Rust 所有权、借用、生命周期、trait、异步与线程安全等语言语义问题。
 
-  触发场景:
-  - 遇到 Rust 编译错误(所有权/借用/生命周期)
-  - 需要理解 Rust 语法和概念
-  - 需要编写 Rust 数据结构和函数
-  - 需要使用 Rust 异步编程
+  触发场景：
+  - 编译器报告所有权移动、借用冲突或生命周期不满足
+  - trait bound、泛型、关联类型或类型推断导致编译失败
+  - async、Send、Sync、Future 或锁跨 await 出现语义问题
+  - 需要解释 Rust 类型系统并选择符合语义的最小修复
 
-  触发词: Rust、所有权、借用、生命周期、编译错误、borrow、move、lifetime、async、trait
+  触发词：所有权、借用冲突、生命周期、trait bound、move错误、borrow checker、Send Sync、Future类型、锁跨await
 ---
 
-# Rust 基础(Tauri 开发必备)
+# Rust 语言语义
 
-## 核心概念速查
+## 能力边界
 
-### 所有权规则
+本 Skill 只处理 Rust 语言和类型系统语义，不是所有 Rust 业务代码的默认入口。
 
-```rust
-// 1. 每个值有且仅有一个所有者
-let s1 = String::from("hello");
-let s2 = s1;  // s1 的所有权转移(move)给 s2
-// println!("{}", s1);  // ❌ s1 不再有效
+- Command、Service、Database 等业务实现使用对应领域 Skill。
+- `AppError`、错误传播和 ErrorBoundary 使用 `error-handler`。
+- 已发生的运行时故障、日志或数据问题使用 `bug-detective`。
+- 普通 `.rs` 文件修改不因“Rust”一词自动触发本 Skill。
 
-// 2. 克隆(显式复制)
-let s1 = String::from("hello");
-let s2 = s1.clone();  // 深拷贝
-println!("{} {}", s1, s2);  // ✅ 都有效
+## 解决原则
 
-// 3. Copy 类型(栈上数据自动复制)
-let x = 5;
-let y = x;  // i32 实现了 Copy
-println!("{} {}", x, y);  // ✅ 都有效
-```
+1. 先阅读编译器第一条根因错误及完整上下文，不从级联错误末尾开始修。
+2. 先理解值的所有者、引用生命周期和线程边界，再选择改法。
+3. 优先通过调整所有权和借用范围解决；不把 `clone()`、`Arc<Mutex<_>>` 或 `'static` 当万能修复。
+4. 保持现有 API 和架构约束，避免为通过编译扩大共享可变状态。
+5. 不使用 `unsafe` 绕过借用检查，除非用户明确要求且已有安全不变量、审查和测试。
 
-### 引用与借用
+## 诊断流程
 
-```rust
-// 不可变引用(多个可以同时存在)
-fn print_length(s: &str) {
-    println!("长度: {}", s.len());
-}
+### 1. 最小化错误
 
-// 可变引用(同一时刻只能有一个)
-fn append(s: &mut String) {
-    s.push_str(" world");
-}
+- 运行最聚焦的 `cargo check`/测试目标并保留完整错误码、文件和类型展开。
+- 识别首个错误属于 move、borrow、lifetime、trait、async 还是并发语义。
+- 查找相关类型定义、trait impl、调用者和返回值，不只看报错行。
 
-let mut s = String::from("hello");
-print_length(&s);      // 不可变借用
-append(&mut s);         // 可变借用
-```
+### 2. 画出所有权关系
 
-### 在 Tauri Command 中的应用
+- 谁创建值、谁需要拥有、谁只读取、谁需要修改。
+- 引用是否跨越作用域、闭包、线程、task 或 `.await`。
+- 数据是否必须共享，还是可以移动、缩短借用或传递不可变快照。
 
-```rust
-// ✅ 参数用引用(不转移所有权)
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}!", name)
-}
+### 3. 选择最小语义修复
 
-// ✅ 返回新值(所有权转移给调用者)
-#[tauri::command]
-fn create_greeting(name: String) -> String {
-    format!("Hello, {}!", name)
-}
-```
+推荐顺序：
 
----
+1. 缩短借用作用域或重新排列计算顺序。
+2. 改为借用参数 `&T` / `&mut T`，或让调用者明确转移所有权。
+3. 调整返回值、生命周期参数或泛型约束，使真实关系可表达。
+4. 仅在确需独立拥有值时 `clone()`。
+5. 仅在确需跨线程共享时使用 `Arc`；仅在确需共享修改时叠加 `Mutex`/`RwLock`。
 
-## 常用类型
+## 语义检查要点
 
-### Option 和 Result
+### 所有权与借用
 
-```rust
-// Option: 可能为空的值
-fn find_user(id: u32) -> Option<User> {
-    if id == 1 { Some(User { name: "Alice".into() }) }
-    else { None }
-}
+- 值被 move 后不得继续使用；确认 API 是否可以借用或返回所有权。
+- 同一作用域内不能同时持有冲突的可变/不可变借用。
+- 不要为了绕开冲突扩大 clone；说明 clone 的数据规模和频率。
 
-// 使用 Option
-match find_user(1) {
-    Some(user) => println!("{}", user.name),
-    None => println!("未找到"),
-}
+### 生命周期
 
-// 简写
-let name = find_user(1).map(|u| u.name).unwrap_or("未知".into());
+- 生命周期标注描述引用关系，不延长实际对象寿命。
+- 返回引用必须能追溯到输入或长期所有者，不能引用局部临时值。
+- `'static` 表示可存活整个程序或拥有数据，不等于“加上就能编译”。
 
-// Result: 可能失败的操作
-fn parse_number(s: &str) -> Result<i32, String> {
-    s.parse::<i32>().map_err(|e| e.to_string())
-}
+### Trait 与泛型
 
-// 使用 ? 传播错误
-fn process(input: &str) -> Result<i32, String> {
-    let num = parse_number(input)?;  // 失败则提前返回 Err
-    Ok(num * 2)
-}
-```
+- 核对 trait 是否在当前类型、引用形式和 feature 下实现。
+- 识别 `T`、`&T`、`Box<T>`、`Arc<T>` 的 impl 差异。
+- 新增 bound 必须来自真实调用需求，避免把内部限制泄漏到公共 API。
 
----
+### Async 与并发
 
-## 结构体和枚举
+- `.await` 前释放非必要的锁和借用，避免长时间持锁或产生非 `Send` Future。
+- Tauri 异步 Command 中不要执行长时间同步阻塞；使用合适的异步 API 或受控阻塞任务。
+- 不跨线程传递 `Rc`/`RefCell`；先判断是否真的需要跨线程共享。
+- 锁中毒和任务失败必须作为 `Result` 处理，不使用 `unwrap()`。
 
-```rust
-use serde::{Serialize, Deserialize};
+## 常见反模式
 
-// 结构体(Tauri Command 数据传输)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct User {
-    id: u32,
-    name: String,
-    email: Option<String>,
-}
+- 无分析地到处添加 `.clone()`。
+- 为满足编译器把引用改成 `'static` 或泄漏内存。
+- 用 `Arc<Mutex<_>>` 包住所有状态。
+- 持有同步锁跨 `.await`。
+- 加宽 trait bound 导致公共 API 过度约束。
+- 使用 `unwrap()` 隐藏锁、通道或解析失败。
 
-// 枚举
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Status {
-    Active,
-    Inactive,
-    Pending,
-}
+## 验证要求
 
-// impl 块(方法)
-impl User {
-    fn new(id: u32, name: String) -> Self {
-        Self { id, name, email: None }
-    }
+- 运行 `cargo fmt --check` 或项目格式化命令。
+- 对受影响 crate/target 运行聚焦 `cargo check` 和测试。
+- 并发修复补充死锁、取消、顺序或共享状态测试。
+- 检查 clone、锁粒度和任务切换是否带来明显性能回归。
+- 执行 `git diff --check`，且不覆盖其他会话改动。
 
-    fn display_name(&self) -> &str {
-        &self.name
-    }
-}
-```
+## 按需参考
 
----
+需要所有权、生命周期、trait 和 async 的最小代码示例时，读取 [references/rust-semantics-examples.md](references/rust-semantics-examples.md)。
 
-## 异步编程
+## 完成条件
 
-```rust
-// 异步函数
-async fn fetch_data(url: &str) -> Result<String, String> {
-    reqwest::get(url)
-        .await
-        .map_err(|e| e.to_string())?
-        .text()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// 异步 Tauri Command
-#[tauri::command]
-async fn async_operation() -> Result<String, String> {
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    Ok("完成".into())
-}
-
-// 并发执行
-#[tauri::command]
-async fn parallel_fetch() -> Result<Vec<String>, String> {
-    let (r1, r2) = tokio::join!(
-        fetch_data("https://api1.example.com"),
-        fetch_data("https://api2.example.com"),
-    );
-    Ok(vec![r1?, r2?])
-}
-```
-
----
-
-## 线程安全与 Mutex
-
-```rust
-use std::sync::Mutex;
-
-// Tauri State 需要 Send + Sync
-struct AppState {
-    counter: Mutex<u32>,         // Mutex 确保线程安全
-    items: Mutex<Vec<String>>,
-}
-
-#[tauri::command]
-fn increment(state: tauri::State<'_, AppState>) -> Result<u32, String> {
-    let mut counter = state.counter.lock().map_err(|e| e.to_string())?;
-    *counter += 1;
-    Ok(*counter)
-}
-```
-
----
-
-## 常见编译错误速查
-
-| 错误信息 | 原因 | 解决方法 |
-|---------|------|---------|
-| `value moved here` | 所有权已转移 | 使用 `clone()` 或引用 `&` |
-| `cannot borrow as mutable` | 不可变引用存在时不能可变借用 | 调整借用顺序 |
-| `lifetime may not live long enough` | 引用的生命周期不足 | 添加生命周期标注或 clone |
-| `the trait bound is not satisfied` | 类型未实现所需 trait | 添加 derive 宏或手动实现 |
-| `cannot move out of borrowed content` | 试图从引用中移出所有权 | 使用 `.clone()` 或 `.to_owned()` |
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 到处 `clone()` 解决编译错误 | 先理解所有权,必要时才 clone |
-| `unwrap()` 处理 Result | 使用 `?` 或 `map_err` |
-| 不用 Mutex 包裹共享状态 | Tauri State 中的可变数据必须 Mutex |
-| 忽略 Rust 编译器建议 | 编译器建议通常是正确的 |
+- 能解释原错误对应的所有权、类型或线程安全不变量。
+- 修复表达真实语义，而不是仅压制编译器。
+- 没有引入不必要 clone、共享可变状态、长锁或 `unsafe`。
+- 聚焦检查和测试通过，运行时行为保持或有明确验证。

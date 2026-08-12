@@ -23,7 +23,9 @@ import type {
 } from "@/types";
 
 function requireTauriRuntime(): never {
-  throw new Error("Git 工作区需要读取本地仓库目录，请在 Tauri 桌面端使用该功能。");
+  throw new Error(
+    "Git 工作区需要读取本地仓库目录，请在 Tauri 桌面端使用该功能。",
+  );
 }
 
 export const gitWorkspaceApi = {
@@ -56,15 +58,22 @@ export const gitWorkspaceApi = {
       : Promise.resolve(requireTauriRuntime()),
   startScanRoot: (input: ScanGitWorkspaceRootInput) =>
     hasTauriRuntime()
-      ? invoke<GitWorkspaceScanStartResult>("start_git_workspace_root_scan", { input })
+      ? invoke<GitWorkspaceScanStartResult>("start_git_workspace_root_scan", {
+          input,
+        })
       : Promise.resolve(requireTauriRuntime()),
   getScanStatus: (jobId: string) =>
     hasTauriRuntime()
-      ? invoke<GitWorkspaceScanJobStatus>("get_git_workspace_scan_status", { jobId })
+      ? invoke<GitWorkspaceScanJobStatus>("get_git_workspace_scan_status", {
+          jobId,
+        })
       : Promise.resolve(requireTauriRuntime()),
   startCloneProviderRepositories: (input: CloneGitProviderRepositoriesInput) =>
     hasTauriRuntime()
-      ? invoke<GitWorkspaceScanStartResult>("start_git_provider_repositories_clone", { input })
+      ? invoke<GitWorkspaceScanStartResult>(
+          "start_git_provider_repositories_clone",
+          { input },
+        )
       : Promise.resolve(requireTauriRuntime()),
   aiCommit: (input: AiCommitGitWorkspaceInput) =>
     hasTauriRuntime()
@@ -72,7 +81,9 @@ export const gitWorkspaceApi = {
       : Promise.resolve(requireTauriRuntime()),
   status: (workspaceKey: string) =>
     hasTauriRuntime()
-      ? invoke<GitWorkspaceStatusResult>("get_git_workspace_status", { workspaceKey })
+      ? invoke<GitWorkspaceStatusResult>("get_git_workspace_status", {
+          workspaceKey,
+        })
       : Promise.resolve(requireTauriRuntime()),
   diff: (input: GitWorkspaceDiffInput) =>
     hasTauriRuntime()
@@ -96,7 +107,9 @@ export const gitWorkspaceApi = {
       : Promise.resolve(requireTauriRuntime()),
   branches: (workspaceKey: string) =>
     hasTauriRuntime()
-      ? invoke<GitWorkspaceBranch[]>("list_git_workspace_branches", { workspaceKey })
+      ? invoke<GitWorkspaceBranch[]>("list_git_workspace_branches", {
+          workspaceKey,
+        })
       : Promise.resolve(requireTauriRuntime()),
   switchBranch: (input: SwitchGitWorkspaceBranchInput) =>
     hasTauriRuntime()

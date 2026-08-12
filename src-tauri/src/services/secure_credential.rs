@@ -26,7 +26,6 @@ use crate::models::{
 };
 
 const SECURE_CREDENTIAL_SECRET_SEED_KEY: &str = "secure_credential_secret_seed";
-
 pub struct SecureCredentialService;
 
 impl SecureCredentialService {
@@ -824,6 +823,109 @@ impl SecureCredentialService {
                 "path": input.path,
                 "statusCode": result.status_code,
                 "truncated": result.truncated
+            }),
+            None,
+        );
+        Ok(result)
+    }
+
+    /// 供内置只读集成使用的受控 HTTP 入口。
+    ///
+    /// 集成方只持有凭据引用，不能取得秘密；请求仍统一经过域名白名单、只读审批、
+    /// 限流、禁止重定向及审计。`expected_base_url` 必须与凭据的 API 根地址同源，
+    /// 以避免把某一服务的 Token 发送给任意用户配置的主机。
+    pub async fn http_readonly_request_for_same_origin_service(
+        db: &Database,
+        credential_key: &str,
+        expected_base_url: &str,
+        path: &str,
+        timeout_seconds: u64,
+        audit_action: &str,
+    ) -> Result<SecureCredentialHttpRequestResult, AppError> {
+        let credential = Self::get_usable_credential(db, credential_key, false)?;
+        if !["http_api", "custom"].contains(&credential.provider.as_str()) {
+            return Err(AppError::InvalidInput(
+                "受控 HTTP 只读集成仅允许 http_api / custom Provider".into(),
+            ));
+        }
+        Self::ensure_read_allowed(db, &credential)?;
+        Self::ensure_base_url_allowed(db, &credential)?;
+        Self::ensure_rate_limit(db, &credential)?;
+
+        let credential_base = reqwest::Url::parse(&Self::api_base_url(&credential)?)
+            .map_err(|_| AppError::InvalidInput("安全凭据 API Base URL 格式无效".into()))?;
+        let expected_base = reqwest::Url::parse(expected_base_url)
+            .map_err(|_| AppError::InvalidInput("集成服务地址无效".into()))?;
+        if credential_base.scheme() != expected_base.scheme()
+            || credential_base.host_str() != expected_base.host_str()
+            || credential_base.port_or_known_default() != expected_base.port_or_known_default()
+        {
+            return Err(AppError::InvalidInput(
+                "集成服务地址必须与安全凭据 API 地址同源".into(),
+            ));
+        }
+        if !path.starts_with('/')
+            || path.contains("://")
+            || path.contains('\n')
+            || path.contains('\r')
+        {
+            return Err(AppError::InvalidInput(
+                "受控 HTTP 只读路径必须是以 / 开头的相对路径".into(),
+            ));
+        }
+        let url = expected_base
+            .join(&path[1..])
+            .map_err(|_| AppError::InvalidInput("受控 HTTP 只读路径超出服务根地址".into()))?;
+        if url.host_str() != expected_base.host_str()
+            || url.port_or_known_default() != expected_base.port_or_known_default()
+        {
+            return Err(AppError::InvalidInput(
+                "受控 HTTP 只读请求禁止跨主机".into(),
+            ));
+        }
+
+        let secret = Self::get_secret(db, &credential.credential_key)?;
+        let started = Instant::now();
+        let response = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(
+                timeout_seconds.clamp(3, 120),
+            ))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(Self::http_error)?
+            .get(url.clone())
+            .headers(Self::bearer_headers(&secret)?)
+            .send()
+            .await
+            .map_err(Self::http_error)?;
+        let status_code = response.status().as_u16();
+        let mut text = response.text().await.map_err(Self::http_error)?;
+        let truncated = text.len() > 65_536;
+        if truncated {
+            text.truncate(65_536);
+        }
+        let result = SecureCredentialHttpRequestResult {
+            status_code,
+            url: url.to_string(),
+            body: Self::parse_and_redact_response(&text),
+            truncated,
+        };
+        Self::record_audit(
+            db,
+            &credential,
+            audit_action,
+            "readonly",
+            if (200..300).contains(&status_code) {
+                "success"
+            } else {
+                "failure"
+            },
+            started.elapsed().as_millis() as i64,
+            json!({
+                "serviceOrigin": expected_base.origin().ascii_serialization(),
+                "path": path,
+                "statusCode": status_code,
+                "truncated": truncated
             }),
             None,
         );

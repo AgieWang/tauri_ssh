@@ -13,7 +13,7 @@ interface UseCommandResult<T> {
  */
 export function useCommand<T>(
   command: string,
-  args?: Record<string, unknown>
+  args?: Record<string, unknown>,
 ): UseCommandResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function useCommand<T>(
  */
 export async function safeInvoke<T>(
   command: string,
-  args?: Record<string, unknown>
+  args?: Record<string, unknown>,
 ): Promise<T> {
   try {
     return await invoke<T>(command, args);

@@ -1,135 +1,38 @@
 ---
 name: start
-description: |
-  新窗口快速了解项目，自动检测 Tauri 桌面应用的 Rust 三层架构和 React 前端状态，输出简洁的项目概览报告。
-
-  触发场景：
-  - 刚打开项目窗口，需要快速了解项目状态
-  - 新接手项目，需要了解项目结构和技术栈
-  - 需要快速获取项目当前状态的简洁摘要
-
-  触发词：开始、start、了解项目、项目概览、快速开始、入门
+description: 用于用户显式调用 /start、$start，或明确要求新会话/新接手仓库的快速项目导览；普通“开始开发/快速开始”不触发。
 ---
 
-作为项目引导助手,帮我快速了解 Tauri 桌面应用项目的当前状态。
+# /start
 
-## 你需要做的:
+这是只读的新会话导览。普通“开始”“开始开发”“快速开始某功能”不触发全仓扫描。
 
-1. 项目基本信息
-   - 识别项目类型(Tauri 2.x + Rust + React 19 + TypeScript 5.8)
-   - 查看最近 5 条 Git 提交
-   ```bash
-   git log -5 --format="%H|%an|%cn|%s" --no-merges
-   ```
+## 最小扫描
 
-2. 智能检测项目状态
+1. 读取 `AGENTS.md`、`.codex/PROJECT.md`、当前分支和 `git status -s`，识别本仓库约束与他者占用区。
+2. 读取 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 和 capabilities，获取实际技术栈与应用信息。
+3. 用 `rg --files` 统计 Commands/Services/Database/Models 和 Pages/Components/API/Store，不全量读取文件。
+4. 读取最近 5 条非合并提交、活跃任务和项目状态文档，并把历史信息标注为历史证据。
+5. 只打开能解释当前重点的少量入口文件；未知项保持未知。
 
-   第一步: 检测 Rust 三层架构
-   ```
-   # Commands 层
-   Glob pattern: "src-tauri/src/commands/**/*.rs"
-   Grep pattern: "#\[tauri::command\]" path: src-tauri/src/commands/ output_mode: count
+## 输出
 
-   # Services 层
-   Glob pattern: "src-tauri/src/services/**/*.rs"
+- 项目名称、应用标识、技术栈和当前分支。
+- 当前正在进行的工作和未提交改动范围，但不复述敏感内容。
+- Rust/React/Tauri 结构的简洁数量概览。
+- 最近开发重点、活跃任务和已知阻塞。
+- 2～4 个可选后续命令，不能把它们当作已授权动作。
 
-   # Database 层
-   Glob pattern: "src-tauri/src/database/**/*.rs"
+## 强制规则
 
-   # 其他模块
-   Glob pattern: "src-tauri/src/**/*.rs"
-   ```
+- 只读，不创建初始化文档、不修改任务、不提交。
+- 以当前配置和源码为准，不使用 Skill 中的固定版本号或模板值。
+- 不把文件存在、commit、任务勾选当成运行时验收。
+- 输出控制在一屏左右；用户要求详细进度时改用显式 `/progress`。
+- 数据库、服务器和真实 UI 只有在用户明确要求现状核验时才连接，并遵守相应安全/浏览器规则。
 
-   第二步: 检查前端三层结构
-   ```
-   # Pages 层
-   Glob pattern: "src/pages/**/*.tsx"
+## 不应触发
 
-   # Components 层
-   Glob pattern: "src/components/**/*.tsx"
-
-   # API 层
-   Glob pattern: "src/lib/api/**/*.ts"
-
-   # 其他前端文件
-   Glob pattern: "src/**/*.tsx"
-   Glob pattern: "src/**/*.ts"
-   ```
-
-   第三步: 检查 Tauri 配置
-   ```
-   Read src-tauri/tauri.conf.json
-   Glob pattern: "src-tauri/capabilities/*.json"
-   ```
-
-   第四步: 检查 Git 状态
-   ```bash
-   git status --short
-   ```
-
-3. 输出简洁报告
-
-   ```markdown
-   # 欢迎回到 Tauri 桌面应用项目
-
-   ## 项目信息
-   - 项目名称: Tauri Desktop App
-   - 技术栈: Rust 2021 + React 19 + TypeScript 5.8 + Tauri 2.x
-   - UI 框架: Ant Design 5 + TailwindCSS 4
-   - 状态管理: Zustand + React Router v7
-   - 数据库: SQLite (rusqlite)
-   - 应用标识: com.agilefr.tauri
-
-   ## 最近动态
-   [最近提交信息]
-
-   ## 当前状态
-
-   ### Rust 后端 (src-tauri/src/) - 三层架构
-   | 层级 | 指标 | 数量 |
-   |------|------|------|
-   | Commands | Commands 文件 | X |
-   | Commands | Tauri Commands | X |
-   | Services | Services 文件 | X |
-   | Database | Database 文件 | X |
-   | 总计 | Rust 源文件 | X |
-
-   ### React 前端 (src/) - 三层结构
-   | 层级 | 指标 | 数量 |
-   |------|------|------|
-   | Pages | 页面组件 | X |
-   | Components | 通用组件 | X |
-   | API | API 接口 | X |
-   | 总计 | TypeScript 文件 | X |
-
-   ### Tauri 配置
-   - 应用标题: ...
-   - 窗口大小: ... x ...
-   - 权限文件: X 个
-
-   ## 技术亮点
-   - 采用三层架构设计(Commands-Services-Database)
-   - 使用 Ant Design 5 组件库 + TailwindCSS 4 样式
-   - Zustand 状态管理 + React Router v7 路由
-   - SQLite 本地数据库存储
-
-   ## 你可以:
-   1. /next - 获取下一步开发建议(推荐)
-   2. /progress - 查看详细进度报告
-   3. /dev - 开发新功能(Rust Command + React UI)
-   4. /command - 快速创建 Tauri Command
-   5. /check - 代码规范检查
-
-   ## 快速开始:
-   - "帮我创建一个用户管理功能"
-   - "添加系统托盘支持"
-   - "检查代码规范"
-   - "优化数据库查询"
-   ```
-
-## 注意事项:
-- 输出要简洁,一屏内能看完
-- 明确展示三层架构(Rust 后端 + React 前端)
-- 突出显示技术栈特色(Ant Design + TailwindCSS + Zustand + SQLite)
-- 语气友好、轻松
-- 不预估时间
+- “开始实现设置页”——直接执行页面任务。
+- “快速开始 Rust 教程”——不是仓库导览。
+- “项目状态字段怎么改”——业务任务，不是 `/start`。

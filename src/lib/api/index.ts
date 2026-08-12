@@ -33,3 +33,5 @@ export { auditApi } from "./audit";
 export { resourceMonitorApi } from "./resourceMonitor";
 export { deploymentApi } from "./deployment";
 export { jenkinsApi } from "./jenkins";
+export { knowledgeApi } from "./knowledge";
+export * from "./knowledge-domain";

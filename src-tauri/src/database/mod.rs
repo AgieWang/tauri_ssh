@@ -1,3 +1,8 @@
+// 知识库按 OpenSpec 分阶段接入；DAO 会在后续 Command/Service 任务中逐步启用。
+#[allow(dead_code)]
+pub mod knowledge;
+#[allow(dead_code)]
+pub mod knowledge_domain;
 pub mod schema;
 
 use std::sync::Mutex;
@@ -128,6 +133,11 @@ impl Database {
 
         // 执行 Schema 迁移
         schema::migrate(&conn)?;
+        // 标题索引是可重建派生数据。早期已存在的正式文档没有经过新的提交/上传链路，
+        // 仅在发现缺失或版本不一致时回填，避免每次打开应用都进行全量写入。
+        if knowledge_domain::search::knowledge_document_title_index_needs_rebuild(&conn)? {
+            knowledge_domain::search::rebuild_knowledge_document_title_index(&conn)?;
+        }
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -4546,7 +4556,7 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT key, name, region, protocol, default_model, status, endpoint, auth_type,
+            "SELECT key, name, region, protocol, default_model, embedding_model, status, endpoint, auth_type,
                     secret_ciphertext IS NOT NULL AS has_api_key,
                     latency_ms, cost_level, capabilities, models, scenario_fit, fallback, enabled, updated_at
              FROM ai_providers
@@ -4568,7 +4578,7 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         conn.query_row(
-            "SELECT key, name, region, protocol, default_model, status, endpoint, auth_type,
+            "SELECT key, name, region, protocol, default_model, embedding_model, status, endpoint, auth_type,
                     secret_ciphertext IS NOT NULL AS has_api_key,
                     latency_ms, cost_level, capabilities, models, scenario_fit, fallback, enabled, updated_at
              FROM ai_providers
@@ -4589,7 +4599,7 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         conn.query_row(
-            "SELECT key, name, region, protocol, default_model, status, endpoint, auth_type,
+            "SELECT key, name, region, protocol, default_model, embedding_model, status, endpoint, auth_type,
                     secret_ciphertext IS NOT NULL AS has_api_key,
                     latency_ms, cost_level, capabilities, models, scenario_fit, fallback, enabled, updated_at,
                     secret_nonce, secret_ciphertext
@@ -4599,8 +4609,8 @@ impl Database {
             |row| {
                 Ok(AiProviderSecretRow {
                     provider: self.map_ai_provider_row(row)?,
-                    secret_nonce: row.get(17)?,
-                    secret_ciphertext: row.get(18)?,
+                    secret_nonce: row.get(18)?,
+                    secret_ciphertext: row.get(19)?,
                 })
             },
         )
@@ -4625,25 +4635,26 @@ impl Database {
 
         conn.execute(
             "INSERT INTO ai_providers
-             (key, name, region, protocol, default_model, status, endpoint, auth_type,
+             (key, name, region, protocol, default_model, embedding_model, status, endpoint, auth_type,
               secret_nonce, secret_ciphertext, cost_level, capabilities, models, scenario_fit, fallback, enabled, updated_at, deleted_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, datetime('now', 'localtime'), NULL)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, datetime('now', 'localtime'), NULL)
              ON CONFLICT(key) DO UPDATE SET
                name = excluded.name,
                region = excluded.region,
                protocol = excluded.protocol,
                default_model = excluded.default_model,
+               embedding_model = excluded.embedding_model,
                status = excluded.status,
                endpoint = excluded.endpoint,
                auth_type = excluded.auth_type,
                secret_nonce = CASE
-                 WHEN ?17 THEN NULL
-                 WHEN ?9 IS NOT NULL THEN excluded.secret_nonce
+                 WHEN ?18 THEN NULL
+                 WHEN ?10 IS NOT NULL THEN excluded.secret_nonce
                  ELSE ai_providers.secret_nonce
                END,
                secret_ciphertext = CASE
-                 WHEN ?17 THEN NULL
-                 WHEN ?10 IS NOT NULL THEN excluded.secret_ciphertext
+                 WHEN ?18 THEN NULL
+                 WHEN ?11 IS NOT NULL THEN excluded.secret_ciphertext
                  ELSE ai_providers.secret_ciphertext
                END,
                cost_level = excluded.cost_level,
@@ -4660,6 +4671,7 @@ impl Database {
                 input.region,
                 input.protocol,
                 input.default_model,
+                input.embedding_model,
                 input.status,
                 input.endpoint,
                 input.auth_type,
@@ -5657,33 +5669,34 @@ impl Database {
     }
 
     fn map_ai_provider_row(&self, row: &rusqlite::Row<'_>) -> Result<AiProvider, rusqlite::Error> {
-        let capabilities_json: String = row.get(11)?;
-        let models_json: String = row.get(12)?;
-        let scenario_fit_json: String = row.get(13)?;
-        let has_api_key: bool = row.get(8)?;
+        let capabilities_json: String = row.get(12)?;
+        let models_json: String = row.get(13)?;
+        let scenario_fit_json: String = row.get(14)?;
+        let has_api_key: bool = row.get(9)?;
         Ok(AiProvider {
             key: row.get(0)?,
             name: row.get(1)?,
             region: row.get(2)?,
             protocol: row.get(3)?,
             default_model: row.get(4)?,
-            status: row.get(5)?,
-            endpoint: row.get(6)?,
-            auth_type: row.get(7)?,
+            embedding_model: row.get(5)?,
+            status: row.get(6)?,
+            endpoint: row.get(7)?,
+            auth_type: row.get(8)?,
             api_key_masked: if has_api_key {
                 Some("••••••••".into())
             } else {
                 None
             },
             has_api_key,
-            latency_ms: row.get(9)?,
-            cost_level: row.get(10)?,
+            latency_ms: row.get(10)?,
+            cost_level: row.get(11)?,
             capabilities: serde_json::from_str(&capabilities_json).unwrap_or_default(),
             models: serde_json::from_str(&models_json).unwrap_or_default(),
             scenario_fit: serde_json::from_str(&scenario_fit_json).unwrap_or_default(),
-            fallback: row.get(14)?,
-            enabled: row.get::<_, i64>(15)? != 0,
-            updated_at: row.get(16)?,
+            fallback: row.get(15)?,
+            enabled: row.get::<_, i64>(16)? != 0,
+            updated_at: row.get(17)?,
         })
     }
 

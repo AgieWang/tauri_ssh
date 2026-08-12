@@ -1,6 +1,8 @@
 export type SshServerSource = "manual" | "ssh_config" | "jumpserver";
-export type SshServerAuthType = "key" | "password_ref" | "direct_password" | "session_reference";
-export type SshServerStatus = "unknown" | "online" | "offline" | "degraded" | "web";
+export type SshServerAuthType =
+  "key" | "password_ref" | "direct_password" | "session_reference";
+export type SshServerStatus =
+  "unknown" | "online" | "offline" | "degraded" | "web";
 export type SshServerPolicy = "readonly" | "L1" | "L2" | "L3" | "blocked";
 
 export interface SshServer {

@@ -1,466 +1,110 @@
 ---
 name: test-development
 description: |
-  Tauri 项目测试开发技能，覆盖 Rust 单元测试和 React 组件测试。
+  用于新增或修改测试、设计测试策略，以及定位和修复测试自身的失败或不稳定。
 
   触发场景：
-  - 需要为 Rust Command 编写测试
-  - 需要为 React 组件编写测试
-  - 需要设计测试策略
-  - 需要运行和调试测试
+  - 需要为 Rust、TypeScript、React 或 SQLite 行为编写测试
+  - 需要为缺陷补充回归测试或采用测试先行开发
+  - 需要设计跨层测试策略、测试夹具与隔离方式
+  - 测试失败、偶发或不具判别力，需要调试测试代码
 
-  触发词：测试、test、单元测试、集成测试、TDD、测试用例
+  触发词：新增测试、修改测试、测试策略、回归测试、测试用例、TDD、测试失败、flaky test、测试夹具
 ---
 
 # Tauri 测试开发
 
-## 测试策略
-
-```
-               ┌──────────────────┐
-               │   E2E 测试        │  (可选: Playwright/WebdriverIO)
-               │  完整应用流程      │
-              ┌┴──────────────────┴┐
-              │   集成测试          │  (Rust: Command + Service + Database)
-              │  模块间交互         │
-             ┌┴────────────────────┴┐
-             │   单元测试            │  (Rust: cargo test / TS: Vitest)
-             │  函数/组件级别        │
-             └──────────────────────┘
-```
-
----
-
-## Rust 三层架构测试
-
-本项目采用三层架构（models → database → services → commands），测试应覆盖各层。
-
-### 测试金字塔
-
-```
-     ┌─────────────┐
-     │ Command 测试 │  集成测试（调用 Service）
-    ┌┴──────────────┴┐
-    │  Service 测试   │  业务逻辑测试（调用 Database）
-   ┌┴─────────────────┴┐
-   │  Database 测试     │  单元测试（纯函数）
-   └───────────────────┘
-```
-
----
-
-## Database 层测试（单元测试）
-
-### 示例：测试数据库操作
-
-```rust
-// src-tauri/src/database/user.rs
-use rusqlite::{Connection, Result};
-use crate::models::User;
-
-pub fn create_table(conn: &Connection) -> Result<()> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL
-        )",
-        [],
-    )?;
-    Ok(())
-}
-
-pub fn insert_user(conn: &Connection, user: &User) -> Result<()> {
-    conn.execute(
-        "INSERT INTO users (name, email) VALUES (?1, ?2)",
-        [&user.name, &user.email],
-    )?;
-    Ok(())
-}
-
-pub fn get_user(conn: &Connection, id: i64) -> Result<User> {
-    conn.query_row(
-        "SELECT id, name, email FROM users WHERE id = ?1",
-        [id],
-        |row| Ok(User {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            email: row.get(2)?,
-        })
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::Connection;
-
-    fn setup_test_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        create_table(&conn).unwrap();
-        conn
-    }
-
-    #[test]
-    fn test_insert_and_get_user() {
-        let conn = setup_test_db();
-
-        let user = User {
-            id: 0,
-            name: "Alice".into(),
-            email: "alice@example.com".into(),
-        };
-
-        insert_user(&conn, &user).unwrap();
-
-        let retrieved = get_user(&conn, 1).unwrap();
-        assert_eq!(retrieved.name, "Alice");
-        assert_eq!(retrieved.email, "alice@example.com");
-    }
-
-    #[test]
-    fn test_get_nonexistent_user() {
-        let conn = setup_test_db();
-        let result = get_user(&conn, 999);
-        assert!(result.is_err());
-    }
-}
-```
-
----
-
-## Service 层测试（业务逻辑测试）
-
-### 示例：测试业务逻辑
-
-```rust
-// src-tauri/src/services/user.rs
-use crate::database;
-use crate::models::User;
-use crate::error::AppError;
-use rusqlite::Connection;
-
-pub fn validate_email(email: &str) -> Result<(), AppError> {
-    if !email.contains('@') || !email.contains('.') {
-        return Err(AppError::InvalidInput("无效的邮箱格式".into()));
-    }
-    Ok(())
-}
-
-pub fn add_user(conn: &Connection, name: &str, email: &str) -> Result<(), AppError> {
-    validate_email(email)?;
-
-    let user = User {
-        id: 0,
-        name: name.into(),
-        email: email.into(),
-    };
-
-    database::user::insert_user(conn, &user)?;
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::Connection;
-
-    fn setup_test_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        database::user::create_table(&conn).unwrap();
-        conn
-    }
-
-    #[test]
-    fn test_validate_email_valid() {
-        assert!(validate_email("test@example.com").is_ok());
-    }
-
-    #[test]
-    fn test_validate_email_invalid() {
-        assert!(validate_email("invalid").is_err());
-        assert!(validate_email("no-at-sign.com").is_err());
-        assert!(validate_email("no-dot@com").is_err());
-    }
-
-    #[test]
-    fn test_add_user_success() {
-        let conn = setup_test_db();
-        let result = add_user(&conn, "Alice", "alice@example.com");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_add_user_invalid_email() {
-        let conn = setup_test_db();
-        let result = add_user(&conn, "Bob", "invalid-email");
-        assert!(result.is_err());
-
-        if let Err(AppError::InvalidInput(msg)) = result {
-            assert!(msg.contains("邮箱"));
-        }
-    }
-}
-```
-
----
-
-## Command 层测试（集成测试）
-
-### 示例：测试 Tauri Command
-
-```rust
-// src-tauri/src/commands/user.rs
-use crate::services;
-use crate::models::User;
-
-#[tauri::command]
-pub fn add_user(name: String, email: String) -> Result<(), String> {
-    let conn = get_connection().map_err(|e| e.to_string())?;
-    services::user::add_user(&conn, &name, &email)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_user(id: i64) -> Result<User, String> {
-    let conn = get_connection().map_err(|e| e.to_string())?;
-    database::user::get_user(&conn, id)
-        .map_err(|e| e.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // 注意：Command 测试需要模拟完整的应用环境
-    // 可以直接调用 Command 函数，但需要确保数据库连接可用
-
-    #[test]
-    fn test_add_user_command() {
-        // 设置测试数据库
-        let result = add_user("Alice".into(), "alice@example.com".into());
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_add_user_command_invalid() {
-        let result = add_user("Bob".into(), "invalid".into());
-        assert!(result.is_err());
-    }
-}
-```
-
----
-
-## 运行 Rust 测试
-
-```bash
-# 运行所有 Rust 测试
-cd src-tauri && cargo test
-
-# 运行特定模块的测试
-cd src-tauri && cargo test database::user::tests
-
-# 运行特定测试函数
-cd src-tauri && cargo test test_add_user
-
-# 显示输出（包括 println!）
-cd src-tauri && cargo test -- --nocapture
-
-# 并行运行测试（默认）
-cd src-tauri && cargo test
-
-# 串行运行测试（避免数据库冲突）
-cd src-tauri && cargo test -- --test-threads=1
-```
-
----
-
-## React 测试 (Vitest)
-
-### 安装
-
-```bash
-pnpm add -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom
-```
-
-### vitest.config.ts
-
-```typescript
-import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
-import path from "path";
-
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: "./src/test/setup.ts",
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-});
-```
-
-### 组件测试
-
-```tsx
-// src/pages/UserPage.test.tsx
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import UserPage from "./UserPage";
-
-// Mock Tauri invoke
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
-
-describe("UserPage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("renders user list", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    (invoke as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 1, name: "Alice", email: "alice@example.com" },
-      { id: 2, name: "Bob", email: "bob@example.com" },
-    ]);
-
-    render(<UserPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Alice")).toBeInTheDocument();
-      expect(screen.getByText("Bob")).toBeInTheDocument();
-    });
-  });
-
-  it("adds a new user", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    (invoke as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-
-    render(<UserPage />);
-
-    const nameInput = screen.getByPlaceholderText("姓名");
-    const emailInput = screen.getByPlaceholderText("邮箱");
-    const submitButton = screen.getByText("添加");
-
-    fireEvent.change(nameInput, { target: { value: "Charlie" } });
-    fireEvent.change(emailInput, { target: { value: "charlie@example.com" } });
-    fireEvent.click(submitButton);
-
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("add_user", {
-        name: "Charlie",
-        email: "charlie@example.com",
-      });
-    });
-  });
-
-  it("handles error when adding user", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    (invoke as ReturnType<typeof vi.fn>).mockRejectedValue("无效的邮箱格式");
-
-    render(<UserPage />);
-
-    const nameInput = screen.getByPlaceholderText("姓名");
-    const emailInput = screen.getByPlaceholderText("邮箱");
-    const submitButton = screen.getByText("添加");
-
-    fireEvent.change(nameInput, { target: { value: "Invalid" } });
-    fireEvent.change(emailInput, { target: { value: "invalid" } });
-    fireEvent.click(submitButton);
-
-    await waitFor(() => {
-      expect(screen.getByText(/邮箱格式/)).toBeInTheDocument();
-    });
-  });
-});
-```
-
-### API 测试
-
-```typescript
-// src/lib/api/index.test.ts
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { api } from "./index";
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
-
-describe("API", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("calls getUser command", async () => {
-    const { invoke } = await import("@tauri-apps/api/core");
-    (invoke as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 1,
-      name: "Alice",
-      email: "alice@example.com",
-    });
-
-    const user = await api.getUser(1);
-
-    expect(invoke).toHaveBeenCalledWith("get_user", { id: 1 });
-    expect(user.name).toBe("Alice");
-  });
-});
-```
-
-### 运行前端测试
-
-```bash
-# 运行测试（watch 模式）
-pnpm vitest
-
-# 运行一次
-pnpm vitest run
-
-# 覆盖率
-pnpm vitest run --coverage
-
-# 运行特定测试文件
-pnpm vitest src/pages/UserPage.test.tsx
-```
-
----
-
-## 测试最佳实践
-
-### Rust 测试
-
-1. **使用内存数据库**：测试时使用 `Connection::open_in_memory()` 避免文件冲突
-2. **独立测试**：每个测试函数独立，不依赖其他测试
-3. **测试边界情况**：正常情况 + 错误情况 + 边界情况
-4. **使用 setup 函数**：提取通用的测试准备代码
-5. **测试三层分别**：Database → Service → Command 分层测试
-
-### React 测试
-
-1. **Mock Tauri API**：使用 `vi.mock` 模拟 `@tauri-apps/api/core`
-2. **等待异步**：使用 `waitFor` 等待异步操作完成
-3. **清理 Mock**：每个测试前用 `beforeEach` 清理 mock
-4. **测试用户交互**：使用 `fireEvent` 或 `@testing-library/user-event`
-5. **测试错误处理**：测试 API 调用失败的情况
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不写测试直接提交 | 至少为核心功能编写单元测试 |
-| 前端测试中真实调用 invoke | Mock `@tauri-apps/api/core` |
-| 只测试正常路径 | 同时测试错误路径 (Err/异常) |
-| 测试中硬编码文件路径 | 使用 `Connection::open_in_memory()` |
-| 不测试 Database 层 | Database 层最容易出 bug，必须测试 |
-| 不测试 Service 业务逻辑 | Service 层包含关键业务逻辑，必须测试 |
-| Command 测试不充分 | Command 是前端入口，需要集成测试 |
-| 测试之间相互依赖 | 每个测试独立，不依赖其他测试 |
+## 能力边界
+
+本 Skill 负责创建、设计和调试测试。普通代码任务交付时“运行已有测试”由项目准确性基线和验证矩阵保证，不要求每次加载本 Skill。
+
+- 仅执行现有测试、格式化或构建检查时，不自动触发。
+- 诊断业务运行故障使用 `bug-detective`；当根因位于测试本身时再使用本 Skill。
+- 页面真实交互验收必须使用 Codex 内置浏览器或 Control Chrome，不能用组件测试替代。
+- 数据库测试不能替代对真实 DDL/数据格式的必要确认。
+
+## 测试设计原则
+
+1. 测试可观察行为和契约，不锁死私有实现细节。
+2. 每个测试只表达一个主要失败原因，名称写清前置条件、动作和预期。
+3. 缺陷修复先用失败测试复现根因，再实施最小修复并验证通过。
+4. 测试数据、时钟、随机数、文件、端口、数据库和全局状态必须隔离或显式控制。
+5. 不通过放宽断言、增加任意等待或跳过用例来“修复”测试。
+6. 测试通过只是证据之一；构建、真实数据和浏览器行为仍按影响面验证。
+
+## 分层策略
+
+| 层级 | 主要目标 | 推荐范围 |
+|---|---|---|
+| Rust 单元测试 | 纯业务规则、解析、转换、边界条件 | 快速、确定、无外部依赖 |
+| Database 测试 | SQL、迁移、约束、事务和映射 | 临时/内存 SQLite，覆盖升级路径 |
+| Service 测试 | 业务编排、错误类别、状态转换 | 使用可控依赖，避免 UI/IPC 噪音 |
+| API/Command 测试 | 参数、DTO、注册和错误契约 | 聚焦跨层边界 |
+| React/Vitest | 组件行为、Hook、Store、API 封装 | 以用户可见行为为断言 |
+| 浏览器验收 | 路由、真实交互、控制台和集成状态 | 页面改动的强制出口 |
+
+## 工作流程
+
+### 1. 明确风险和契约
+
+- 写清行为前置条件、输入、输出、副作用和失败模式。
+- 从改动文件、历史缺陷、数据边界和并发路径识别风险。
+- 选择能在最低合理层级稳定捕获风险的测试。
+
+### 2. 设计测试矩阵
+
+至少评估：
+
+- 正常路径与最小/最大边界。
+- 空值、非法输入、缺失资源和权限失败。
+- 错误传播、重试、取消和恢复。
+- 历史数据、迁移、唯一约束和事务回滚。
+- 并发、重复调用、乱序响应和幂等性。
+- 跨平台或环境差异。
+
+不要求机械覆盖所有维度；应说明哪些适用、哪些不适用。
+
+### 3. 构造隔离环境
+
+- Rust 测试使用临时目录、内存/临时 SQLite 和独立状态。
+- 前端测试 mock 最窄外部边界，保留真实业务逻辑。
+- 每个测试独立创建和清理资源，不依赖执行顺序。
+- 不使用生产凭据、生产数据库或真实外部写入。
+
+### 4. 编写判别性断言
+
+- 断言返回值、状态变化、持久化结果和可见错误类别。
+- 避免只断言“未抛异常”“数组非空”或整页快照。
+- 对回归测试明确指出旧实现为何失败。
+- 对错误文本优先断言稳定的码/类别，除非文案本身是契约。
+
+### 5. 验证与审查
+
+- 先运行单个新测试，再运行受影响模块和相关套件。
+- 检查测试是否在没有目标修复时能失败，防止假阳性。
+- 重复运行并发/异步用例，排除偶发性。
+- 格式化测试代码，执行相关类型检查、构建和 `git diff --check`。
+
+## 测试失败诊断
+
+依次排查：
+
+1. 产品行为确实回归。
+2. 测试夹具或 mock 与真实契约漂移。
+3. 共享状态、执行顺序或资源未清理。
+4. 时钟、异步等待、竞态或外部服务导致不确定性。
+5. 断言过度依赖实现、文本或快照。
+
+修复必须针对根因。若需暂时隔离 flaky 测试，应明确记录原因、证据和恢复条件，不能静默跳过。
+
+## 按需参考
+
+需要 Rust/SQLite/Vitest 示例、命令和测试审查清单时，读取 [references/test-patterns.md](references/test-patterns.md)。
+
+## 完成条件
+
+- 新测试在目标缺陷或旧行为上能够失败，在正确实现上通过。
+- 测试覆盖主要成功、边界和失败行为，且断言具有判别力。
+- 测试相互隔离、可重复，不依赖生产数据或外部副作用。
+- 相关套件、类型检查和格式化通过。
+- 页面行为另有真实浏览器验收，没有把测试通过当作最终验收。

@@ -937,8 +937,9 @@ async fn kill_mysql_query(
         .await
         .map_err(|error| AppError::Custom(format!("MySQL 终止查询连接失败: {}", error)))?;
 
-    // MySQL 不支持把 KILL QUERY 的线程 ID 作为普通参数绑定，前面已校验为正整数。
-    sqlx::query(&format!("KILL QUERY {}", process_id))
+    // MySQL 不支持把 KILL QUERY 的线程 ID 作为普通参数绑定；调用方已拒绝非正整数。
+    let kill_sql = format!("KILL QUERY {}", process_id);
+    sqlx::query(sqlx::AssertSqlSafe(kill_sql))
         .execute(&pool)
         .await
         .map_err(|error| AppError::Custom(format!("终止 MySQL 查询失败: {}", error)))?;

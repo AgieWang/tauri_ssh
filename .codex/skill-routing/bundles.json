@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "bundles": [
+    {
+      "id": "fullstack-ipc-feature",
+      "when": { "signalsAll": ["react", "command"] },
+      "required": ["ui-frontend", "api-development"],
+      "conditional": {}
+    },
+    {
+      "id": "sqlite-migration",
+      "when": { "signalsAll": ["sqlite", "migration"] },
+      "required": ["database-ops", "test-development"],
+      "conditional": {}
+    },
+    {
+      "id": "filesystem-feature",
+      "when": { "signalsAll": ["filesystem", "implement"] },
+      "required": [
+        "file-storage",
+        "tauri-capabilities",
+        "security-permissions"
+      ],
+      "conditional": {}
+    },
+    {
+      "id": "plugin-permissions",
+      "when": { "signalsAll": ["tauri-plugin", "capabilities"] },
+      "required": [
+        "tauri-plugins",
+        "tauri-capabilities",
+        "security-permissions"
+      ],
+      "conditional": {}
+    },
+    {
+      "id": "full-release",
+      "when": { "signalsAll": ["release", "publish"] },
+      "required": ["release", "release-publish", "security-permissions"],
+      "conditional": {
+        "updater": "tauri-updater",
+        "git": "git-workflow",
+        "packaging": "tauri-packaging"
+      }
+    },
+    {
+      "id": "credentials-or-remote-write",
+      "when": { "signalsAny": ["credentials", "remote-write", "destructive"] },
+      "required": ["security-permissions"],
+      "conditional": {}
+    },
+    {
+      "id": "capability-change",
+      "when": { "signalsAny": ["capabilities"] },
+      "required": ["tauri-capabilities", "security-permissions"],
+      "conditional": {}
+    }
+  ]
+}

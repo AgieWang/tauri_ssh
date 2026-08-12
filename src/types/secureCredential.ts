@@ -1,10 +1,5 @@
 export type SecureCredentialProvider =
-  | "github"
-  | "gitlab"
-  | "gitcode"
-  | "gitee"
-  | "http_api"
-  | "custom";
+  "github" | "gitlab" | "gitcode" | "gitee" | "http_api" | "custom";
 
 export type SecureCredentialType =
   | "token"
@@ -15,11 +10,7 @@ export type SecureCredentialType =
   | "session_reference";
 
 export type SecureCredentialStatus =
-  | "active"
-  | "disabled"
-  | "rotation_due"
-  | "expired"
-  | "test_failed";
+  "active" | "disabled" | "rotation_due" | "expired" | "test_failed";
 
 export type SecureCredentialApprovalPolicy =
   | "readonly_auto"
@@ -165,7 +156,8 @@ export interface ListSecureCredentialAuditLogsInput {
   limit?: number;
 }
 
-export type SecureCredentialSessionStatusValue = "active" | "expired" | "revoked";
+export type SecureCredentialSessionStatusValue =
+  "active" | "expired" | "revoked";
 
 export interface SecureCredentialSession {
   id: number;

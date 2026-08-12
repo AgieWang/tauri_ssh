@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Alert,
   AutoComplete,
@@ -25,7 +33,16 @@ import {
   message,
 } from "antd";
 import type { TableProps } from "antd";
-import { Bot, Edit3, PlugZap, Plus, RefreshCw, Sparkles, Trash2, Wand2 } from "lucide-react";
+import {
+  Bot,
+  Edit3,
+  PlugZap,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import {
   aiSkillApi,
   aiProviderApi,
@@ -59,7 +76,8 @@ import type {
 const { Paragraph, Text, Title } = Typography;
 
 type SqlDialectKey = "mysql" | "postgresql" | "standard";
-type SqlExecutionStatus = "idle" | "loading_databases" | "running" | "success" | "error";
+type SqlExecutionStatus =
+  "idle" | "loading_databases" | "running" | "success" | "error";
 type SqlAiMode = "ask" | "generate" | "fix" | "optimize";
 
 interface RedisTreeNode {
@@ -149,7 +167,7 @@ function objectTypeMeta(objectType?: string) {
 }
 
 function quoteIdentifier(value: string, dbType?: DatabaseType) {
-  const quote = dbType === "mysql" ? "`" : "\"";
+  const quote = dbType === "mysql" ? "`" : '"';
   const escaped = value.split(quote).join(`${quote}${quote}`);
   return dbType === "mysql" ? `\`${escaped}\`` : `"${escaped}"`;
 }
@@ -181,7 +199,9 @@ function createTableSqlName(tableName: string, dbType?: DatabaseType) {
   return quoteIdentifier(tableName.trim(), dbType);
 }
 
-function columnDefinitionSql(values: AddColumnFormValues | ModifyColumnFormValues) {
+function columnDefinitionSql(
+  values: AddColumnFormValues | ModifyColumnFormValues,
+) {
   const dataType = values.dataType?.trim();
   if (!dataType) {
     throw new Error("字段类型不能为空");
@@ -195,7 +215,10 @@ function columnDefinitionSql(values: AddColumnFormValues | ModifyColumnFormValue
   return chunks.join(" ");
 }
 
-function createTableColumnDefinitionSql(column: CreateTableColumnFormValues, dbType?: DatabaseType) {
+function createTableColumnDefinitionSql(
+  column: CreateTableColumnFormValues,
+  dbType?: DatabaseType,
+) {
   const name = column.name?.trim();
   if (!name) {
     throw new Error("字段名不能为空");
@@ -215,7 +238,10 @@ function formatSqlAiProbeRows(rows: Array<Record<string, unknown>>) {
     .slice(0, 3)
     .map((row) =>
       Object.entries(row)
-        .map(([key, value]) => `${key}=${value === null || value === undefined ? "NULL" : String(value)}`)
+        .map(
+          ([key, value]) =>
+            `${key}=${value === null || value === undefined ? "NULL" : String(value)}`,
+        )
         .join(", "),
     )
     .join("\n");
@@ -231,13 +257,20 @@ function normalizeMarkdownForPanel(markdown: string) {
 }
 
 function renderInlineMarkdown(value: string) {
-  const segments = value.split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g).filter(Boolean);
+  const segments = value
+    .split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g)
+    .filter(Boolean);
   return segments.map((segment, index) => {
     if (segment.startsWith("`") && segment.endsWith("`")) {
       return <code key={`${segment}-${index}`}>{segment.slice(1, -1)}</code>;
     }
-    if ((segment.startsWith("**") && segment.endsWith("**")) || (segment.startsWith("__") && segment.endsWith("__"))) {
-      return <strong key={`${segment}-${index}`}>{segment.slice(2, -2)}</strong>;
+    if (
+      (segment.startsWith("**") && segment.endsWith("**")) ||
+      (segment.startsWith("__") && segment.endsWith("__"))
+    ) {
+      return (
+        <strong key={`${segment}-${index}`}>{segment.slice(2, -2)}</strong>
+      );
     }
     if (segment.startsWith("*") && segment.endsWith("*")) {
       return <em key={`${segment}-${index}`}>{segment.slice(1, -1)}</em>;
@@ -268,7 +301,9 @@ function renderMarkdownTextBlock(block: string, blockIndex: number) {
     return (
       <ul key={`${blockIndex}-${firstLine}`}>
         {lines.map((line, index) => (
-          <li key={`${line}-${index}`}>{renderInlineMarkdown(line.trim().replace(/^[-*]\s+/, ""))}</li>
+          <li key={`${line}-${index}`}>
+            {renderInlineMarkdown(line.trim().replace(/^[-*]\s+/, ""))}
+          </li>
         ))}
       </ul>
     );
@@ -277,7 +312,9 @@ function renderMarkdownTextBlock(block: string, blockIndex: number) {
     return (
       <ol key={`${blockIndex}-${firstLine}`}>
         {lines.map((line, index) => (
-          <li key={`${line}-${index}`}>{renderInlineMarkdown(line.trim().replace(/^\d+[.)]\s+/, ""))}</li>
+          <li key={`${line}-${index}`}>
+            {renderInlineMarkdown(line.trim().replace(/^\d+[.)]\s+/, ""))}
+          </li>
         ))}
       </ol>
     );
@@ -291,7 +328,8 @@ function renderMarkdownTextBlock(block: string, blockIndex: number) {
 
 function SqlMarkdownAnswer({ content }: { content: string }) {
   const normalized = normalizeMarkdownForPanel(content);
-  const blocks: Array<{ type: "text" | "code"; value: string; lang?: string }> = [];
+  const blocks: Array<{ type: "text" | "code"; value: string; lang?: string }> =
+    [];
   let textBuffer: string[] = [];
   let codeBuffer: string[] = [];
   let codeLang = "";
@@ -300,7 +338,11 @@ function SqlMarkdownAnswer({ content }: { content: string }) {
     const fence = line.match(/^```([a-zA-Z0-9_-]*)\s*$/);
     if (fence) {
       if (codeBuffer.length > 0 || codeLang) {
-        blocks.push({ type: "code", value: codeBuffer.join("\n").trimEnd(), lang: codeLang || "text" });
+        blocks.push({
+          type: "code",
+          value: codeBuffer.join("\n").trimEnd(),
+          lang: codeLang || "text",
+        });
         codeBuffer = [];
         codeLang = "";
       } else {
@@ -319,7 +361,11 @@ function SqlMarkdownAnswer({ content }: { content: string }) {
     }
   });
   if (codeBuffer.length > 0 || codeLang) {
-    blocks.push({ type: "code", value: codeBuffer.join("\n").trimEnd(), lang: codeLang || "text" });
+    blocks.push({
+      type: "code",
+      value: codeBuffer.join("\n").trimEnd(),
+      lang: codeLang || "text",
+    });
   }
   if (textBuffer.some((item) => item.trim())) {
     blocks.push({ type: "text", value: textBuffer.join("\n").trim() });
@@ -332,14 +378,18 @@ function SqlMarkdownAnswer({ content }: { content: string }) {
           return (
             <div className="database-sql-ai-code-block" key={`code-${index}`}>
               <div className="database-sql-ai-code-lang">{block.lang}</div>
-              <pre><code>{block.value}</code></pre>
+              <pre>
+                <code>{block.value}</code>
+              </pre>
             </div>
           );
         }
         return block.value
           .split(/\n{2,}/)
           .filter(Boolean)
-          .map((textBlock, textIndex) => renderMarkdownTextBlock(textBlock, index * 100 + textIndex));
+          .map((textBlock, textIndex) =>
+            renderMarkdownTextBlock(textBlock, index * 100 + textIndex),
+          );
       })}
     </div>
   );
@@ -396,7 +446,10 @@ function buildRedisTree(keys: string[]): RedisTreeNode[] {
       }
       child.count += 1;
       child.leafKeys.push(redisKey);
-      child.pattern = child.children && child.children.length > 0 ? `${prefix}:*` : child.pattern;
+      child.pattern =
+        child.children && child.children.length > 0
+          ? `${prefix}:*`
+          : child.pattern;
       current = child;
     }
   }
@@ -443,7 +496,8 @@ const SqlCodeEditor = lazy(async () => {
     postgresql: sqlModule.PostgreSQL,
     standard: sqlModule.StandardSQL,
   };
-  const tableReferencePattern = /\b(?:from|join|update|into|table)\s+([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)(?:\s+(?:as\s+)?([`"]?[\w$]+[`"]?))?/gi;
+  const tableReferencePattern =
+    /\b(?:from|join|update|into|table)\s+([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)(?:\s+(?:as\s+)?([`"]?[\w$]+[`"]?))?/gi;
 
   function normalizeSqlIdentifier(value: string) {
     return value
@@ -464,7 +518,7 @@ const SqlCodeEditor = lazy(async () => {
       const previous = text[index - 1];
       if (char === "'" && previous !== "\\" && !double) {
         single = !single;
-      } else if (char === "\"" && previous !== "\\" && !single) {
+      } else if (char === '"' && previous !== "\\" && !single) {
         double = !double;
       }
     }
@@ -480,7 +534,21 @@ const SqlCodeEditor = lazy(async () => {
       tables.add(table);
       tables.add(shortName);
       const alias = match[2] ? normalizeSqlIdentifier(match[2]) : "";
-      if (alias && !["set", "where", "join", "on", "left", "right", "inner", "outer", "full", "cross"].includes(alias)) {
+      if (
+        alias &&
+        ![
+          "set",
+          "where",
+          "join",
+          "on",
+          "left",
+          "right",
+          "inner",
+          "outer",
+          "full",
+          "cross",
+        ].includes(alias)
+      ) {
         aliases.set(alias, table);
       }
     }
@@ -489,7 +557,9 @@ const SqlCodeEditor = lazy(async () => {
 
   function tableMatchesColumn(column: SqlColumnCompletion, tableKey: string) {
     const tableName = normalizeSqlIdentifier(column.tableName);
-    const schemaName = column.schemaName ? normalizeSqlIdentifier(column.schemaName) : "";
+    const schemaName = column.schemaName
+      ? normalizeSqlIdentifier(column.schemaName)
+      : "";
     const fullName = schemaName ? `${schemaName}.${tableName}` : tableName;
     return tableKey === tableName || tableKey === fullName;
   }
@@ -516,9 +586,14 @@ const SqlCodeEditor = lazy(async () => {
           pos: number;
           explicit: boolean;
           state: { doc: { sliceString: (from: number, to: number) => string } };
-          matchBefore: (regexp: RegExp) => { from: number; to: number; text: string } | null;
+          matchBefore: (
+            regexp: RegExp,
+          ) => { from: number; to: number; text: string } | null;
         };
-        const beforeCursor = completionContext.state.doc.sliceString(0, completionContext.pos);
+        const beforeCursor = completionContext.state.doc.sliceString(
+          0,
+          completionContext.pos,
+        );
         if (isInsideSqlString(beforeCursor)) {
           return null;
         }
@@ -528,11 +603,15 @@ const SqlCodeEditor = lazy(async () => {
           return null;
         }
 
-        const dotMatch = beforeCursor.match(/([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)\.[\w$]*$/);
+        const dotMatch = beforeCursor.match(
+          /([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)\.[\w$]*$/,
+        );
         const statement = statementBeforeCursor(beforeCursor);
         const { tables, aliases } = referencedTables(statement);
         const qualifier = dotMatch ? normalizeSqlIdentifier(dotMatch[1]) : "";
-        const qualifierTable = qualifier ? aliases.get(qualifier) ?? qualifier : "";
+        const qualifierTable = qualifier
+          ? (aliases.get(qualifier) ?? qualifier)
+          : "";
         const activeColumns = props.columns
           .filter((column) => {
             if (qualifierTable) {
@@ -541,7 +620,9 @@ const SqlCodeEditor = lazy(async () => {
             if (tables.size === 0) {
               return true;
             }
-            return Array.from(tables).some((tableKey) => tableMatchesColumn(column, tableKey));
+            return Array.from(tables).some((tableKey) =>
+              tableMatchesColumn(column, tableKey),
+            );
           })
           .slice(0, 300);
 
@@ -591,67 +672,71 @@ const SqlCodeEditor = lazy(async () => {
           <CodeMirror
             value={props.value}
             height="190px"
-            theme={props.dark ? githubThemeModule.githubDark : githubThemeModule.githubLight}
+            theme={
+              props.dark
+                ? githubThemeModule.githubDark
+                : githubThemeModule.githubLight
+            }
             extensions={[
-            languageModule.indentUnit.of("  "),
-            viewModule.EditorView.domEventHandlers({
-              keydown: (event: KeyboardEvent) => {
-                if (event.key !== "Enter" || !event.shiftKey) {
-                  return false;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                props.onRun();
-                return true;
-              },
-            }),
-            viewModule.keymap.of([
-              {
-                key: "Shift-Enter",
-                run: () => {
+              languageModule.indentUnit.of("  "),
+              viewModule.EditorView.domEventHandlers({
+                keydown: (event: KeyboardEvent) => {
+                  if (event.key !== "Enter" || !event.shiftKey) {
+                    return false;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
                   props.onRun();
                   return true;
                 },
-              },
-              commandsModule.indentWithTab,
-            ]),
-            viewModule.EditorView.lineWrapping,
-            sqlModule.sql({
-              dialect,
-              schema: props.schema,
-              upperCaseKeywords: true,
-            }),
-            autocompleteModule.autocompletion({
-              override: [
-                columnCompletionSource,
-                sqlModule.schemaCompletionSource(sqlConfig),
-                sqlModule.keywordCompletionSource(dialect, true),
-              ],
-              maxRenderedOptions: 80,
-            }),
-          ]}
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            highlightSpecialChars: true,
-            foldGutter: true,
-            drawSelection: true,
-            dropCursor: true,
-            allowMultipleSelections: true,
-            indentOnInput: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: false,
-            rectangularSelection: true,
-            crosshairCursor: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            closeBracketsKeymap: true,
-            searchKeymap: true,
-            foldKeymap: true,
-            completionKeymap: true,
-            lintKeymap: true,
-          }}
+              }),
+              viewModule.keymap.of([
+                {
+                  key: "Shift-Enter",
+                  run: () => {
+                    props.onRun();
+                    return true;
+                  },
+                },
+                commandsModule.indentWithTab,
+              ]),
+              viewModule.EditorView.lineWrapping,
+              sqlModule.sql({
+                dialect,
+                schema: props.schema,
+                upperCaseKeywords: true,
+              }),
+              autocompleteModule.autocompletion({
+                override: [
+                  columnCompletionSource,
+                  sqlModule.schemaCompletionSource(sqlConfig),
+                  sqlModule.keywordCompletionSource(dialect, true),
+                ],
+                maxRenderedOptions: 80,
+              }),
+            ]}
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLineGutter: true,
+              highlightSpecialChars: true,
+              foldGutter: true,
+              drawSelection: true,
+              dropCursor: true,
+              allowMultipleSelections: true,
+              indentOnInput: true,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: false,
+              rectangularSelection: true,
+              crosshairCursor: true,
+              highlightActiveLine: true,
+              highlightSelectionMatches: true,
+              closeBracketsKeymap: true,
+              searchKeymap: true,
+              foldKeymap: true,
+              completionKeymap: true,
+              lintKeymap: true,
+            }}
             onChange={(value) => props.onChange(value)}
           />
         </div>
@@ -660,7 +745,11 @@ const SqlCodeEditor = lazy(async () => {
   };
 });
 
-const dbTypeOptions: Array<{ value: DatabaseType; label: string; defaultPort: number }> = [
+const dbTypeOptions: Array<{
+  value: DatabaseType;
+  label: string;
+  defaultPort: number;
+}> = [
   { value: "mysql", label: "MySQL / MariaDB", defaultPort: 3306 },
   { value: "postgresql", label: "PostgreSQL", defaultPort: 5432 },
   { value: "redis", label: "Redis", defaultPort: 6379 },
@@ -670,7 +759,14 @@ const dbTypeLabel = Object.fromEntries(
   dbTypeOptions.map((item) => [item.value, item.label]),
 ) as Record<DatabaseType, string>;
 
-const statusMeta: Record<DatabaseConnectionStatus, { text: string; color: string; badge: "success" | "processing" | "default" | "warning" | "error" }> = {
+const statusMeta: Record<
+  DatabaseConnectionStatus,
+  {
+    text: string;
+    color: string;
+    badge: "success" | "processing" | "default" | "warning" | "error";
+  }
+> = {
   unknown: { text: "未检测", color: "default", badge: "default" },
   online: { text: "在线", color: "green", badge: "success" },
   offline: { text: "离线", color: "red", badge: "error" },
@@ -788,7 +884,10 @@ const defaultFormValues: UpsertDatabaseConnectionInput = {
 function statusTag(status: DatabaseConnectionStatus) {
   const meta = statusMeta[status] ?? statusMeta.unknown;
   return (
-    <Badge status={meta.badge} text={<Tag color={meta.color}>{meta.text}</Tag>} />
+    <Badge
+      status={meta.badge}
+      text={<Tag color={meta.color}>{meta.text}</Tag>}
+    />
   );
 }
 
@@ -807,12 +906,15 @@ export default function DatabasePage() {
   const [databaseNames, setDatabaseNames] = useState<string[]>([]);
   const pendingQueryDatabaseNameRef = useRef<string | undefined>(undefined);
   const pendingSqlAutoExecuteRef = useRef<PendingSqlAutoExecute | null>(null);
-  const [databaseSchema, setDatabaseSchema] = useState<DatabaseSchemaResult | null>(null);
+  const [databaseSchema, setDatabaseSchema] =
+    useState<DatabaseSchemaResult | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [objectConnectionKey, setObjectConnectionKey] = useState<string>();
   const [objectDatabaseName, setObjectDatabaseName] = useState<string>();
   const [objectDatabaseNames, setObjectDatabaseNames] = useState<string[]>([]);
-  const [objectSchema, setObjectSchema] = useState<DatabaseSchemaResult | null>(null);
+  const [objectSchema, setObjectSchema] = useState<DatabaseSchemaResult | null>(
+    null,
+  );
   const [objectLoading, setObjectLoading] = useState(false);
   const [selectedObjectKey, setSelectedObjectKey] = useState<string>();
   const [createTableDrawerOpen, setCreateTableDrawerOpen] = useState(false);
@@ -822,11 +924,17 @@ export default function DatabasePage() {
   const [queryResults, setQueryResults] = useState<DatabaseQueryResult[]>([]);
   const [activeQueryResultKey, setActiveQueryResultKey] = useState("0");
   const [queryLoading, setQueryLoading] = useState(false);
-  const [editingSqlCell, setEditingSqlCell] = useState<EditingSqlCell | null>(null);
-  const [savingSqlCells, setSavingSqlCells] = useState<Record<string, EditingSqlCell>>({});
+  const [editingSqlCell, setEditingSqlCell] = useState<EditingSqlCell | null>(
+    null,
+  );
+  const [savingSqlCells, setSavingSqlCells] = useState<
+    Record<string, EditingSqlCell>
+  >({});
   const [databaseLoading, setDatabaseLoading] = useState(false);
-  const [sqlExecutionStatus, setSqlExecutionStatus] = useState<SqlExecutionStatus>("idle");
-  const [sqlExecutionMessage, setSqlExecutionMessage] = useState("等待执行 SQL");
+  const [sqlExecutionStatus, setSqlExecutionStatus] =
+    useState<SqlExecutionStatus>("idle");
+  const [sqlExecutionMessage, setSqlExecutionMessage] =
+    useState("等待执行 SQL");
   const [sqlAiMode, setSqlAiMode] = useState<SqlAiMode>("generate");
   const [sqlAiPrompt, setSqlAiPrompt] = useState("");
   const [sqlAiAnswer, setSqlAiAnswer] = useState("");
@@ -841,26 +949,38 @@ export default function DatabasePage() {
   const [redisTreeLoading, setRedisTreeLoading] = useState(false);
   const [redisSelectedTreeKey, setRedisSelectedTreeKey] = useState("__all__");
   const [redisSelectedKeyCount, setRedisSelectedKeyCount] = useState(0);
-  const [redisSelectedLeafKeys, setRedisSelectedLeafKeys] = useState<string[]>([]);
+  const [redisSelectedLeafKeys, setRedisSelectedLeafKeys] = useState<string[]>(
+    [],
+  );
   const [redisCursor, setRedisCursor] = useState(0);
   const [redisKeys, setRedisKeys] = useState<RedisKeyEntry[]>([]);
   const [redisPage, setRedisPage] = useState(1);
   const [redisPageSize, setRedisPageSize] = useState(12);
-  const [redisPageCursors, setRedisPageCursors] = useState<Record<number, number>>({ 1: 0 });
-  const [redisPreview, setRedisPreview] = useState<RedisValuePreview | null>(null);
+  const [redisPageCursors, setRedisPageCursors] = useState<
+    Record<number, number>
+  >({ 1: 0 });
+  const [redisPreview, setRedisPreview] = useState<RedisValuePreview | null>(
+    null,
+  );
   const [redisLoading, setRedisLoading] = useState(false);
   const [redisDatabaseLoading, setRedisDatabaseLoading] = useState(false);
   const [exportConnectionKey, setExportConnectionKey] = useState<string>();
   const [exportDatabaseName, setExportDatabaseName] = useState<string>();
   const [exportDatabaseNames, setExportDatabaseNames] = useState<string[]>([]);
-  const [exportSchema, setExportSchema] = useState<DatabaseSchemaResult | null>(null);
+  const [exportSchema, setExportSchema] = useState<DatabaseSchemaResult | null>(
+    null,
+  );
   const [exportMode, setExportMode] = useState<DatabaseExportMode>("table_csv");
   const [exportTableName, setExportTableName] = useState<string>();
-  const [exportSql, setExportSql] = useState("SELECT * FROM your_table LIMIT 1000;");
+  const [exportSql, setExportSql] = useState(
+    "SELECT * FROM your_table LIMIT 1000;",
+  );
   const [exportIncludeData, setExportIncludeData] = useState(true);
   const [exportMaxRows, setExportMaxRows] = useState(100000);
   const [exportLoading, setExportLoading] = useState(false);
-  const [exportResult, setExportResult] = useState<DatabaseExportResult | null>(null);
+  const [exportResult, setExportResult] = useState<DatabaseExportResult | null>(
+    null,
+  );
   const [form] = Form.useForm<UpsertDatabaseConnectionInput>();
   const [createTableForm] = Form.useForm<CreateTableFormValues>();
   const [addColumnForm] = Form.useForm<AddColumnFormValues>();
@@ -950,7 +1070,10 @@ export default function DatabasePage() {
     [redisDatabaseName, redisDatabases],
   );
 
-  const redisTreeData = useMemo(() => buildRedisTree(redisTreeKeys), [redisTreeKeys]);
+  const redisTreeData = useMemo(
+    () => buildRedisTree(redisTreeKeys),
+    [redisTreeKeys],
+  );
 
   const sqlCompletionSchema = useMemo(() => {
     const schema: Record<string, readonly string[]> = {};
@@ -989,7 +1112,10 @@ export default function DatabasePage() {
         .map((table) => {
           const columns = table.columnDetails
             .slice(0, 24)
-            .map((column) => `${column.name}:${column.columnType || column.dataType}`)
+            .map(
+              (column) =>
+                `${column.name}:${column.columnType || column.dataType}`,
+            )
             .join(", ");
           return `${table.schemaName ? `${table.schemaName}.` : ""}${table.name}(${columns})`;
         })
@@ -1020,7 +1146,8 @@ export default function DatabasePage() {
     const tables = objectSchema?.tables ?? [];
     const grouped = new Map<string, DatabaseTableSchema[]>();
     for (const table of tables) {
-      const group = table.schemaName ?? objectSchema?.databaseName ?? "当前数据库";
+      const group =
+        table.schemaName ?? objectSchema?.databaseName ?? "当前数据库";
       grouped.set(group, [...(grouped.get(group) ?? []), table]);
     }
     return [...grouped.entries()].map(([group, items]) => ({
@@ -1047,15 +1174,18 @@ export default function DatabasePage() {
     () =>
       (selectedObject?.columnDetails ?? []).map((column) => ({
         value: column.name,
-        label: column.columnType || column.dataType
-          ? `${column.name}（${column.columnType || column.dataType}）`
-          : column.name,
+        label:
+          column.columnType || column.dataType
+            ? `${column.name}（${column.columnType || column.dataType}）`
+            : column.name,
       })),
     [selectedObject],
   );
 
   const primaryKeyColumns = useMemo(
-    () => selectedObject?.indexes.find((index) => index.name === "PRIMARY")?.columns ?? [],
+    () =>
+      selectedObject?.indexes.find((index) => index.name === "PRIMARY")
+        ?.columns ?? [],
     [selectedObject],
   );
 
@@ -1081,17 +1211,19 @@ export default function DatabasePage() {
     setSqlExecutionStatus("loading_databases");
     setSqlExecutionMessage("正在读取数据库列表...");
     try {
-      const result: DatabaseNameListResult = await databaseOpsApi.listDatabaseNames({
-        connectionKey,
-      });
+      const result: DatabaseNameListResult =
+        await databaseOpsApi.listDatabaseNames({
+          connectionKey,
+        });
       setDatabaseNames(result.databases);
       const pendingDatabaseName = pendingQueryDatabaseNameRef.current;
       pendingQueryDatabaseNameRef.current = undefined;
-      const preferred = pendingDatabaseName && result.databases.includes(pendingDatabaseName)
-        ? pendingDatabaseName
-        : result.current && result.databases.includes(result.current)
-          ? result.current
-          : result.databases[0];
+      const preferred =
+        pendingDatabaseName && result.databases.includes(pendingDatabaseName)
+          ? pendingDatabaseName
+          : result.current && result.databases.includes(result.current)
+            ? result.current
+            : result.databases[0];
       setQueryDatabaseName(preferred);
       setSqlExecutionStatus("idle");
       setSqlExecutionMessage(
@@ -1109,7 +1241,10 @@ export default function DatabasePage() {
     }
   }
 
-  async function loadDatabaseSchema(connectionKey: string, databaseName?: string) {
+  async function loadDatabaseSchema(
+    connectionKey: string,
+    databaseName?: string,
+  ) {
     setSchemaLoading(true);
     try {
       const result = await databaseOpsApi.listDatabaseSchema({
@@ -1132,9 +1267,10 @@ export default function DatabasePage() {
     try {
       const result = await databaseOpsApi.listDatabaseNames({ connectionKey });
       setObjectDatabaseNames(result.databases);
-      const preferred = result.current && result.databases.includes(result.current)
-        ? result.current
-        : result.databases[0];
+      const preferred =
+        result.current && result.databases.includes(result.current)
+          ? result.current
+          : result.databases[0];
       setObjectDatabaseName(preferred);
     } catch (error) {
       setObjectDatabaseNames([]);
@@ -1145,7 +1281,10 @@ export default function DatabasePage() {
     }
   }
 
-  async function loadObjectSchema(connectionKey: string, databaseName?: string) {
+  async function loadObjectSchema(
+    connectionKey: string,
+    databaseName?: string,
+  ) {
     setObjectLoading(true);
     setSelectedObjectKey(undefined);
     try {
@@ -1172,9 +1311,10 @@ export default function DatabasePage() {
     try {
       const result = await databaseOpsApi.listDatabaseNames({ connectionKey });
       setExportDatabaseNames(result.databases);
-      const preferred = result.current && result.databases.includes(result.current)
-        ? result.current
-        : result.databases[0];
+      const preferred =
+        result.current && result.databases.includes(result.current)
+          ? result.current
+          : result.databases[0];
       setExportDatabaseName(preferred);
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1193,7 +1333,9 @@ export default function DatabasePage() {
         databaseName,
       });
       setExportSchema(result);
-      const firstTable = result.tables.find((table) => !table.objectType.toUpperCase().includes("VIEW"));
+      const firstTable = result.tables.find(
+        (table) => !table.objectType.toUpperCase().includes("VIEW"),
+      );
       setExportTableName(firstTable?.name);
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1216,12 +1358,12 @@ export default function DatabasePage() {
     try {
       const result = await databaseOpsApi.listRedisDatabases({ connectionKey });
       setRedisDatabases(result.databases);
-      const selected = result.databases.some((item) => item.name === result.current)
+      const selected = result.databases.some(
+        (item) => item.name === result.current,
+      )
         ? result.current
         : result.databases[0]?.name;
-      setRedisDatabaseName(
-        selected,
-      );
+      setRedisDatabaseName(selected);
       setRedisSelectedKeyCount(
         result.databases.find((item) => item.name === selected)?.keyCount ?? 0,
       );
@@ -1253,9 +1395,17 @@ export default function DatabasePage() {
       setRedisSelectedLeafKeys(result.keys);
       setRedisSelectedKeyCount(result.keys.length);
       if (result.truncated) {
-        message.warning("Key 树仅加载前 20000 个 Key，请通过层级或搜索缩小范围");
+        message.warning(
+          "Key 树仅加载前 20000 个 Key，请通过层级或搜索缩小范围",
+        );
       }
-      void loadRedisTreePage(1, redisPageSize, result.keys, connectionKey, databaseName);
+      void loadRedisTreePage(
+        1,
+        redisPageSize,
+        result.keys,
+        connectionKey,
+        databaseName,
+      );
     } catch (error) {
       setRedisSelectedLeafKeys([]);
       setRedisSelectedKeyCount(0);
@@ -1415,7 +1565,12 @@ export default function DatabasePage() {
       tableName: "",
       columns: [
         { name: "id", dataType: "bigint", nullable: false, primaryKey: true },
-        { name: "name", dataType: "varchar(255)", nullable: true, primaryKey: false },
+        {
+          name: "name",
+          dataType: "varchar(255)",
+          nullable: true,
+          primaryKey: false,
+        },
       ],
     });
     setCreateTableDrawerOpen(true);
@@ -1436,7 +1591,15 @@ export default function DatabasePage() {
               type="warning"
               message="该操作会直接修改数据库结构，请确认已了解影响。"
             />
-            <pre style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap" }}>{sql}</pre>
+            <pre
+              style={{
+                maxHeight: 260,
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {sql}
+            </pre>
           </Space>
         ),
         onOk: async () => {
@@ -1475,7 +1638,9 @@ export default function DatabasePage() {
       message.warning("请输入表名");
       return;
     }
-    const columns = (values.columns ?? []).filter((column) => column.name?.trim());
+    const columns = (values.columns ?? []).filter((column) =>
+      column.name?.trim(),
+    );
     if (columns.length === 0) {
       message.warning("至少需要添加一个字段");
       return;
@@ -1484,7 +1649,9 @@ export default function DatabasePage() {
     const primaryColumns = columns
       .filter((column) => column.primaryKey)
       .map((column) => quoteIdentifier(column.name.trim(), dbType));
-    const definitions = columns.map((column) => createTableColumnDefinitionSql(column, dbType));
+    const definitions = columns.map((column) =>
+      createTableColumnDefinitionSql(column, dbType),
+    );
     if (primaryColumns.length > 0) {
       definitions.push(`PRIMARY KEY (${primaryColumns.join(", ")})`);
     }
@@ -1525,13 +1692,19 @@ export default function DatabasePage() {
     } else {
       const statements = [];
       if (newName !== oldName) {
-        statements.push(`ALTER TABLE ${tableName} RENAME COLUMN ${quoteIdentifier(oldName, dbType)} TO ${quoteIdentifier(newName, dbType)};`);
+        statements.push(
+          `ALTER TABLE ${tableName} RENAME COLUMN ${quoteIdentifier(oldName, dbType)} TO ${quoteIdentifier(newName, dbType)};`,
+        );
       }
       const targetName = quoteIdentifier(newName, dbType);
       if (values.dataType?.trim()) {
-        statements.push(`ALTER TABLE ${tableName} ALTER COLUMN ${targetName} TYPE ${values.dataType.trim()};`);
+        statements.push(
+          `ALTER TABLE ${tableName} ALTER COLUMN ${targetName} TYPE ${values.dataType.trim()};`,
+        );
       }
-      statements.push(`ALTER TABLE ${tableName} ALTER COLUMN ${targetName} ${values.nullable ? "DROP" : "SET"} NOT NULL;`);
+      statements.push(
+        `ALTER TABLE ${tableName} ALTER COLUMN ${targetName} ${values.nullable ? "DROP" : "SET"} NOT NULL;`,
+      );
       const defaultSql = normalizeDefaultValue(values.defaultValue);
       statements.push(
         defaultSql
@@ -1561,7 +1734,9 @@ export default function DatabasePage() {
     if (!selectedObject) return;
     const values = await addIndexForm.validateFields();
     const dbType = selectedObjectConnection?.dbType;
-    const columns = values.columns.map((name) => quoteIdentifier(name, dbType)).join(", ");
+    const columns = values.columns
+      .map((name) => quoteIdentifier(name, dbType))
+      .join(", ");
     const sql = `CREATE ${values.unique ? "UNIQUE " : ""}INDEX ${quoteIdentifier(values.name, dbType)} ON ${tableSqlName(selectedObject, dbType)} (${columns});`;
     await executeStructureSql(sql, "索引已新增");
     addIndexForm.resetFields();
@@ -1571,11 +1746,12 @@ export default function DatabasePage() {
   async function dropIndex(index: DatabaseIndexSchema) {
     if (!selectedObject) return;
     const dbType = selectedObjectConnection?.dbType;
-    const sql = dbType === "mysql"
-      ? index.name === "PRIMARY"
-        ? `ALTER TABLE ${tableSqlName(selectedObject, dbType)} DROP PRIMARY KEY;`
-        : `DROP INDEX ${quoteIdentifier(index.name, dbType)} ON ${tableSqlName(selectedObject, dbType)};`
-      : `DROP INDEX ${selectedObject.schemaName ? `${quoteIdentifier(selectedObject.schemaName, dbType)}.` : ""}${quoteIdentifier(index.name, dbType)};`;
+    const sql =
+      dbType === "mysql"
+        ? index.name === "PRIMARY"
+          ? `ALTER TABLE ${tableSqlName(selectedObject, dbType)} DROP PRIMARY KEY;`
+          : `DROP INDEX ${quoteIdentifier(index.name, dbType)} ON ${tableSqlName(selectedObject, dbType)};`
+        : `DROP INDEX ${selectedObject.schemaName ? `${quoteIdentifier(selectedObject.schemaName, dbType)}.` : ""}${quoteIdentifier(index.name, dbType)};`;
     await executeStructureSql(sql, "索引已删除");
   }
 
@@ -1600,8 +1776,13 @@ export default function DatabasePage() {
     try {
       const values = await form.validateFields();
       const hasNewPassword = Boolean(values.password?.trim());
-      const keepsExistingPassword = Boolean(editing?.hasPassword) && !values.clearPassword;
-      if (values.authType === "direct_password" && !hasNewPassword && !keepsExistingPassword) {
+      const keepsExistingPassword =
+        Boolean(editing?.hasPassword) && !values.clearPassword;
+      if (
+        values.authType === "direct_password" &&
+        !hasNewPassword &&
+        !keepsExistingPassword
+      ) {
         message.warning("直接密码认证需要填写密码");
         return;
       }
@@ -1609,12 +1790,15 @@ export default function DatabasePage() {
         ...defaultFormValues,
         ...values,
         // 未挂载的条件字段不会出现在 validateFields 结果中，提交前必须补齐后端必填字段。
-        credentialRef: values.authType === "credential_ref" ? values.credentialRef : "",
-        password: values.authType === "direct_password" && hasNewPassword
-          ? values.password
-          : null,
+        credentialRef:
+          values.authType === "credential_ref" ? values.credentialRef : "",
+        password:
+          values.authType === "direct_password" && hasNewPassword
+            ? values.password
+            : null,
         clearPassword: values.clearPassword ?? false,
-        sshServerAlias: values.connectionMode === "ssh_tunnel" ? values.sshServerAlias : "",
+        sshServerAlias:
+          values.connectionMode === "ssh_tunnel" ? values.sshServerAlias : "",
         status: "unknown",
       };
       await databaseOpsApi.upsertConnection(input);
@@ -1674,10 +1858,19 @@ export default function DatabasePage() {
         page: 1,
         pageSize: 500,
       });
-      const errorCount = results.filter((item) => item.status === "error").length;
+      const errorCount = results.filter(
+        (item) => item.status === "error",
+      ).length;
       const successCount = results.length - errorCount;
       setQueryResults(results);
-      setActiveQueryResultKey(String(Math.max(0, results.findIndex((item) => item.status === "error"))));
+      setActiveQueryResultKey(
+        String(
+          Math.max(
+            0,
+            results.findIndex((item) => item.status === "error"),
+          ),
+        ),
+      );
       setSqlExecutionStatus(errorCount > 0 ? "error" : "success");
       setSqlExecutionMessage(
         errorCount > 0
@@ -1705,15 +1898,22 @@ export default function DatabasePage() {
       return;
     }
     if (
-      queryConnectionKey !== pending.connectionKey
-      || queryDatabaseName !== pending.databaseName
-      || querySql !== pending.sql
+      queryConnectionKey !== pending.connectionKey ||
+      queryDatabaseName !== pending.databaseName ||
+      querySql !== pending.sql
     ) {
       return;
     }
     pendingSqlAutoExecuteRef.current = null;
     void executeQuery(pending);
-  }, [activeTab, databaseLoading, queryConnectionKey, queryDatabaseName, queryLoading, querySql]);
+  }, [
+    activeTab,
+    databaseLoading,
+    queryConnectionKey,
+    queryDatabaseName,
+    queryLoading,
+    querySql,
+  ]);
 
   async function runDatabaseExport() {
     if (!exportConnectionKey || !exportDatabaseName) {
@@ -1735,7 +1935,8 @@ export default function DatabasePage() {
         connectionKey: exportConnectionKey,
         databaseName: exportDatabaseName,
         mode: exportMode,
-        tableName: exportMode === "query_csv" ? null : exportTableName ?? null,
+        tableName:
+          exportMode === "query_csv" ? null : (exportTableName ?? null),
         sql: exportMode === "query_csv" ? exportSql : null,
         includeData: exportIncludeData,
         maxRows: exportMode === "sql_backup" ? null : exportMaxRows,
@@ -1769,13 +1970,17 @@ export default function DatabasePage() {
     const failedResult = queryResults.find((item) => item.status === "error");
     const latestResult = queryResults[queryResults.length - 1];
     const dialectLabel = dbTypeLabel[selectedSqlConnection.dbType];
-    const dialectRule = selectedSqlConnection.dbType === "mysql"
-      ? "只能生成 MySQL 语法，不要输出 PostgreSQL 的 pg_stat_activity、current_setting、:: 类型转换、RETURNING 等语法。"
-      : "只能生成 PostgreSQL 语法，不要输出 MySQL 的 information_schema.processlist、SHOW VARIABLES、反引号等语法。";
-    const statusText = statusMeta[selectedSqlConnection.status]?.text ?? selectedSqlConnection.status;
-    const versionProbeSql = selectedSqlConnection.dbType === "mysql"
-      ? "SELECT VERSION() AS version, @@version_comment AS version_comment, @@version_compile_os AS version_compile_os, @@max_connections AS max_connections;"
-      : "SELECT version() AS version, current_setting('server_version') AS server_version, current_database() AS current_database, current_schema() AS current_schema;";
+    const dialectRule =
+      selectedSqlConnection.dbType === "mysql"
+        ? "只能生成 MySQL 语法，不要输出 PostgreSQL 的 pg_stat_activity、current_setting、:: 类型转换、RETURNING 等语法。"
+        : "只能生成 PostgreSQL 语法，不要输出 MySQL 的 information_schema.processlist、SHOW VARIABLES、反引号等语法。";
+    const statusText =
+      statusMeta[selectedSqlConnection.status]?.text ??
+      selectedSqlConnection.status;
+    const versionProbeSql =
+      selectedSqlConnection.dbType === "mysql"
+        ? "SELECT VERSION() AS version, @@version_comment AS version_comment, @@version_compile_os AS version_compile_os, @@max_connections AS max_connections;"
+        : "SELECT version() AS version, current_setting('server_version') AS server_version, current_database() AS current_database, current_schema() AS current_schema;";
     let runtimeContext = "";
     try {
       const probeResults = await databaseOpsApi.executeSqlBatch({
@@ -1786,18 +1991,19 @@ export default function DatabasePage() {
         pageSize: 5,
       });
       const probe = probeResults[0];
-      runtimeContext = probe && probe.status !== "error"
-        ? [
-          "数据库运行时探测：成功",
-          `版本/状态查询 SQL：${versionProbeSql}`,
-          `版本/状态查询结果：\n${formatSqlAiProbeRows(probe.rows)}`,
-          `探测耗时：${probe.durationMs}ms`,
-        ].join("\n")
-        : [
-          "数据库运行时探测：失败",
-          `版本/状态查询 SQL：${versionProbeSql}`,
-          `失败原因：${probe?.message ?? "未返回探测结果"}`,
-        ].join("\n");
+      runtimeContext =
+        probe && probe.status !== "error"
+          ? [
+              "数据库运行时探测：成功",
+              `版本/状态查询 SQL：${versionProbeSql}`,
+              `版本/状态查询结果：\n${formatSqlAiProbeRows(probe.rows)}`,
+              `探测耗时：${probe.durationMs}ms`,
+            ].join("\n")
+          : [
+              "数据库运行时探测：失败",
+              `版本/状态查询 SQL：${versionProbeSql}`,
+              `失败原因：${probe?.message ?? "未返回探测结果"}`,
+            ].join("\n");
     } catch (error) {
       runtimeContext = [
         "数据库运行时探测：失败",
@@ -1807,9 +2013,11 @@ export default function DatabasePage() {
     }
     const taskText: Record<SqlAiMode, string> = {
       ask: "回答用户关于当前数据库、SQL、表结构或查询结果的问题。",
-      generate: "根据用户需求生成可直接执行的 SQL。只输出必要解释和 SQL 代码块。",
+      generate:
+        "根据用户需求生成可直接执行的 SQL。只输出必要解释和 SQL 代码块。",
       fix: "纠正当前 SQL 的语法、表名字段名、分页或方言问题。优先给出修正后的 SQL。",
-      optimize: "分析当前 SQL 的性能问题，给出索引建议、改写建议和优化后的 SQL。",
+      optimize:
+        "分析当前 SQL 的性能问题，给出索引建议、改写建议和优化后的 SQL。",
     };
     const promptParts = [
       `任务：${taskText[mode]}`,
@@ -1823,7 +2031,9 @@ export default function DatabasePage() {
       `默认库配置：${selectedSqlConnection.databaseName || "未配置"}`,
       `当前数据库：${queryDatabaseName ?? "未选择"}`,
       runtimeContext,
-      sqlAiSchemaSummary ? `当前库结构摘要：\n${sqlAiSchemaSummary}` : "当前库结构摘要：未加载",
+      sqlAiSchemaSummary
+        ? `当前库结构摘要：\n${sqlAiSchemaSummary}`
+        : "当前库结构摘要：未加载",
       querySql.trim() ? `当前 SQL：\n${querySql.trim()}` : "当前 SQL：未输入",
       failedResult ? `最近错误：${failedResult.message}` : "",
       latestResult && latestResult.status !== "error"
@@ -1846,7 +2056,9 @@ export default function DatabasePage() {
         ].join("\n"),
       });
       setSqlAiAnswer(result.answer);
-      setSqlAiMeta(`${result.providerName} / ${result.model} / ${result.latencyMs}ms`);
+      setSqlAiMeta(
+        `${result.providerName} / ${result.model} / ${result.latencyMs}ms`,
+      );
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       setSqlAiAnswer(`AI 调用失败：${errorMessage}`);
@@ -1881,15 +2093,23 @@ export default function DatabasePage() {
           sqlAiPrompt.trim() ? `用户问题/需求：\n${sqlAiPrompt.trim()}` : "",
           querySql.trim() ? `当前 SQL：\n${querySql.trim()}` : "",
           failedResult ? `最近错误：${failedResult.message}` : "",
-          latestResult && latestResult.status !== "error" ? `最近执行结果：${latestResult.message}` : "",
-        ].filter(Boolean).join("\n\n"),
+          latestResult && latestResult.status !== "error"
+            ? `最近执行结果：${latestResult.message}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         cause: "",
         solution: answer,
         scenario: "sql",
         source: "ai",
-        tags: ["sql", "database", "ai", sqlAiMode, selectedSqlConnection?.dbType ?? ""].filter(
-          (tag): tag is string => Boolean(tag),
-        ),
+        tags: [
+          "sql",
+          "database",
+          "ai",
+          sqlAiMode,
+          selectedSqlConnection?.dbType ?? "",
+        ].filter((tag): tag is string => Boolean(tag)),
         enabled: true,
       });
       message.success(`已沉淀经验：${experience.title}`);
@@ -1941,7 +2161,11 @@ export default function DatabasePage() {
     }
   }
 
-  async function scanRedis(page = 1, count = redisPageSize, pattern = redisPattern) {
+  async function scanRedis(
+    page = 1,
+    count = redisPageSize,
+    pattern = redisPattern,
+  ) {
     if (!redisConnectionKey) {
       message.warning("请先选择 Redis 连接");
       return;
@@ -1961,7 +2185,9 @@ export default function DatabasePage() {
         .sort((a, b) => b - a);
       let scanPage = knownPages[0] ?? 1;
       let cursor = cursorSnapshot[scanPage] ?? 0;
-      let pageResult: Awaited<ReturnType<typeof databaseOpsApi.scanRedisKeys>> | null = null;
+      let pageResult: Awaited<
+        ReturnType<typeof databaseOpsApi.scanRedisKeys>
+      > | null = null;
       let loadedPage = scanPage;
 
       while (scanPage <= page) {
@@ -1997,11 +2223,13 @@ export default function DatabasePage() {
     if (!redisConnectionKey) return;
     setRedisLoading(true);
     try {
-      setRedisPreview(await databaseOpsApi.getRedisValuePreview({
-        connectionKey: redisConnectionKey,
-        databaseName: redisDatabaseName,
-        key,
-      }));
+      setRedisPreview(
+        await databaseOpsApi.getRedisValuePreview({
+          connectionKey: redisConnectionKey,
+          databaseName: redisDatabaseName,
+          key,
+        }),
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -2041,7 +2269,8 @@ export default function DatabasePage() {
     }
     if (normalizedType === "bool" || normalizedType === "boolean") {
       if (["true", "1", "是", "yes"].includes(value.toLowerCase())) return true;
-      if (["false", "0", "否", "no"].includes(value.toLowerCase())) return false;
+      if (["false", "0", "否", "no"].includes(value.toLowerCase()))
+        return false;
       throw new Error("布尔字段请输入 true/false 或 1/0");
     }
     return rawValue;
@@ -2157,18 +2386,27 @@ export default function DatabasePage() {
       ...row,
     }));
     const editableReason = result.editable?.reason;
-    function renderSqlCellValue(value: unknown, row: Record<string, unknown>, rowIndex: number, column: string, columnType: string) {
+    function renderSqlCellValue(
+      value: unknown,
+      row: Record<string, unknown>,
+      rowIndex: number,
+      column: string,
+      columnType: string,
+    ) {
       const cellKey = `${index}:${rowIndex}:${column}`;
-      const editingCell = editingSqlCell
-        && editingSqlCell.resultIndex === index
-        && editingSqlCell.rowIndex === rowIndex
-        && editingSqlCell.columnName === column
+      const editingCell =
+        editingSqlCell &&
+        editingSqlCell.resultIndex === index &&
+        editingSqlCell.rowIndex === rowIndex &&
+        editingSqlCell.columnName === column
           ? editingSqlCell
           : null;
       const savingCell = savingSqlCells[cellKey] ?? null;
       const activeCell = editingCell ?? savingCell;
       if (activeCell) {
-        const isMultiline = typeof activeCell.oldValue === "object" && activeCell.oldValue !== null;
+        const isMultiline =
+          typeof activeCell.oldValue === "object" &&
+          activeCell.oldValue !== null;
         const isSaving = Boolean(savingCell);
         const inputStyle = {
           minWidth: 120,
@@ -2191,20 +2429,27 @@ export default function DatabasePage() {
         ) : null;
         const updateDraft = (draftValue: string) =>
           setEditingSqlCell((current) =>
-            current && editingSqlCellKey(current) === editingSqlCellKey(activeCell)
+            current &&
+            editingSqlCellKey(current) === editingSqlCellKey(activeCell)
               ? { ...current, draftValue }
               : current,
           );
         if (isMultiline) {
           return (
-            <span style={{ position: "relative", display: "block", width: "100%" }}>
+            <span
+              style={{ position: "relative", display: "block", width: "100%" }}
+            >
               <Input.TextArea
                 autoFocus={!isSaving}
                 rows={4}
                 size="small"
                 value={activeCell.draftValue}
                 disabled={isSaving}
-                style={{ ...inputStyle, minWidth: 260, paddingRight: isSaving ? 24 : 6 }}
+                style={{
+                  ...inputStyle,
+                  minWidth: 260,
+                  paddingRight: isSaving ? 24 : 6,
+                }}
                 onChange={(event) => updateDraft(event.target.value)}
                 onBlur={() => {
                   if (!isSaving) void saveSqlCellEdit(activeCell);
@@ -2222,7 +2467,9 @@ export default function DatabasePage() {
           );
         }
         return (
-          <span style={{ position: "relative", display: "block", width: "100%" }}>
+          <span
+            style={{ position: "relative", display: "block", width: "100%" }}
+          >
             <Input
               autoFocus={!isSaving}
               size="small"
@@ -2249,16 +2496,19 @@ export default function DatabasePage() {
           </span>
         );
       }
-      const content = value == null ? (
-        <Text style={{ color: "#bfbfbf", fontWeight: 600, letterSpacing: 0 }}>
-          (NULL)
-        </Text>
-      ) : typeof value === "object" ? (
-        JSON.stringify(value)
-      ) : (
-        String(value ?? "")
-      );
-      const canEdit = result.editable?.enabled && result.editable.editableColumns.includes(column);
+      const content =
+        value == null ? (
+          <Text style={{ color: "#bfbfbf", fontWeight: 600, letterSpacing: 0 }}>
+            (NULL)
+          </Text>
+        ) : typeof value === "object" ? (
+          JSON.stringify(value)
+        ) : (
+          String(value ?? "")
+        );
+      const canEdit =
+        result.editable?.enabled &&
+        result.editable.editableColumns.includes(column);
       if (!canEdit) return content;
       return (
         <Tooltip title="点击编辑单元格">
@@ -2270,7 +2520,16 @@ export default function DatabasePage() {
               cursor: "text",
               borderBottom: "1px dashed #1677ff",
             }}
-            onClick={() => openSqlCellEditor(result, index, row, rowIndex, column, columnType)}
+            onClick={() =>
+              openSqlCellEditor(
+                result,
+                index,
+                row,
+                rowIndex,
+                column,
+                columnType,
+              )
+            }
           >
             {content}
           </span>
@@ -2283,21 +2542,27 @@ export default function DatabasePage() {
           <Alert showIcon type="error" message={result.message} />
         ) : (
           <>
-            {editableReason && !result.editable?.enabled && result.statementType === "select" && (
-              <Alert showIcon type="info" message={editableReason} />
-            )}
+            {editableReason &&
+              !result.editable?.enabled &&
+              result.statementType === "select" && (
+                <Alert showIcon type="info" message={editableReason} />
+              )}
             <Table
               rowKey="__rowId"
               size="small"
               scroll={{ x: true }}
               loading={queryLoading}
               columns={result.columns.map((column, columnIndex) => {
-                const columnType = result.columnTypes?.[columnIndex] || "unknown";
+                const columnType =
+                  result.columnTypes?.[columnIndex] || "unknown";
                 return {
                   title: (
                     <Space direction="vertical" size={0}>
                       <Text strong>{column}</Text>
-                      <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.2 }}>
+                      <Text
+                        type="secondary"
+                        style={{ fontSize: 12, lineHeight: 1.2 }}
+                      >
                         {columnType}
                       </Text>
                     </Space>
@@ -2353,14 +2618,18 @@ export default function DatabasePage() {
       title: "类型",
       dataIndex: "dbType",
       width: 140,
-      render: (value: DatabaseType) => <Tag color="blue">{dbTypeLabel[value]}</Tag>,
+      render: (value: DatabaseType) => (
+        <Tag color="blue">{dbTypeLabel[value]}</Tag>
+      ),
     },
     {
       title: "地址",
       width: 220,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Text>{record.host}:{record.port}</Text>
+          <Text>
+            {record.host}:{record.port}
+          </Text>
           <Text type="secondary">{record.databaseName || "未指定库名"}</Text>
         </Space>
       ),
@@ -2398,7 +2667,11 @@ export default function DatabasePage() {
           >
             测试
           </Button>
-          <Button size="small" icon={<Edit3 size={14} />} onClick={() => openEditDrawer(record)}>
+          <Button
+            size="small"
+            icon={<Edit3 size={14} />}
+            onClick={() => openEditDrawer(record)}
+          >
             编辑
           </Button>
           <Popconfirm
@@ -2420,16 +2693,30 @@ export default function DatabasePage() {
     <div className="prototype-page">
       <div className="prototype-page-header">
         <div>
-          <Title level={3} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>数据库管理</Title>
+          <Title
+            level={3}
+            style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}
+          >
+            数据库管理
+          </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            管理 MySQL、PostgreSQL 和 Redis 连接，后续查询、导出、审批与 MCP 工具会复用这里的连接配置。
+            管理 MySQL、PostgreSQL 和 Redis 连接，后续查询、导出、审批与 MCP
+            工具会复用这里的连接配置。
           </Paragraph>
         </div>
         <Space>
-          <Button icon={<RefreshCw size={16} />} onClick={loadData} loading={loading}>
+          <Button
+            icon={<RefreshCw size={16} />}
+            onClick={loadData}
+            loading={loading}
+          >
             刷新
           </Button>
-          <Button type="primary" icon={<Plus size={16} />} onClick={openCreateDrawer}>
+          <Button
+            type="primary"
+            icon={<Plus size={16} />}
+            onClick={openCreateDrawer}
+          >
             新建连接
           </Button>
         </Space>
@@ -2460,7 +2747,11 @@ export default function DatabasePage() {
             label: "对象浏览",
             children: (
               <Card>
-                <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%" }}
+                  size="middle"
+                >
                   <Space.Compact style={{ width: "100%" }}>
                     <Select
                       style={{ width: 320 }}
@@ -2485,7 +2776,10 @@ export default function DatabasePage() {
                       disabled={!objectConnectionKey || !objectDatabaseName}
                       onClick={() => {
                         if (objectConnectionKey && objectDatabaseName) {
-                          void loadObjectSchema(objectConnectionKey, objectDatabaseName);
+                          void loadObjectSchema(
+                            objectConnectionKey,
+                            objectDatabaseName,
+                          );
                         }
                       }}
                     >
@@ -2521,7 +2815,9 @@ export default function DatabasePage() {
                           showLine
                           defaultExpandAll
                           treeData={objectTreeData}
-                          selectedKeys={selectedObjectKey ? [selectedObjectKey] : []}
+                          selectedKeys={
+                            selectedObjectKey ? [selectedObjectKey] : []
+                          }
                           onSelect={(_, info) => {
                             const node = info.node as DatabaseObjectTreeNode;
                             if (node.object) {
@@ -2530,10 +2826,16 @@ export default function DatabasePage() {
                           }}
                         />
                       ) : (
-                        <Text type="secondary">选择连接和数据库后加载对象。</Text>
+                        <Text type="secondary">
+                          选择连接和数据库后加载对象。
+                        </Text>
                       )}
                     </Card>
-                    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                    <Space
+                      direction="vertical"
+                      style={{ width: "100%" }}
+                      size="middle"
+                    >
                       <Card
                         size="small"
                         title={
@@ -2544,10 +2846,17 @@ export default function DatabasePage() {
                         extra={
                           selectedObject ? (
                             <Space>
-                              <Button size="small" onClick={() => openObjectInSql(selectedObject)}>
+                              <Button
+                                size="small"
+                                onClick={() => openObjectInSql(selectedObject)}
+                              >
                                 查询数据
                               </Button>
-                              <Button size="small" type="primary" onClick={openStructureDrawer}>
+                              <Button
+                                size="small"
+                                type="primary"
+                                onClick={openStructureDrawer}
+                              >
                                 编辑结构
                               </Button>
                               <Popconfirm
@@ -2557,8 +2866,15 @@ export default function DatabasePage() {
                                 cancelText="取消"
                                 onConfirm={dropTable}
                               >
-                                <Button size="small" danger disabled={structureSubmitting}>
-                                  {objectTypeMeta(selectedObject.objectType).text === "视图" ? "删除视图" : "删除表"}
+                                <Button
+                                  size="small"
+                                  danger
+                                  disabled={structureSubmitting}
+                                >
+                                  {objectTypeMeta(selectedObject.objectType)
+                                    .text === "视图"
+                                    ? "删除视图"
+                                    : "删除表"}
                                 </Button>
                               </Popconfirm>
                             </Space>
@@ -2566,31 +2882,51 @@ export default function DatabasePage() {
                         }
                       >
                         {selectedObject ? (
-                          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                          <Space
+                            direction="vertical"
+                            style={{ width: "100%" }}
+                            size="middle"
+                          >
                             <Space>
-                              <Tag color={objectTypeMeta(selectedObject.objectType).color}>
+                              <Tag
+                                color={
+                                  objectTypeMeta(selectedObject.objectType)
+                                    .color
+                                }
+                              >
                                 {objectTypeMeta(selectedObject.objectType).text}
                               </Tag>
-                              <Text type="secondary">{selectedObject.columns.length} 个字段</Text>
-                              <Text type="secondary">{selectedObject.indexes.length} 个索引</Text>
+                              <Text type="secondary">
+                                {selectedObject.columns.length} 个字段
+                              </Text>
+                              <Text type="secondary">
+                                {selectedObject.indexes.length} 个索引
+                              </Text>
                             </Space>
                             <Table<DatabaseColumnSchema>
                               rowKey="name"
                               size="small"
                               pagination={false}
                               columns={[
-                                { title: "字段名", dataIndex: "name", ellipsis: true },
+                                {
+                                  title: "字段名",
+                                  dataIndex: "name",
+                                  ellipsis: true,
+                                },
                                 {
                                   title: "类型",
                                   ellipsis: true,
-                                  render: (_, record) => record.columnType || record.dataType || "-",
+                                  render: (_, record) =>
+                                    record.columnType || record.dataType || "-",
                                 },
                                 {
                                   title: "可空",
                                   dataIndex: "nullable",
                                   width: 80,
                                   render: (nullable: boolean) => (
-                                    <Tag color={nullable ? "default" : "orange"}>
+                                    <Tag
+                                      color={nullable ? "default" : "orange"}
+                                    >
                                       {nullable ? "是" : "否"}
                                     </Tag>
                                   ),
@@ -2599,20 +2935,33 @@ export default function DatabasePage() {
                                   title: "默认值",
                                   dataIndex: "defaultValue",
                                   ellipsis: true,
-                                  render: (value?: string | null) => value ?? "NULL",
+                                  render: (value?: string | null) =>
+                                    value ?? "NULL",
                                 },
                                 {
                                   title: "额外",
                                   ellipsis: true,
                                   render: (_, record) => {
                                     const tags = [];
-                                    if (primaryKeyColumns.includes(record.name)) {
-                                      tags.push(<Tag key="pk" color="gold">主键</Tag>);
+                                    if (
+                                      primaryKeyColumns.includes(record.name)
+                                    ) {
+                                      tags.push(
+                                        <Tag key="pk" color="gold">
+                                          主键
+                                        </Tag>,
+                                      );
                                     }
                                     if (record.extra) {
-                                      tags.push(<Tag key="extra">{record.extra}</Tag>);
+                                      tags.push(
+                                        <Tag key="extra">{record.extra}</Tag>,
+                                      );
                                     }
-                                    return tags.length > 0 ? <Space size={4}>{tags}</Space> : "-";
+                                    return tags.length > 0 ? (
+                                      <Space size={4}>{tags}</Space>
+                                    ) : (
+                                      "-"
+                                    );
                                   },
                                 },
                                 {
@@ -2620,14 +2969,21 @@ export default function DatabasePage() {
                                   width: 150,
                                   render: (_, record) => (
                                     <Space size={4}>
-                                      {!primaryKeyColumns.includes(record.name) && (
+                                      {!primaryKeyColumns.includes(
+                                        record.name,
+                                      ) && (
                                         <Popconfirm
                                           title={`确认将 ${record.name} 设置为主键？`}
                                           okText="设置"
                                           cancelText="取消"
-                                          onConfirm={() => setPrimaryKey(record)}
+                                          onConfirm={() =>
+                                            setPrimaryKey(record)
+                                          }
                                         >
-                                          <Button size="small" disabled={structureSubmitting}>
+                                          <Button
+                                            size="small"
+                                            disabled={structureSubmitting}
+                                          >
                                             设主键
                                           </Button>
                                         </Popconfirm>
@@ -2638,7 +2994,11 @@ export default function DatabasePage() {
                                         cancelText="取消"
                                         onConfirm={() => dropColumn(record)}
                                       >
-                                        <Button size="small" danger disabled={structureSubmitting}>
+                                        <Button
+                                          size="small"
+                                          danger
+                                          disabled={structureSubmitting}
+                                        >
                                           删除
                                         </Button>
                                       </Popconfirm>
@@ -2650,7 +3010,9 @@ export default function DatabasePage() {
                             />
                           </Space>
                         ) : (
-                          <Text type="secondary">从左侧对象树选择表或视图后查看字段和索引。</Text>
+                          <Text type="secondary">
+                            从左侧对象树选择表或视图后查看字段和索引。
+                          </Text>
                         )}
                       </Card>
                       <Card size="small" title="索引">
@@ -2660,12 +3022,17 @@ export default function DatabasePage() {
                             size="small"
                             pagination={false}
                             columns={[
-                              { title: "索引名", dataIndex: "name", ellipsis: true },
+                              {
+                                title: "索引名",
+                                dataIndex: "name",
+                                ellipsis: true,
+                              },
                               {
                                 title: "字段",
                                 dataIndex: "columns",
                                 ellipsis: true,
-                                render: (columns: string[]) => columns.join(", ") || "-",
+                                render: (columns: string[]) =>
+                                  columns.join(", ") || "-",
                               },
                               {
                                 title: "唯一",
@@ -2687,7 +3054,11 @@ export default function DatabasePage() {
                                     cancelText="取消"
                                     onConfirm={() => dropIndex(record)}
                                   >
-                                    <Button size="small" danger disabled={structureSubmitting}>
+                                    <Button
+                                      size="small"
+                                      danger
+                                      disabled={structureSubmitting}
+                                    >
                                       删除
                                     </Button>
                                   </Popconfirm>
@@ -2711,7 +3082,11 @@ export default function DatabasePage() {
             label: "SQL 控制台",
             children: (
               <Card>
-                <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%" }}
+                  size="middle"
+                >
                   <Space.Compact style={{ width: "100%" }}>
                     <Select
                       style={{ width: 280 }}
@@ -2730,7 +3105,11 @@ export default function DatabasePage() {
                       onChange={setQueryDatabaseName}
                     />
                     <Tooltip title="SQL 编辑器聚焦时按 Shift + Enter 执行">
-                      <Button type="primary" loading={queryLoading} onClick={() => executeQuery()}>
+                      <Button
+                        type="primary"
+                        loading={queryLoading}
+                        onClick={() => executeQuery()}
+                      >
                         执行 SQL
                       </Button>
                     </Tooltip>
@@ -2742,14 +3121,25 @@ export default function DatabasePage() {
                         ? "success"
                         : sqlExecutionStatus === "error"
                           ? "error"
-                          : sqlExecutionStatus === "running" || sqlExecutionStatus === "loading_databases"
+                          : sqlExecutionStatus === "running" ||
+                              sqlExecutionStatus === "loading_databases"
                             ? "info"
                             : "info"
                     }
                     message={sqlExecutionMessage}
                   />
-                  <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden" }}>
-                    <Suspense fallback={<Input.TextArea rows={8} value={querySql} readOnly />}>
+                  <div
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <Suspense
+                      fallback={
+                        <Input.TextArea rows={8} value={querySql} readOnly />
+                      }
+                    >
                       <SqlCodeEditor
                         value={querySql}
                         dialect={sqlDialect}
@@ -2769,7 +3159,11 @@ export default function DatabasePage() {
                       background: "var(--bg-secondary)",
                     }}
                   >
-                    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                    <Space
+                      direction="vertical"
+                      style={{ width: "100%" }}
+                      size="middle"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <Space size={8}>
                           <Bot size={16} />
@@ -2807,7 +3201,11 @@ export default function DatabasePage() {
                         </Button>
                         <Button
                           icon={<Wand2 size={14} />}
-                          disabled={!sqlAiAnswer || sqlAiAnswer === "AI 思考中..." || sqlAiLoading}
+                          disabled={
+                            !sqlAiAnswer ||
+                            sqlAiAnswer === "AI 思考中..." ||
+                            sqlAiLoading
+                          }
                           onClick={() => {
                             const sql = extractSqlFromAiAnswer(sqlAiAnswer);
                             if (!sql) {
@@ -2820,14 +3218,26 @@ export default function DatabasePage() {
                         >
                           应用 SQL
                         </Button>
-                        <Button disabled={!selectedSqlConnection || !querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("fix")}>
+                        <Button
+                          disabled={!selectedSqlConnection || !querySql.trim()}
+                          loading={sqlAiLoading}
+                          onClick={() => runSqlAi("fix")}
+                        >
                           纠错当前 SQL
                         </Button>
-                        <Button disabled={!selectedSqlConnection || !querySql.trim()} loading={sqlAiLoading} onClick={() => runSqlAi("optimize")}>
+                        <Button
+                          disabled={!selectedSqlConnection || !querySql.trim()}
+                          loading={sqlAiLoading}
+                          onClick={() => runSqlAi("optimize")}
+                        >
                           调优当前 SQL
                         </Button>
                         <Button
-                          disabled={!sqlAiAnswer || sqlAiAnswer === "AI 思考中..." || sqlAiLoading}
+                          disabled={
+                            !sqlAiAnswer ||
+                            sqlAiAnswer === "AI 思考中..." ||
+                            sqlAiLoading
+                          }
                           loading={sqlExperienceSaving}
                           onClick={() => void saveSqlAiExperience()}
                         >
@@ -2868,7 +3278,11 @@ export default function DatabasePage() {
                         label: (
                           <Space size={6}>
                             <span>结果 {index + 1}</span>
-                            <Tag color={result.status === "error" ? "red" : "green"}>
+                            <Tag
+                              color={
+                                result.status === "error" ? "red" : "green"
+                              }
+                            >
                               {result.statementType.toUpperCase()}
                             </Tag>
                           </Space>
@@ -2892,7 +3306,11 @@ export default function DatabasePage() {
             label: "Redis 浏览",
             children: (
               <Card>
-                <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%" }}
+                  size="middle"
+                >
                   <Space.Compact style={{ width: "100%" }}>
                     <Select
                       style={{ width: 280 }}
@@ -2923,7 +3341,10 @@ export default function DatabasePage() {
                       disabled={!redisConnectionKey || !redisDatabaseName}
                       onClick={() => {
                         if (redisConnectionKey && redisDatabaseName) {
-                          void loadRedisKeyTree(redisConnectionKey, redisDatabaseName);
+                          void loadRedisKeyTree(
+                            redisConnectionKey,
+                            redisDatabaseName,
+                          );
                         }
                       }}
                     >
@@ -2936,29 +3357,39 @@ export default function DatabasePage() {
                     >
                       扫描
                     </Button>
-                    <Button disabled={redisCursor === 0} onClick={() => scanRedis(redisPage + 1)}>
+                    <Button
+                      disabled={redisCursor === 0}
+                      onClick={() => scanRedis(redisPage + 1)}
+                    >
                       下一批
                     </Button>
                   </Space.Compact>
                   {redisDatabaseName && (
                     <Text type="secondary">
                       当前 DB {redisDatabaseName}：
-                      {currentRedisDatabase?.keyCount ?? 0}
-                      {" "}个 Key，当前层级 {redisSelectedKeyCount} 个 Key
+                      {currentRedisDatabase?.keyCount ?? 0} 个 Key，当前层级{" "}
+                      {redisSelectedKeyCount} 个 Key
                     </Text>
                   )}
                   <div
                     style={{
                       display: "grid",
                       gap: 16,
-                      gridTemplateColumns: "280px minmax(0, 1fr) minmax(360px, 1fr)",
+                      gridTemplateColumns:
+                        "280px minmax(0, 1fr) minmax(360px, 1fr)",
                     }}
                   >
                     <Card
                       size="small"
                       title="Key 树"
                       loading={redisTreeLoading}
-                      styles={{ body: { overflowX: "auto", overflowY: "hidden", paddingBottom: 8 } }}
+                      styles={{
+                        body: {
+                          overflowX: "auto",
+                          overflowY: "hidden",
+                          paddingBottom: 8,
+                        },
+                      }}
                     >
                       <div style={{ minWidth: 640, width: "max-content" }}>
                         <Tree<RedisTreeNode>
@@ -3001,7 +3432,10 @@ export default function DatabasePage() {
                               title: "操作",
                               width: 90,
                               render: (_, record) => (
-                                <Button size="small" onClick={() => previewRedisValue(record.key)}>
+                                <Button
+                                  size="small"
+                                  onClick={() => previewRedisValue(record.key)}
+                                >
                                   预览
                                 </Button>
                               ),
@@ -3025,14 +3459,22 @@ export default function DatabasePage() {
                               setRedisCursor(0);
                               setRedisPageCursors({ 1: 0 });
                               if (redisSelectedLeafKeys.length > 0) {
-                                void loadRedisTreePage(1, size, redisSelectedLeafKeys);
+                                void loadRedisTreePage(
+                                  1,
+                                  size,
+                                  redisSelectedLeafKeys,
+                                );
                               } else {
                                 void scanRedis(1, size, redisPattern);
                               }
                               return;
                             }
                             if (redisSelectedLeafKeys.length > 0) {
-                              void loadRedisTreePage(page, size, redisSelectedLeafKeys);
+                              void loadRedisTreePage(
+                                page,
+                                size,
+                                redisSelectedLeafKeys,
+                              );
                             } else {
                               void scanRedis(page, size, redisPattern);
                             }
@@ -3043,7 +3485,11 @@ export default function DatabasePage() {
                             setRedisCursor(0);
                             setRedisPageCursors({ 1: 0 });
                             if (redisSelectedLeafKeys.length > 0) {
-                              void loadRedisTreePage(1, size, redisSelectedLeafKeys);
+                              void loadRedisTreePage(
+                                1,
+                                size,
+                                redisSelectedLeafKeys,
+                              );
                             } else {
                               void scanRedis(1, size, redisPattern);
                             }
@@ -3053,11 +3499,19 @@ export default function DatabasePage() {
                     </Card>
                     <Card size="small" title="Value 预览">
                       {redisPreview ? (
-                        <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
+                        <pre
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            margin: 0,
+                          }}
+                        >
                           {JSON.stringify(redisPreview, null, 2)}
                         </pre>
                       ) : (
-                        <Text type="secondary">选择一个 Key 后查看只读预览。</Text>
+                        <Text type="secondary">
+                          选择一个 Key 后查看只读预览。
+                        </Text>
                       )}
                     </Card>
                   </div>
@@ -3070,7 +3524,11 @@ export default function DatabasePage() {
             label: "备份与导出",
             children: (
               <Card>
-                <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%" }}
+                  size="middle"
+                >
                   <Alert
                     showIcon
                     type="info"
@@ -3100,7 +3558,10 @@ export default function DatabasePage() {
                       disabled={!exportConnectionKey || !exportDatabaseName}
                       onClick={() => {
                         if (exportConnectionKey && exportDatabaseName) {
-                          void loadExportSchema(exportConnectionKey, exportDatabaseName);
+                          void loadExportSchema(
+                            exportConnectionKey,
+                            exportDatabaseName,
+                          );
                         }
                       }}
                     >
@@ -3108,7 +3569,11 @@ export default function DatabasePage() {
                     </Button>
                   </Space.Compact>
                   <Card size="small" title="导出任务">
-                    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                    <Space
+                      direction="vertical"
+                      style={{ width: "100%" }}
+                      size="middle"
+                    >
                       <Space wrap>
                         <Select<DatabaseExportMode>
                           style={{ width: 180 }}
@@ -3124,7 +3589,11 @@ export default function DatabasePage() {
                           <Select
                             allowClear={exportMode === "sql_backup"}
                             style={{ width: 320 }}
-                            placeholder={exportMode === "sql_backup" ? "选择表；留空表示备份整个库" : "选择数据表"}
+                            placeholder={
+                              exportMode === "sql_backup"
+                                ? "选择表；留空表示备份整个库"
+                                : "选择数据表"
+                            }
                             options={exportTableOptions}
                             value={exportTableName}
                             loading={exportLoading}
@@ -3138,7 +3607,9 @@ export default function DatabasePage() {
                             max={1000000}
                             value={exportMaxRows}
                             addonBefore="最多行数"
-                            onChange={(value) => setExportMaxRows(value ?? 100000)}
+                            onChange={(value) =>
+                              setExportMaxRows(value ?? 100000)
+                            }
                           />
                         )}
                         {exportMode === "sql_backup" && (
@@ -3173,11 +3644,16 @@ export default function DatabasePage() {
                       <Space direction="vertical" style={{ width: "100%" }}>
                         <Text strong>{exportResult.message}</Text>
                         <Text>文件名：{exportResult.fileName}</Text>
-                        <Paragraph copyable={{ text: exportResult.filePath }} style={{ marginBottom: 0 }}>
+                        <Paragraph
+                          copyable={{ text: exportResult.filePath }}
+                          style={{ marginBottom: 0 }}
+                        >
                           文件路径：{exportResult.filePath}
                         </Paragraph>
                         <Text type="secondary">
-                          模式：{exportResult.mode}，表数：{exportResult.tableCount}，行数：{exportResult.rowCount}
+                          模式：{exportResult.mode}，表数：
+                          {exportResult.tableCount}，行数：
+                          {exportResult.rowCount}
                         </Text>
                       </Space>
                     </Card>
@@ -3196,8 +3672,14 @@ export default function DatabasePage() {
         onClose={() => setCreateTableDrawerOpen(false)}
         extra={
           <Space>
-            <Button onClick={() => setCreateTableDrawerOpen(false)}>取消</Button>
-            <Button type="primary" loading={structureSubmitting} onClick={createTable}>
+            <Button onClick={() => setCreateTableDrawerOpen(false)}>
+              取消
+            </Button>
+            <Button
+              type="primary"
+              loading={structureSubmitting}
+              onClick={createTable}
+            >
               创建数据表
             </Button>
           </Space>
@@ -3210,12 +3692,20 @@ export default function DatabasePage() {
             message="创建数据表会直接执行 DDL，请确认当前连接和数据库选择正确。"
           />
           <Form form={createTableForm} layout="vertical">
-            <Form.Item name="tableName" label="表名" rules={[{ required: true, message: "请输入表名" }]}>
+            <Form.Item
+              name="tableName"
+              label="表名"
+              rules={[{ required: true, message: "请输入表名" }]}
+            >
               <Input placeholder="new_table" />
             </Form.Item>
             <Form.List name="columns">
               {(fields, { add, remove }) => (
-                <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                <Space
+                  direction="vertical"
+                  style={{ width: "100%" }}
+                  size="middle"
+                >
                   {fields.map((field, index) => (
                     <Card
                       key={field.key}
@@ -3238,14 +3728,18 @@ export default function DatabasePage() {
                         <Space.Compact style={{ width: "100%" }}>
                           <Form.Item
                             name={[field.name, "name"]}
-                            rules={[{ required: true, message: "请输入字段名" }]}
+                            rules={[
+                              { required: true, message: "请输入字段名" },
+                            ]}
                             style={{ width: "30%", marginBottom: 12 }}
                           >
                             <Input placeholder="字段名" />
                           </Form.Item>
                           <Form.Item
                             name={[field.name, "dataType"]}
-                            rules={[{ required: true, message: "请输入字段类型" }]}
+                            rules={[
+                              { required: true, message: "请输入字段类型" },
+                            ]}
                             style={{ width: "32%", marginBottom: 12 }}
                           >
                             <AutoComplete
@@ -3254,7 +3748,10 @@ export default function DatabasePage() {
                               filterOption={showAllColumnTypes}
                             />
                           </Form.Item>
-                          <Form.Item name={[field.name, "defaultValue"]} style={{ width: "38%", marginBottom: 12 }}>
+                          <Form.Item
+                            name={[field.name, "defaultValue"]}
+                            style={{ width: "38%", marginBottom: 12 }}
+                          >
                             <Input placeholder="默认值，留空表示无默认值" />
                           </Form.Item>
                         </Space.Compact>
@@ -3265,7 +3762,10 @@ export default function DatabasePage() {
                             initialValue
                             style={{ marginBottom: 0 }}
                           >
-                            <Switch checkedChildren="允许 NULL" unCheckedChildren="禁止 NULL" />
+                            <Switch
+                              checkedChildren="允许 NULL"
+                              unCheckedChildren="禁止 NULL"
+                            />
                           </Form.Item>
                           <Form.Item
                             name={[field.name, "primaryKey"]}
@@ -3273,7 +3773,10 @@ export default function DatabasePage() {
                             initialValue={false}
                             style={{ marginBottom: 0 }}
                           >
-                            <Switch checkedChildren="主键" unCheckedChildren="非主键" />
+                            <Switch
+                              checkedChildren="主键"
+                              unCheckedChildren="非主键"
+                            />
                           </Form.Item>
                         </Space>
                       </Space>
@@ -3282,7 +3785,14 @@ export default function DatabasePage() {
                   <Button
                     block
                     icon={<Plus size={14} />}
-                    onClick={() => add({ name: "", dataType: "varchar(255)", nullable: true, primaryKey: false })}
+                    onClick={() =>
+                      add({
+                        name: "",
+                        dataType: "varchar(255)",
+                        nullable: true,
+                        primaryKey: false,
+                      })
+                    }
                   >
                     添加字段
                   </Button>
@@ -3316,23 +3826,40 @@ export default function DatabasePage() {
                 label: "新增字段",
                 children: (
                   <Form form={addColumnForm} layout="vertical">
-                    <Form.Item name="name" label="字段名" rules={[{ required: true, message: "请输入字段名" }]}>
+                    <Form.Item
+                      name="name"
+                      label="字段名"
+                      rules={[{ required: true, message: "请输入字段名" }]}
+                    >
                       <Input placeholder="new_column" />
                     </Form.Item>
-                    <Form.Item name="dataType" label="字段类型" rules={[{ required: true, message: "请输入字段类型" }]}>
+                    <Form.Item
+                      name="dataType"
+                      label="字段类型"
+                      rules={[{ required: true, message: "请输入字段类型" }]}
+                    >
                       <AutoComplete
                         options={columnTypeOptions}
                         placeholder="选择或输入字段类型"
                         filterOption={showAllColumnTypes}
                       />
                     </Form.Item>
-                    <Form.Item name="nullable" label="允许 NULL" valuePropName="checked" initialValue>
+                    <Form.Item
+                      name="nullable"
+                      label="允许 NULL"
+                      valuePropName="checked"
+                      initialValue
+                    >
                       <Switch checkedChildren="允许" unCheckedChildren="禁止" />
                     </Form.Item>
                     <Form.Item name="defaultValue" label="默认值">
                       <Input placeholder="留空表示无默认值；字符串会自动加引号" />
                     </Form.Item>
-                    <Button type="primary" loading={structureSubmitting} onClick={addColumn}>
+                    <Button
+                      type="primary"
+                      loading={structureSubmitting}
+                      onClick={addColumn}
+                    >
                       执行新增字段
                     </Button>
                   </Form>
@@ -3343,12 +3870,18 @@ export default function DatabasePage() {
                 label: "修改字段",
                 children: (
                   <Form form={modifyColumnForm} layout="vertical">
-                    <Form.Item name="oldName" label="原字段" rules={[{ required: true, message: "请选择字段" }]}>
+                    <Form.Item
+                      name="oldName"
+                      label="原字段"
+                      rules={[{ required: true, message: "请选择字段" }]}
+                    >
                       <Select
                         options={selectedObjectColumnOptions}
                         placeholder="选择字段"
                         onChange={(value) => {
-                          const column = selectedObject?.columnDetails.find((item) => item.name === value);
+                          const column = selectedObject?.columnDetails.find(
+                            (item) => item.name === value,
+                          );
                           if (column) {
                             modifyColumnForm.setFieldsValue({
                               newName: column.name,
@@ -3363,20 +3896,32 @@ export default function DatabasePage() {
                     <Form.Item name="newName" label="新字段名">
                       <Input placeholder="留空或不变表示不改名" />
                     </Form.Item>
-                    <Form.Item name="dataType" label="字段类型" rules={[{ required: true, message: "请输入字段类型" }]}>
+                    <Form.Item
+                      name="dataType"
+                      label="字段类型"
+                      rules={[{ required: true, message: "请输入字段类型" }]}
+                    >
                       <AutoComplete
                         options={columnTypeOptions}
                         placeholder="选择或输入字段类型"
                         filterOption={showAllColumnTypes}
                       />
                     </Form.Item>
-                    <Form.Item name="nullable" label="允许 NULL" valuePropName="checked">
+                    <Form.Item
+                      name="nullable"
+                      label="允许 NULL"
+                      valuePropName="checked"
+                    >
                       <Switch checkedChildren="允许" unCheckedChildren="禁止" />
                     </Form.Item>
                     <Form.Item name="defaultValue" label="默认值">
                       <Input placeholder="留空表示移除默认值；字符串会自动加引号" />
                     </Form.Item>
-                    <Button type="primary" loading={structureSubmitting} onClick={modifyColumn}>
+                    <Button
+                      type="primary"
+                      loading={structureSubmitting}
+                      onClick={modifyColumn}
+                    >
                       执行修改字段
                     </Button>
                   </Form>
@@ -3387,16 +3932,37 @@ export default function DatabasePage() {
                 label: "新增索引",
                 children: (
                   <Form form={addIndexForm} layout="vertical">
-                    <Form.Item name="name" label="索引名" rules={[{ required: true, message: "请输入索引名" }]}>
+                    <Form.Item
+                      name="name"
+                      label="索引名"
+                      rules={[{ required: true, message: "请输入索引名" }]}
+                    >
                       <Input placeholder="idx_column_name" />
                     </Form.Item>
-                    <Form.Item name="columns" label="索引字段" rules={[{ required: true, message: "请选择字段" }]}>
-                      <Select mode="multiple" options={selectedObjectColumnOptions} placeholder="选择一个或多个字段" />
+                    <Form.Item
+                      name="columns"
+                      label="索引字段"
+                      rules={[{ required: true, message: "请选择字段" }]}
+                    >
+                      <Select
+                        mode="multiple"
+                        options={selectedObjectColumnOptions}
+                        placeholder="选择一个或多个字段"
+                      />
                     </Form.Item>
-                    <Form.Item name="unique" label="唯一索引" valuePropName="checked" initialValue={false}>
+                    <Form.Item
+                      name="unique"
+                      label="唯一索引"
+                      valuePropName="checked"
+                      initialValue={false}
+                    >
                       <Switch checkedChildren="唯一" unCheckedChildren="普通" />
                     </Form.Item>
-                    <Button type="primary" loading={structureSubmitting} onClick={addIndex}>
+                    <Button
+                      type="primary"
+                      loading={structureSubmitting}
+                      onClick={addIndex}
+                    >
                       执行新增索引
                     </Button>
                   </Form>
@@ -3415,30 +3981,54 @@ export default function DatabasePage() {
         extra={
           <Space>
             <Button onClick={() => setDrawerOpen(false)}>取消</Button>
-            <Button type="primary" onClick={submitForm}>保存</Button>
+            <Button type="primary" onClick={submitForm}>
+              保存
+            </Button>
           </Space>
         }
       >
         <Form form={form} layout="vertical" initialValues={defaultFormValues}>
-          <Form.Item name="key" label="连接 Key" rules={[{ required: true, message: "请输入连接 Key" }]}>
+          <Form.Item
+            name="key"
+            label="连接 Key"
+            rules={[{ required: true, message: "请输入连接 Key" }]}
+          >
             <Input disabled={Boolean(editing)} placeholder="prod-mysql" />
           </Form.Item>
-          <Form.Item name="name" label="连接名称" rules={[{ required: true, message: "请输入连接名称" }]}>
+          <Form.Item
+            name="name"
+            label="连接名称"
+            rules={[{ required: true, message: "请输入连接名称" }]}
+          >
             <Input placeholder="生产 MySQL" />
           </Form.Item>
-          <Form.Item name="groupName" label="分组" rules={[{ required: true, message: "请输入分组" }]}>
+          <Form.Item
+            name="groupName"
+            label="分组"
+            rules={[{ required: true, message: "请输入分组" }]}
+          >
             <Input placeholder="生产环境" />
           </Form.Item>
-          <Form.Item name="dbType" label="数据库类型" rules={[{ required: true }]}>
+          <Form.Item
+            name="dbType"
+            label="数据库类型"
+            rules={[{ required: true }]}
+          >
             <Select
               options={dbTypeOptions}
               onChange={(value: DatabaseType) => {
-                const option = dbTypeOptions.find((item) => item.value === value);
+                const option = dbTypeOptions.find(
+                  (item) => item.value === value,
+                );
                 form.setFieldValue("port", option?.defaultPort ?? 3306);
               }}
             />
           </Form.Item>
-          <Form.Item name="connectionMode" label="连接方式" rules={[{ required: true }]}>
+          <Form.Item
+            name="connectionMode"
+            label="连接方式"
+            rules={[{ required: true }]}
+          >
             <Select
               options={[
                 { value: "direct", label: "直连" },
@@ -3447,15 +4037,29 @@ export default function DatabasePage() {
             />
           </Form.Item>
           {connectionMode === "ssh_tunnel" && (
-            <Form.Item name="sshServerAlias" label="跳板服务器" rules={[{ required: true, message: "请选择跳板服务器" }]}>
+            <Form.Item
+              name="sshServerAlias"
+              label="跳板服务器"
+              rules={[{ required: true, message: "请选择跳板服务器" }]}
+            >
               <Select options={serverOptions} placeholder="选择已配置服务器" />
             </Form.Item>
           )}
           <Space.Compact style={{ width: "100%" }}>
-            <Form.Item name="host" label="主机地址" style={{ width: "70%" }} rules={[{ required: true, message: "请输入主机地址" }]}>
+            <Form.Item
+              name="host"
+              label="主机地址"
+              style={{ width: "70%" }}
+              rules={[{ required: true, message: "请输入主机地址" }]}
+            >
               <Input placeholder="127.0.0.1" />
             </Form.Item>
-            <Form.Item name="port" label="端口" style={{ width: "30%" }} rules={[{ required: true, message: "请输入端口" }]}>
+            <Form.Item
+              name="port"
+              label="端口"
+              style={{ width: "30%" }}
+              rules={[{ required: true, message: "请输入端口" }]}
+            >
               <InputNumber min={1} max={65535} style={{ width: "100%" }} />
             </Form.Item>
           </Space.Compact>
@@ -3465,7 +4069,11 @@ export default function DatabasePage() {
           <Form.Item name="username" label="用户名">
             <Input placeholder="root / postgres / default" />
           </Form.Item>
-          <Form.Item name="authType" label="认证方式" rules={[{ required: true }]}>
+          <Form.Item
+            name="authType"
+            label="认证方式"
+            rules={[{ required: true }]}
+          >
             <Select
               options={[
                 { value: "direct_password", label: "直接密码" },
@@ -3474,22 +4082,41 @@ export default function DatabasePage() {
             />
           </Form.Item>
           {authType === "credential_ref" ? (
-            <Form.Item name="credentialRef" label="凭据引用" rules={[{ required: true, message: "请选择凭据" }]}>
-              <Select options={credentialOptions} placeholder="选择凭据保险库条目" />
+            <Form.Item
+              name="credentialRef"
+              label="凭据引用"
+              rules={[{ required: true, message: "请选择凭据" }]}
+            >
+              <Select
+                options={credentialOptions}
+                placeholder="选择凭据保险库条目"
+              />
             </Form.Item>
           ) : (
             <>
-              <Form.Item name="password" label={editing ? "新密码（留空则不修改）" : "密码"}>
-                <Input.Password placeholder={editing ? "留空保留原密码" : "输入数据库密码"} />
+              <Form.Item
+                name="password"
+                label={editing ? "新密码（留空则不修改）" : "密码"}
+              >
+                <Input.Password
+                  placeholder={editing ? "留空保留原密码" : "输入数据库密码"}
+                />
               </Form.Item>
               {editing?.hasPassword && (
                 <Form.Item name="clearPassword" valuePropName="checked">
-                  <Switch checkedChildren="清除密码" unCheckedChildren="保留密码" />
+                  <Switch
+                    checkedChildren="清除密码"
+                    unCheckedChildren="保留密码"
+                  />
                 </Form.Item>
               )}
             </>
           )}
-          <Form.Item name="securityMode" label="数据库安全级别" rules={[{ required: true }]}>
+          <Form.Item
+            name="securityMode"
+            label="数据库安全级别"
+            rules={[{ required: true }]}
+          >
             <Select
               options={[
                 { value: "approval_all", label: "全部审批" },
@@ -3497,10 +4124,18 @@ export default function DatabasePage() {
               ]}
             />
           </Form.Item>
-          <Form.Item name="aiPolicy" label="复用服务器 AI 权限级别" rules={[{ required: true }]}>
+          <Form.Item
+            name="aiPolicy"
+            label="复用服务器 AI 权限级别"
+            rules={[{ required: true }]}
+          >
             <Select options={aiPolicyOptions} />
           </Form.Item>
-          <Form.Item name="pageSize" label="单页行数" rules={[{ required: true }]}>
+          <Form.Item
+            name="pageSize"
+            label="单页行数"
+            rules={[{ required: true }]}
+          >
             <InputNumber min={1} max={500} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">

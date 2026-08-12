@@ -1,5 +1,8 @@
 export type AiProviderRegion = "global" | "china" | "gateway" | "local";
-export type AiProviderStatus = "configured" | "testing" | "unconfigured" | "reserved";
+export type AiProviderCapabilityMode =
+  "chat" | "embedding" | "chat_and_embedding";
+export type AiProviderStatus =
+  "configured" | "testing" | "unconfigured" | "reserved";
 
 export interface AiProvider {
   key: string;
@@ -7,6 +10,7 @@ export interface AiProvider {
   region: AiProviderRegion;
   protocol: string;
   defaultModel: string;
+  embeddingModel: string;
   status: AiProviderStatus;
   endpoint: string;
   authType: string;
@@ -28,6 +32,7 @@ export interface UpsertAiProviderInput {
   region: AiProviderRegion;
   protocol: string;
   defaultModel: string;
+  embeddingModel?: string;
   status: AiProviderStatus;
   endpoint: string;
   authType: string;

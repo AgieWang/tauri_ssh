@@ -15,6 +15,10 @@
 - **WHEN** 认证失败、权限不足或某类接口不可用
 - **THEN** 系统区分错误类型并展示可操作信息，不记录或返回凭据明文
 
+#### Scenario: Explicitly authorize an internal HTTP instance
+- **WHEN** 用户为一个确认受控的内网禅道地址显式启用 HTTP 例外并二次确认明文传输风险
+- **THEN** 系统仅对该连接允许 HTTP，强制关闭 TLS 证书校验，并要求该主机已精确加入安全凭据策略的 HTTP 域名白名单；系统在每次访问前复核白名单，并保持凭据同源、只读 GET、禁止重定向、限流和脱敏审计；未显式授权或未列入白名单的 HTTP 地址必须被拒绝
+
 ### Requirement: Map Zentao scope to knowledge projects and releases
 系统 SHALL 允许用户把禅道产品、项目和执行映射到知识项目，并 SHALL 通过手工映射、发布名称、Tag 或规则把执行/发布绑定到知识发布版本。
 

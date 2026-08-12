@@ -46,14 +46,46 @@ const menuItems = [
     icon: <LockKeyhole size={18} />,
     label: "安全",
     children: [
-      { key: "/secure-credentials/overview", icon: <LayoutDashboard size={16} />, label: "概览" },
-      { key: "/secure-credentials/vault", icon: <KeyRound size={16} />, label: "凭证库" },
-      { key: "/secure-credentials/git-workspaces", icon: <GitBranch size={16} />, label: "Git 工作区" },
-      { key: "/secure-credentials/code-review", icon: <GitPullRequestArrow size={16} />, label: "代码审核" },
-      { key: "/secure-credentials/sessions", icon: <Clock3 size={16} />, label: "会话" },
-      { key: "/secure-credentials/mcp", icon: <PlugZap size={16} />, label: "MCP 接入" },
-      { key: "/secure-credentials/audit", icon: <ScrollText size={16} />, label: "审计" },
-      { key: "/secure-credentials/policies", icon: <SlidersHorizontal size={16} />, label: "策略" },
+      {
+        key: "/secure-credentials/overview",
+        icon: <LayoutDashboard size={16} />,
+        label: "概览",
+      },
+      {
+        key: "/secure-credentials/vault",
+        icon: <KeyRound size={16} />,
+        label: "凭证库",
+      },
+      {
+        key: "/secure-credentials/git-workspaces",
+        icon: <GitBranch size={16} />,
+        label: "Git 工作区",
+      },
+      {
+        key: "/secure-credentials/code-review",
+        icon: <GitPullRequestArrow size={16} />,
+        label: "代码审核",
+      },
+      {
+        key: "/secure-credentials/sessions",
+        icon: <Clock3 size={16} />,
+        label: "会话",
+      },
+      {
+        key: "/secure-credentials/mcp",
+        icon: <PlugZap size={16} />,
+        label: "MCP 接入",
+      },
+      {
+        key: "/secure-credentials/audit",
+        icon: <ScrollText size={16} />,
+        label: "审计",
+      },
+      {
+        key: "/secure-credentials/policies",
+        icon: <SlidersHorizontal size={16} />,
+        label: "策略",
+      },
     ],
   },
   {
@@ -65,7 +97,11 @@ const menuItems = [
       { key: "/logs", icon: <Logs size={16} />, label: "日志监听" },
       { key: "/sftp", icon: <FolderTree size={16} />, label: "SFTP 文件" },
       { key: "/database", icon: <Database size={16} />, label: "数据库管理" },
-      { key: "/resource-monitor", icon: <Activity size={16} />, label: "资源监控" },
+      {
+        key: "/resource-monitor",
+        icon: <Activity size={16} />,
+        label: "资源监控",
+      },
       { key: "/deployments", icon: <Rocket size={16} />, label: "自动部署" },
       { key: "/jenkins", icon: <Hammer size={16} />, label: "Jenkins" },
     ],
@@ -78,6 +114,11 @@ const menuItems = [
       { key: "/providers", icon: <Bot size={16} />, label: "AI Provider" },
       { key: "/mcp", icon: <PlugZap size={16} />, label: "MCP Server" },
       { key: "/skills", icon: <BookOpen size={16} />, label: "Skill 管理" },
+      {
+        key: "/knowledge/projects",
+        icon: <BookOpen size={16} />,
+        label: "团队知识库",
+      },
       { key: "/jumpserver", icon: <Landmark size={16} />, label: "堡垒机会话" },
     ],
   },
@@ -88,7 +129,11 @@ const menuItems = [
     children: [
       { key: "/audit", icon: <ScrollText size={16} />, label: "审计日志" },
       { key: "/approval", icon: <ShieldCheck size={16} />, label: "审批队列" },
-      { key: "/prototype-settings", icon: <Settings size={16} />, label: "系统设置" },
+      {
+        key: "/prototype-settings",
+        icon: <Settings size={16} />,
+        label: "系统设置",
+      },
     ],
   },
 ];
@@ -116,8 +161,14 @@ export function Sidebar() {
       >
         <Menu
           mode="inline"
-          selectedKeys={[location.pathname === "/" ? "/dashboard" : location.pathname]}
-          defaultOpenKeys={collapsed ? [] : ["assets", "secure-credentials", "ops", "ai", "governance"]}
+          selectedKeys={[
+            location.pathname === "/" ? "/dashboard" : location.pathname,
+          ]}
+          defaultOpenKeys={
+            collapsed
+              ? []
+              : ["assets", "secure-credentials", "ops", "ai", "governance"]
+          }
           items={menuItems}
           onClick={({ key }) => {
             if (String(key).startsWith("/")) {

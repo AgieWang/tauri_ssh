@@ -34,9 +34,17 @@ export const sftpApi = {
   download: (input: SftpTransferPathInput) =>
     callSftp<SftpOperationResult>("sftp_download", "/sftp/download", input),
   createDirectory: (input: SftpCreateDirectoryInput) =>
-    callSftp<SftpOperationResult>("sftp_create_directory", "/sftp/create-directory", input),
+    callSftp<SftpOperationResult>(
+      "sftp_create_directory",
+      "/sftp/create-directory",
+      input,
+    ),
   createFile: (input: SftpCreateFileInput) =>
-    callSftp<SftpOperationResult>("sftp_create_file", "/sftp/create-file", input),
+    callSftp<SftpOperationResult>(
+      "sftp_create_file",
+      "/sftp/create-file",
+      input,
+    ),
   rename: (input: SftpRenameInput) =>
     callSftp<SftpOperationResult>("sftp_rename", "/sftp/rename", input),
   delete: (input: SftpDeleteInput) =>

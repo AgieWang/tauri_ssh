@@ -1396,7 +1396,8 @@ impl DatabaseOpsService {
             Self::export_table_name(&input.column_name, "mysql"),
             where_parts.join(" AND ")
         );
-        let mut query = sqlx::query(&sql).bind(Self::json_to_db_string(
+        // 标识符来自已校验的表结构与转义函数，值仍全部通过绑定参数传递。
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(Self::json_to_db_string(
             &input.new_value,
             &column.data_type,
             "mysql",
@@ -1472,7 +1473,8 @@ impl DatabaseOpsService {
             column_type,
             where_parts.join(" AND ")
         );
-        let mut query = sqlx::query(&sql).bind(Self::json_to_db_string(
+        // 标识符来自已校验的表结构与转义函数，值仍全部通过绑定参数传递。
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(Self::json_to_db_string(
             &input.new_value,
             &column.data_type,
             "postgresql",
@@ -1977,7 +1979,9 @@ impl DatabaseOpsService {
         url: &str,
         sql: &str,
     ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{mysql::MySqlPoolOptions, Column, Executor, Row, TypeInfo};
+        use sqlx::{
+            mysql::MySqlPoolOptions, Column, Executor, Row, SqlSafeStr, Statement, TypeInfo,
+        };
 
         let pool = MySqlPoolOptions::new()
             .max_connections(1)
@@ -1985,22 +1989,28 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 MySQL 失败: {}", error)))?;
-        let describe = (&pool)
-            .describe(sql)
+        // SQL 由数据库工作台的单语句校验或内部固定查询提供；SQLx 0.9 要求显式确认。
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|error| AppError::Custom(format!("获取 MySQL 查询连接失败: {}", error)))?;
+        let statement = (&mut *connection)
+            .prepare(sqlx::AssertSqlSafe(sql).into_sql_str())
             .await
             .map_err(|error| AppError::Custom(format!("读取 MySQL 查询列信息失败: {}", error)))?;
-        let columns = describe
+        let columns = statement
             .columns()
             .iter()
             .map(|column| column.name().to_string())
             .collect::<Vec<_>>();
-        let column_types = describe
+        let column_types = statement
             .columns()
             .iter()
             .map(|column| column.type_info().name().to_string())
             .collect::<Vec<_>>();
-        let rows = sqlx::query(sql)
-            .fetch_all(&pool)
+        let rows = statement
+            .query()
+            .fetch_all(&mut *connection)
             .await
             .map_err(|error| AppError::Custom(format!("执行 MySQL 查询失败: {}", error)))?;
         let data = rows
@@ -2025,7 +2035,8 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 MySQL 失败: {}", error)))?;
-        let result = sqlx::query(sql)
+        // 写入语句先经过单语句校验；调用者明确选择的 SQL 是工作台的受控能力。
+        let result = sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&pool)
             .await
             .map_err(|error| AppError::Custom(format!("执行 MySQL 语句失败: {}", error)))?;
@@ -2178,7 +2189,9 @@ impl DatabaseOpsService {
         url: &str,
         sql: &str,
     ) -> Result<(Vec<String>, Vec<String>, Vec<serde_json::Value>), AppError> {
-        use sqlx::{postgres::PgPoolOptions, Column, Executor, Row, TypeInfo};
+        use sqlx::{
+            postgres::PgPoolOptions, Column, Executor, Row, SqlSafeStr, Statement, TypeInfo,
+        };
 
         let pool = PgPoolOptions::new()
             .max_connections(1)
@@ -2186,22 +2199,29 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 PostgreSQL 失败: {}", error)))?;
-        let describe = (&pool)
-            .describe(sql)
+        // SQL 由数据库工作台的单语句校验或内部固定查询提供；SQLx 0.9 要求显式确认。
+        let mut connection = pool.acquire().await.map_err(|error| {
+            AppError::Custom(format!("获取 PostgreSQL 查询连接失败: {}", error))
+        })?;
+        let statement = (&mut *connection)
+            .prepare(sqlx::AssertSqlSafe(sql).into_sql_str())
             .await
-            .map_err(|error| AppError::Custom(format!("读取 PostgreSQL 查询列信息失败: {}", error)))?;
-        let columns = describe
+            .map_err(|error| {
+                AppError::Custom(format!("读取 PostgreSQL 查询列信息失败: {}", error))
+            })?;
+        let columns = statement
             .columns()
             .iter()
             .map(|column| column.name().to_string())
             .collect::<Vec<_>>();
-        let column_types = describe
+        let column_types = statement
             .columns()
             .iter()
             .map(|column| column.type_info().name().to_string())
             .collect::<Vec<_>>();
-        let rows = sqlx::query(sql)
-            .fetch_all(&pool)
+        let rows = statement
+            .query()
+            .fetch_all(&mut *connection)
             .await
             .map_err(|error| AppError::Custom(format!("执行 PostgreSQL 查询失败: {}", error)))?;
         let data = rows
@@ -2226,7 +2246,8 @@ impl DatabaseOpsService {
             .connect(url)
             .await
             .map_err(|error| AppError::Custom(format!("连接 PostgreSQL 失败: {}", error)))?;
-        let result = sqlx::query(sql)
+        // 写入语句先经过单语句校验；调用者明确选择的 SQL 是工作台的受控能力。
+        let result = sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&pool)
             .await
             .map_err(|error| AppError::Custom(format!("执行 PostgreSQL 语句失败: {}", error)))?;
@@ -2385,7 +2406,8 @@ impl DatabaseOpsService {
             format!("{}:{}@", username, password)
         };
         format!(
-            "mysql://{}{}:{}/{}",
+            // 禁用 mysql-rsa 后，MySQL 8 的完整认证必须走 TLS；强制 TLS，禁止连接失败时回退明文。
+            "mysql://{}{}:{}/{}?ssl-mode=REQUIRED",
             auth,
             connection.host,
             connection.port,
@@ -2817,4 +2839,43 @@ fn parse_postgres_index_columns(index_def: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
+
+    #[test]
+    fn mysql_url_requires_tls_without_rsa_auth_fallback() {
+        let connection = DatabaseConnection {
+            key: "mysql-test".into(),
+            name: "MySQL 测试连接".into(),
+            group_name: "默认分组".into(),
+            db_type: "mysql".into(),
+            connection_mode: "direct".into(),
+            host: "mysql.example.test".into(),
+            port: 3306,
+            database_name: "业务库".into(),
+            username: "reader".into(),
+            auth_type: "direct_password".into(),
+            credential_ref: String::new(),
+            password_masked: None,
+            has_password: true,
+            ssh_server_alias: String::new(),
+            security_mode: "approval_all".into(),
+            ai_policy: "L2".into(),
+            page_size: 100,
+            status: "unknown".into(),
+            enabled: true,
+            last_connected_at: None,
+            notes: String::new(),
+            updated_at: String::new(),
+        };
+
+        let url = DatabaseOpsService::mysql_url(&connection, Some("password"));
+        let options: MySqlConnectOptions = url.parse().expect("MySQL URL 应可被 SQLx 解析");
+
+        assert!(matches!(options.get_ssl_mode(), MySqlSslMode::Required));
+    }
 }

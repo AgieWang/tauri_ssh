@@ -10,9 +10,9 @@ use crate::models::{
     ConfigureMcpClientInput, ConfigureMcpClientResult, McpClientConfig, McpManualSnippet,
     McpOverview, McpServerStatus, McpToolPermission,
 };
+use crate::shared::local_api::{local_api_addr, DEFAULT_LOCAL_API_ADDR};
 
 const MCP_SERVER_KEY: &str = "tauri-ssh";
-const MCP_HTTP_URL: &str = "http://127.0.0.1:17321/mcp";
 
 struct McpClientTemplate {
     key: &'static str,
@@ -42,15 +42,22 @@ impl McpService {
     }
 
     pub fn status_with_enabled(enabled: bool) -> McpServerStatus {
+        let address = local_api_addr().unwrap_or_else(|error| {
+            log::warn!("本地 MCP 地址配置无效，回退默认地址: {error}");
+            DEFAULT_LOCAL_API_ADDR
+                .parse()
+                .expect("默认本地 API 地址必须有效")
+        });
+        let mcp_http_url = format!("http://{address}/mcp");
         McpServerStatus {
             server_name: MCP_SERVER_KEY.into(),
-            streamable_http_url: MCP_HTTP_URL.into(),
+            streamable_http_url: mcp_http_url.clone(),
             // 用 mcp-remote 作为 stdio bridge，可兼容只支持 stdio 的 Agent 客户端。
             stdio_command: "npx".into(),
-            stdio_args: vec!["-y".into(), "mcp-remote".into(), MCP_HTTP_URL.into()],
+            stdio_args: vec!["-y".into(), "mcp-remote".into(), mcp_http_url],
             enabled,
             local_only: true,
-            http_reachable: enabled && tcp_reachable("127.0.0.1:17321"),
+            http_reachable: enabled && tcp_reachable(&address.to_string()),
             platform: std::env::consts::OS.into(),
             notes: mcp_status_notes(enabled),
         }

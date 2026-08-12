@@ -1,0 +1,2245 @@
+[
+  {
+    "id": "plain-01",
+    "prompt": "解释一下 Tauri 的双进程模型，不需要改代码",
+    "required": [],
+    "forbidden": ["dev", "command", "check"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "simple explanation"
+  },
+  {
+    "id": "plain-02",
+    "prompt": "Rust 的所有权和借用有什么区别",
+    "required": ["rust-fundamentals"],
+    "forbidden": ["dev", "bug-detective"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Rust semantics"
+  },
+  {
+    "id": "plain-03",
+    "prompt": "帮我理解当前仓库的入口和调用链在哪里",
+    "required": ["project-navigator"],
+    "forbidden": ["file-storage", "start"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "repository navigation"
+  },
+  {
+    "id": "plain-04",
+    "prompt": "比较两种模块拆分方式并形成 ADR",
+    "required": ["architecture-design", "tech-decision"],
+    "forbidden": ["dev"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "architecture decision"
+  },
+  {
+    "id": "plain-05",
+    "prompt": "先发散讨论有哪些实现方案，暂时不要实现",
+    "required": ["brainstorm"],
+    "forbidden": ["dev", "architecture-design"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "divergent exploration"
+  },
+  {
+    "id": "plain-06",
+    "prompt": "设计一个可复用的日期格式化工具函数",
+    "required": ["utils-toolkit"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "reusable utility"
+  },
+  {
+    "id": "plain-07",
+    "prompt": "给应用增加中英文语言切换和 locale 持久化",
+    "required": ["i18n-development"],
+    "forbidden": ["update-status"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "i18n"
+  },
+  {
+    "id": "plain-08",
+    "prompt": "把 Rust 枚举通过 serde 传给 TypeScript，并统一 camelCase",
+    "required": ["json-serialization"],
+    "forbidden": ["store-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "serialization boundary"
+  },
+
+  {
+    "id": "ipc-01",
+    "prompt": "给设置页新增 SSH 连接表单并调用 Rust Command",
+    "required": ["ui-frontend", "api-development"],
+    "forbidden": ["command"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "full-stack IPC"
+  },
+  {
+    "id": "ipc-02",
+    "prompt": "Command 里注入 AppHandle 并实时回报进度",
+    "required": ["tauri-commands", "tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "advanced command events"
+  },
+  {
+    "id": "ipc-03",
+    "prompt": "新增 invoke 接口，要求 Rust 参数与 TypeScript 返回类型严格对齐",
+    "required": ["api-development"],
+    "forbidden": ["command"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "IPC contract"
+  },
+  {
+    "id": "ipc-04",
+    "prompt": "实现 async tauri::command，并从 State<AppState> 读取服务",
+    "required": ["tauri-commands"],
+    "forbidden": ["command"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "advanced command"
+  },
+  {
+    "id": "ipc-05",
+    "prompt": "/command 创建一个获取磁盘信息的命令",
+    "required": ["command"],
+    "forbidden": ["dev", "api-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit scaffold"
+  },
+  {
+    "id": "ipc-06",
+    "prompt": "前端调用 invoke 时参数名不一致，帮我先定位原因不要修复",
+    "required": ["bug-detective", "api-development"],
+    "forbidden": ["command", "dev"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "IPC diagnosis"
+  },
+  {
+    "id": "ipc-07",
+    "prompt": "用 Channel stream 从 Rust Command 持续传输日志到 React",
+    "required": ["tauri-commands", "tauri-events", "api-development"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "streaming IPC"
+  },
+  {
+    "id": "ipc-08",
+    "prompt": "在 generate_handler 中注册新 Command，并补前端 API 封装",
+    "required": ["api-development"],
+    "forbidden": ["command"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "registration contract"
+  },
+
+  {
+    "id": "ui-01",
+    "prompt": "新增 React 页面，使用 Ant Design Table 和 Form",
+    "required": ["ui-frontend"],
+    "forbidden": ["theme-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "page implementation"
+  },
+  {
+    "id": "ui-02",
+    "prompt": "页面显示一条 antd message 错误提示",
+    "required": ["ui-frontend"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "in-page notification"
+  },
+  {
+    "id": "ui-03",
+    "prompt": "实现暗色亮色主题切换，修改 CSS Variables 和 antdTheme",
+    "required": ["theme-system"],
+    "forbidden": ["i18n-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "theme"
+  },
+  {
+    "id": "ui-04",
+    "prompt": "用 Zustand 创建全局 store 管理侧边栏状态",
+    "required": ["store-management"],
+    "forbidden": ["update-status"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "frontend state"
+  },
+  {
+    "id": "ui-05",
+    "prompt": "发送 macOS 原生系统通知",
+    "required": ["notification-system"],
+    "forbidden": ["tauri-events", "ui-frontend"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "native notification"
+  },
+  {
+    "id": "ui-06",
+    "prompt": "创建 Tauri WebviewWindow 和系统托盘菜单",
+    "required": ["tauri-window-management"],
+    "forbidden": ["ui-frontend"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Tauri window"
+  },
+  {
+    "id": "ui-07",
+    "prompt": "页面表格加载很卡，请诊断 React 渲染性能",
+    "required": ["performance-doctor", "bug-detective"],
+    "forbidden": ["tauri-packaging"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "frontend performance diagnosis"
+  },
+  {
+    "id": "ui-08",
+    "prompt": "为页面新增 ErrorBoundary 和统一错误提示",
+    "required": ["error-handler", "ui-frontend"],
+    "forbidden": ["bug-detective"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "error handling implementation"
+  },
+
+  {
+    "id": "db-01",
+    "prompt": "新增 SQLite v35 迁移并验证旧库升级",
+    "required": ["database-ops", "test-development"],
+    "forbidden": ["store-management"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "schema migration"
+  },
+  {
+    "id": "db-02",
+    "prompt": "用 rusqlite 实现事务和 DAO 查询",
+    "required": ["database-ops"],
+    "forbidden": ["store-management"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "SQLite DAO"
+  },
+  {
+    "id": "db-03",
+    "prompt": "查询真实 SQLite DDL 和字段数据格式，不要参考样例猜测",
+    "required": ["database-ops"],
+    "forbidden": ["json-serialization"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "real local schema verification"
+  },
+  {
+    "id": "db-04",
+    "prompt": "批量删除 SQLite 表中的历史记录",
+    "required": ["database-ops", "security-permissions"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "destructive database write"
+  },
+  {
+    "id": "db-05",
+    "prompt": "业务数据状态为什么没有更新，先看日志和调用链",
+    "required": ["bug-detective"],
+    "forbidden": ["database-ops", "update-status"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "generic business data diagnosis"
+  },
+  {
+    "id": "db-06",
+    "prompt": "为 SQLite DAO 新增内存数据库单元测试",
+    "required": ["database-ops", "test-development"],
+    "forbidden": ["store-management"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "database tests"
+  },
+  {
+    "id": "db-07",
+    "prompt": "修复 PRAGMA user_version 初始化失败的问题，先定位再修复",
+    "required": ["bug-detective", "database-ops"],
+    "forbidden": ["dev"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "migration bug"
+  },
+  {
+    "id": "db-08",
+    "prompt": "把轻量设置保存到 Zustand，不需要 SQLite",
+    "required": ["store-management"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "state not database"
+  },
+
+  {
+    "id": "bug-01",
+    "prompt": "为什么这个请求报错，先定位不要修改",
+    "required": ["bug-detective"],
+    "forbidden": ["error-handler", "dev"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "diagnosis only"
+  },
+  {
+    "id": "bug-02",
+    "prompt": "Rust 编译报 cannot borrow as mutable，帮我修复",
+    "required": ["rust-fundamentals", "bug-detective"],
+    "forbidden": ["error-handler"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "borrow checker"
+  },
+  {
+    "id": "bug-03",
+    "prompt": "测试失败了，定位 mock invoke 为什么没有被调用",
+    "required": ["bug-detective", "test-development"],
+    "forbidden": ["dev"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "test failure"
+  },
+  {
+    "id": "bug-04",
+    "prompt": "实现 AppError 到 String 的统一错误传播",
+    "required": ["error-handler"],
+    "forbidden": ["bug-detective"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "error propagation implementation"
+  },
+  {
+    "id": "bug-05",
+    "prompt": "应用启动速度慢、CPU 占用高，请做 profiling",
+    "required": ["performance-doctor"],
+    "forbidden": ["tauri-packaging"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "runtime performance"
+  },
+  {
+    "id": "bug-06",
+    "prompt": "pnpm build 报 TypeScript 类型错误，先诊断",
+    "required": ["bug-detective"],
+    "forbidden": ["tauri-packaging"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "build diagnosis"
+  },
+  {
+    "id": "bug-07",
+    "prompt": "窗口事件没有收到，排查 emit 和 listen 链路",
+    "required": ["bug-detective", "tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "event diagnosis"
+  },
+  {
+    "id": "bug-08",
+    "prompt": "JSON 反序列化日期字段失败，定位 serde 格式",
+    "required": ["bug-detective", "json-serialization"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "serialization bug"
+  },
+  {
+    "id": "bug-09",
+    "prompt": "现在执行任务好像没触发 skill",
+    "required": ["bug-detective"],
+    "forbidden": ["add-skill", "performance-doctor"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "missing trigger diagnosis"
+  },
+
+  {
+    "id": "sec-01",
+    "prompt": "保存 SSH 密钥和密码到 Safe Credentials",
+    "required": ["security-permissions"],
+    "forbidden": ["store-management"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "credentials"
+  },
+  {
+    "id": "sec-02",
+    "prompt": "修改 capabilities/default.json 的 fs scope",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "capability scope"
+  },
+  {
+    "id": "sec-03",
+    "prompt": "检查 CSP 是否允许外部 URL，并做最小权限审查",
+    "required": ["security-permissions"],
+    "forbidden": ["tauri-capabilities"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "security review"
+  },
+  {
+    "id": "sec-04",
+    "prompt": "通过 SSH 远程执行命令，不能泄露 Token",
+    "required": ["security-permissions"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "remote command"
+  },
+  {
+    "id": "sec-05",
+    "prompt": "配置 Tauri permission 和多窗口 scope",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": ["tauri-window-management"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "permissions"
+  },
+  {
+    "id": "sec-06",
+    "prompt": "删除远程服务器目录前增加二次确认和审计",
+    "required": ["security-permissions"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "destructive remote operation"
+  },
+  {
+    "id": "sec-07",
+    "prompt": "接入 tauri-plugin-fs 并声明 capabilities 权限",
+    "required": ["tauri-plugins", "tauri-capabilities", "security-permissions"],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "plugin permission"
+  },
+  {
+    "id": "sec-08",
+    "prompt": "把 API Token 硬编码到前端是否安全",
+    "required": ["security-permissions"],
+    "forbidden": ["store-management"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "secret exposure"
+  },
+
+  {
+    "id": "feature-01",
+    "prompt": "实现文件导入导出和拖放，使用 Tauri fs API",
+    "required": ["file-storage", "tauri-capabilities", "security-permissions"],
+    "forbidden": ["project-navigator"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "file system feature"
+  },
+  {
+    "id": "feature-02",
+    "prompt": "寻找 src 目录里页面入口文件",
+    "required": ["project-navigator"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "navigation not file feature"
+  },
+  {
+    "id": "feature-03",
+    "prompt": "实现 emit/listen 双向事件通信",
+    "required": ["tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "events"
+  },
+  {
+    "id": "feature-04",
+    "prompt": "集成 tauri-plugin-dialog 插件",
+    "required": ["tauri-plugins", "tauri-capabilities", "security-permissions"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "plugin integration"
+  },
+  {
+    "id": "feature-05",
+    "prompt": "引入普通 npm 日期库依赖",
+    "required": [],
+    "forbidden": ["tauri-plugins", "utils-toolkit"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "ordinary dependency"
+  },
+  {
+    "id": "feature-06",
+    "prompt": "应用读取本地配置文件并提供打开文件对话框",
+    "required": ["file-storage", "tauri-capabilities", "security-permissions"],
+    "forbidden": ["project-navigator"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "file API"
+  },
+  {
+    "id": "feature-07",
+    "prompt": "创建无边框 Tauri 窗口和自定义标题栏",
+    "required": ["tauri-window-management"],
+    "forbidden": ["theme-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "window management"
+  },
+  {
+    "id": "feature-08",
+    "prompt": "把多个页面共享数据放到 Rust AppState",
+    "required": ["store-management"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Rust state"
+  },
+
+  {
+    "id": "release-01",
+    "prompt": "pnpm build 检查前端能否编译",
+    "required": [],
+    "forbidden": ["tauri-packaging", "release"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "ordinary build"
+  },
+  {
+    "id": "release-02",
+    "prompt": "生成 dmg 并签名",
+    "required": ["tauri-packaging"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "packaging"
+  },
+  {
+    "id": "release-03",
+    "prompt": "发布 1.2.0 并推送 update.json",
+    "required": [
+      "release",
+      "release-publish",
+      "tauri-updater",
+      "security-permissions"
+    ],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "full release"
+  },
+  {
+    "id": "release-04",
+    "prompt": "配置 tauri-plugin-updater 和更新签名",
+    "required": ["tauri-updater", "tauri-plugins", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "updater setup"
+  },
+  {
+    "id": "release-05",
+    "prompt": "执行 Git commit 并创建分支，不要发布",
+    "required": ["git-workflow"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "local Git operation does not require remote-write security context"
+  },
+  {
+    "id": "release-06",
+    "prompt": "打 tag 并推送 Gitee Release 产物",
+    "required": ["release-publish", "git-workflow", "security-permissions"],
+    "forbidden": ["tauri-updater"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "remote publish"
+  },
+  {
+    "id": "release-07",
+    "prompt": "为已有函数新增单元测试和边界用例",
+    "required": ["test-development"],
+    "forbidden": ["check"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "test development"
+  },
+  {
+    "id": "release-08",
+    "prompt": "/check 当前变更",
+    "required": ["check"],
+    "forbidden": ["test-development", "dev"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit check workflow"
+  },
+  {
+    "id": "release-09",
+    "prompt": "诊断安装包体积过大的原因",
+    "required": ["performance-doctor", "tauri-packaging", "bug-detective"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "bundle performance diagnosis"
+  },
+  {
+    "id": "release-10",
+    "prompt": "/release 1.3.0",
+    "required": ["release"],
+    "forbidden": ["dev", "check"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "explicit release workflow"
+  },
+
+  {
+    "id": "docs-01",
+    "prompt": "写一份内部优化方案到 docs",
+    "required": ["brainstorm"],
+    "forbidden": ["docs-management", "update-docs"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "internal plan"
+  },
+  {
+    "id": "docs-02",
+    "prompt": "初始化 VitePress 文档站点并同步用户手册",
+    "required": ["docs-management"],
+    "forbidden": ["doc-generation"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "docs site"
+  },
+  {
+    "id": "docs-03",
+    "prompt": "根据 Command 代码生成 API Markdown 文档",
+    "required": ["doc-generation"],
+    "forbidden": ["docs-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "developer docs"
+  },
+  {
+    "id": "docs-04",
+    "prompt": "/update-docs status",
+    "required": ["update-docs"],
+    "forbidden": ["doc-generation", "docs-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit docs workflow"
+  },
+  {
+    "id": "docs-05",
+    "prompt": "/progress",
+    "required": ["progress"],
+    "forbidden": ["update-status"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit progress"
+  },
+  {
+    "id": "docs-06",
+    "prompt": "明确为这个长期任务建立跟踪文档并支持跨会话恢复",
+    "required": ["task-tracker"],
+    "forbidden": ["progress"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "task tracking"
+  },
+  {
+    "id": "docs-07",
+    "prompt": "/exp 沉淀本次会话经验",
+    "required": ["exp"],
+    "forbidden": ["exp-sediment"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit experience workflow"
+  },
+  {
+    "id": "docs-08",
+    "prompt": "请把这次踩坑沉淀成可复用 Skill",
+    "required": ["exp-sediment", "add-skill"],
+    "forbidden": ["exp"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "experience and skill maintenance"
+  },
+  {
+    "id": "docs-09",
+    "prompt": "/sync 同步框架文档",
+    "required": ["sync"],
+    "forbidden": ["docs-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit sync"
+  },
+  {
+    "id": "docs-10",
+    "prompt": "/update-status 更新项目状态",
+    "required": ["update-status"],
+    "forbidden": ["store-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit project status"
+  },
+
+  {
+    "id": "standards-01",
+    "prompt": "新增一个查询本地 SQLite 配置的 Tauri Command，并补齐前端 invoke 封装",
+    "required": ["database-ops", "api-development", "ui-frontend"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "cross-layer IPC and database standards"
+  },
+  {
+    "id": "standards-02",
+    "prompt": "修改 React 设置页表单，并通过 API 封装调用 Rust Command",
+    "required": ["ui-frontend", "api-development"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "frontend and IPC standards"
+  },
+  {
+    "id": "standards-03",
+    "prompt": "修复 Rust cannot borrow as mutable 编译错误并补充回归测试",
+    "required": ["rust-fundamentals", "test-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Rust and regression-test standards"
+  },
+  {
+    "id": "standards-04",
+    "prompt": "新增 SQLite schema 迁移并验证旧库升级和新库初始化",
+    "required": ["database-ops", "test-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "database migration and upgrade-test standards"
+  },
+  {
+    "id": "standards-05",
+    "prompt": "为文件导入功能新增 Tauri fs 权限和路径范围限制",
+    "required": ["file-storage", "tauri-capabilities", "security-permissions"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "filesystem and least-privilege standards"
+  },
+  {
+    "id": "standards-06",
+    "prompt": "集成 tauri-plugin-notification 并配置最小 Capabilities",
+    "required": [
+      "notification-system",
+      "tauri-plugins",
+      "tauri-capabilities",
+      "security-permissions"
+    ],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "plugin registration and permission standards"
+  },
+  {
+    "id": "standards-07",
+    "prompt": "修改 update.json 自动更新签名链路，但不要发布",
+    "required": ["tauri-updater", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "updater signing without external publishing"
+  },
+  {
+    "id": "standards-08",
+    "prompt": "新增 Zustand 全局主题状态并持久化用户偏好",
+    "required": ["store-management"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "state-management standards"
+  },
+  {
+    "id": "standards-09",
+    "prompt": "删除 Skill 里的废弃阶段内容，并重新规划 Skill 路由",
+    "required": ["add-skill", "security-permissions"],
+    "forbidden": ["performance-doctor"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "destructive Skill maintenance must load deletion and safety rules"
+  },
+  {
+    "id": "standards-10",
+    "prompt": "发送 macOS 原生系统通知，同时实现 emit/listen 窗口事件",
+    "required": ["notification-system", "tauri-events"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "strong signals from independent subtasks must survive global exclusions"
+  },
+  {
+    "id": "standards-11",
+    "prompt": "不要发送原生系统通知，只用 emit/listen 窗口事件",
+    "required": ["tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated notification clause must not override the affirmative event clause"
+  },
+  {
+    "id": "standards-12",
+    "prompt": "不要用 tauri-plugin-notification，只显示 antd message",
+    "required": ["ui-frontend"],
+    "forbidden": [
+      "notification-system",
+      "tauri-plugins",
+      "tauri-capabilities",
+      "security-permissions"
+    ],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated plugin clause must not load plugin and permission standards"
+  },
+  {
+    "id": "standards-13",
+    "prompt": "不要用 tauri-plugin-notification 然后集成 tauri-plugin-dialog",
+    "required": ["tauri-plugins", "tauri-capabilities", "security-permissions"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "a later affirmative plugin match in the same clause must retain permission standards"
+  },
+  {
+    "id": "standards-14",
+    "prompt": "我不想用 tauri-plugin-notification，只显示 antd message",
+    "required": ["ui-frontend"],
+    "forbidden": [
+      "notification-system",
+      "tauri-plugins",
+      "tauri-capabilities",
+      "security-permissions"
+    ],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the controlled negation phrase bu xiang yong must suppress plugin capabilities"
+  },
+  {
+    "id": "standards-15",
+    "prompt": "不打算发送原生系统通知，只实现 emit/listen 窗口事件",
+    "required": ["tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the controlled negation phrase bu da suan must suppress native notification"
+  },
+  {
+    "id": "standards-16",
+    "prompt": "不需要再发送原生系统通知，只显示 antd message",
+    "required": ["ui-frontend"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the controlled negation phrase bu xu yao zai must suppress native notification"
+  },
+  {
+    "id": "standards-17",
+    "prompt": "不要考虑发送原生系统通知，只用 emit/listen 窗口事件",
+    "required": ["tauri-events"],
+    "forbidden": ["notification-system"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the controlled negation phrase bu yao kao lv must suppress native notification"
+  },
+
+  {
+    "id": "workflow-01",
+    "prompt": "/dev 新增完整用户管理模块",
+    "required": ["dev"],
+    "forbidden": ["command", "check"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit full-stack workflow"
+  },
+  {
+    "id": "workflow-02",
+    "prompt": "/start",
+    "required": ["start"],
+    "forbidden": ["project-navigator"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit start"
+  },
+  {
+    "id": "workflow-03",
+    "prompt": "/next",
+    "required": ["next"],
+    "forbidden": ["brainstorm"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit next"
+  },
+  {
+    "id": "workflow-04",
+    "prompt": "$autonomous-dev 连续推进直到完成，每轮验证",
+    "required": ["autonomous-dev"],
+    "forbidden": ["dev"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit autonomous"
+  },
+  {
+    "id": "workflow-05",
+    "prompt": "明确使用 Gemini CLI 协作制作前端原型",
+    "required": ["collaborating-with-gemini"],
+    "forbidden": ["collaborating-with-codex"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit Gemini"
+  },
+  {
+    "id": "workflow-06",
+    "prompt": "明确委托 Codex CLI 做代码审查和 Diff",
+    "required": ["collaborating-with-codex"],
+    "forbidden": ["collaborating-with-gemini"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit Codex collaboration"
+  },
+  {
+    "id": "workflow-07",
+    "prompt": "基于 Tauri 框架初始化一个全新项目",
+    "required": ["project-init"],
+    "forbidden": ["start"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "project initialization"
+  },
+  {
+    "id": "workflow-08",
+    "prompt": "审查当前代码是否符合最佳实践和设计模式",
+    "required": ["code-patterns"],
+    "forbidden": ["check"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "patterns review"
+  },
+  {
+    "id": "workflow-09",
+    "prompt": "给框架创建一个新的部署 Skill，并同步三端",
+    "required": ["add-skill"],
+    "forbidden": ["dev"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "skill creation"
+  },
+  {
+    "id": "workflow-10",
+    "prompt": "普通业务状态字段改成已完成",
+    "required": [],
+    "forbidden": ["update-status", "store-management", "progress"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "generic status"
+  },
+  {
+    "id": "boundary-01",
+    "prompt": "抽取跨模块复用的日期格式化工具函数",
+    "required": ["utils-toolkit"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "shared utility"
+  },
+  {
+    "id": "boundary-02",
+    "prompt": "使用 tauri-plugin-store 持久化用户偏好",
+    "required": ["store-management", "tauri-plugins"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "preference store"
+  },
+  {
+    "id": "boundary-03",
+    "prompt": "读取仓库配置文件和 SKILL.md 分析现有规则",
+    "required": [],
+    "forbidden": ["file-storage"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "repository read is not app filesystem feature"
+  },
+  {
+    "id": "boundary-04",
+    "prompt": "读取 Nacos 配置并查询远程 MySQL 表 DDL 和真实数据格式",
+    "required": ["security-permissions"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "remote database verification is governed by project MCP baseline"
+  },
+  {
+    "id": "workflow-boundary-01",
+    "prompt": "继续上次的任务",
+    "required": ["task-tracker"],
+    "forbidden": ["start", "progress"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicitly resume a tracked task"
+  },
+  {
+    "id": "workflow-boundary-02",
+    "prompt": "查看当前活跃任务",
+    "required": ["task-tracker"],
+    "forbidden": ["progress"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicitly inspect tracked tasks"
+  },
+  {
+    "id": "workflow-boundary-03",
+    "prompt": "归档这个任务",
+    "required": ["task-tracker"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicitly archive task tracking"
+  },
+  {
+    "id": "workflow-boundary-04",
+    "prompt": "请做一次完整规范检查",
+    "required": ["check"],
+    "forbidden": ["code-patterns"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit full check workflow"
+  },
+  {
+    "id": "workflow-boundary-05",
+    "prompt": "新建一个桌面项目",
+    "required": ["project-init"],
+    "forbidden": ["start"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "explicit project initialization"
+  },
+  {
+    "id": "workflow-boundary-06",
+    "prompt": "重命名现有 Skill",
+    "required": ["add-skill"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Skill maintenance"
+  },
+  {
+    "id": "risk-tag-01",
+    "prompt": "$release 1.3.0 并推送 update.json，使用 Token",
+    "required": ["release", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit release keeps only mandatory safety supplement"
+  },
+  {
+    "id": "risk-tag-02",
+    "prompt": "/release 生成签名产物",
+    "required": ["release", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit signed release requires security"
+  },
+  {
+    "id": "risk-tag-03",
+    "prompt": "实现自动更新",
+    "required": ["tauri-updater", "security-permissions"],
+    "forbidden": ["update-status"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "updater riskTags require security"
+  },
+  {
+    "id": "risk-tag-04",
+    "prompt": "执行本地 Git commit",
+    "required": ["git-workflow"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "local commit is not an external write"
+  },
+  {
+    "id": "risk-tag-05",
+    "prompt": "Git push 到远程仓库",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "remote Git write requires security"
+  },
+  {
+    "id": "risk-synonym-01",
+    "prompt": "查询生产 RDS 的真实 DDL 和数据格式",
+    "required": ["security-permissions"],
+    "forbidden": ["database-ops"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "production external database verification uses the MCP security baseline"
+  },
+  {
+    "id": "risk-synonym-02",
+    "prompt": "把当前分支推送到远端仓库并上传 GitHub",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "Chinese remote Git upload wording remains an external write"
+  },
+  {
+    "id": "risk-synonym-03",
+    "prompt": "把 API key 写入前端配置",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "frontend API keys are credentials even without Token wording"
+  },
+  {
+    "id": "risk-synonym-04",
+    "prompt": "读取 ~/.ssh/id_rsa 排查 SSH 登录",
+    "required": ["security-permissions", "bug-detective"],
+    "forbidden": ["file-storage"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "private key paths require security and evidence-based diagnosis"
+  },
+  {
+    "id": "risk-synonym-05",
+    "prompt": "将构建产物上线下载站",
+    "required": ["tauri-packaging", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "artifact download-site publication needs packaging and publish guards"
+  },
+  {
+    "id": "risk-synonym-06",
+    "prompt": "请把代码推送至公司的远端代码仓库",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "bounded Chinese action and remote-repository target"
+  },
+  {
+    "id": "risk-synonym-07",
+    "prompt": "上传本次代码变更到 GitLab，镜像再同步到 Gitea",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "hosted repository providers remain external Git writes"
+  },
+  {
+    "id": "risk-synonym-08",
+    "prompt": "git push origin feature/router，然后推送 upstream main",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "origin and upstream are remote Git targets"
+  },
+  {
+    "id": "risk-synonym-09",
+    "prompt": "把构建制品部署到公司制品库",
+    "required": ["tauri-packaging", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "artifact repository deployment is a release publication"
+  },
+  {
+    "id": "risk-synonym-10",
+    "prompt": "将应用安装包上线到公共下载站",
+    "required": ["tauri-packaging", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "download-site deployment requires packaging and publish guards"
+  },
+  {
+    "id": "risk-synonym-11",
+    "prompt": "上传代码到 GitHub",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit GitHub code upload is a remote Git write"
+  },
+  {
+    "id": "precision-01",
+    "prompt": "评估当前 Skill 状态",
+    "required": ["add-skill"],
+    "forbidden": ["bug-detective", "performance-doctor"],
+    "exactSkills": ["add-skill"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Skill health evaluation is Skill maintenance"
+  },
+  {
+    "id": "precision-02",
+    "prompt": "新增普通 Tauri Command 并补充测试",
+    "required": ["api-development", "test-development"],
+    "forbidden": ["command", "security-permissions"],
+    "exactSkills": ["api-development", "test-development"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "ordinary IPC implementation plus tests"
+  },
+  {
+    "id": "precision-03",
+    "prompt": "提交当前改动，提交信息使用中文",
+    "required": ["git-workflow"],
+    "forbidden": ["security-permissions", "release-publish"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "Chinese local commit wording"
+  },
+  {
+    "id": "precision-04",
+    "prompt": "分析大模型 token 消耗",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "model context token is not a credential"
+  },
+  {
+    "id": "precision-05",
+    "prompt": "实现普通 SQLite CRUD",
+    "required": ["database-ops"],
+    "forbidden": ["security-permissions"],
+    "exactSkills": ["database-ops"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "ordinary local CRUD does not need the security Skill"
+  },
+  {
+    "id": "precision-06",
+    "prompt": "只构建 dmg，不发布",
+    "required": ["tauri-packaging"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-packaging"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "local packaging with explicit publish negation"
+  },
+  {
+    "id": "precision-07",
+    "prompt": "实现一个接口",
+    "required": ["api-development"],
+    "forbidden": ["security-permissions"],
+    "exactSkills": ["api-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "implementation-scoped API wording"
+  },
+  {
+    "id": "precision-08",
+    "prompt": "提交表单并显示中文提示",
+    "required": [],
+    "forbidden": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "form submission is not a Git commit"
+  },
+  {
+    "id": "precision-09",
+    "prompt": "把 API Token 硬编码到前端",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "API token remains a credential"
+  },
+  {
+    "id": "precision-10",
+    "prompt": "生成 dmg 并签名",
+    "required": ["tauri-packaging", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["security-permissions", "tauri-packaging"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "signing material keeps the security guard"
+  },
+  {
+    "id": "precision-11",
+    "prompt": "定义 TypeScript interface 类型",
+    "required": [],
+    "forbidden": ["api-development"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a language interface is not an API endpoint"
+  },
+  {
+    "id": "precision-12",
+    "prompt": "$git-workflow git push origin main",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "exactSkills": ["git-workflow", "security-permissions"],
+    "expectedRiskIds": ["remote-write"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit Skill selection must retain remote-write safety"
+  },
+  {
+    "id": "precision-13",
+    "prompt": "$database-ops 删除 SQLite 表",
+    "required": ["database-ops", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["database-ops", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit database selection must retain destructive safety"
+  },
+  {
+    "id": "precision-14",
+    "prompt": "$tauri-packaging 生成 dmg 并签名",
+    "required": ["tauri-packaging", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["security-permissions", "tauri-packaging"],
+    "expectedRiskIds": ["signing"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit packaging selection must retain signing safety"
+  },
+  {
+    "id": "precision-15",
+    "prompt": "$api-development 把 Bearer Token 写进前端",
+    "required": ["api-development", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["api-development", "security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit API selection must retain credential safety"
+  },
+  {
+    "id": "precision-16",
+    "prompt": "分析大模型 token 消耗，避免把 token 预算硬编码",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "model token budgets are not credentials"
+  },
+  {
+    "id": "precision-17",
+    "prompt": "请检查模型 Token 是否被硬编码为 4096",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "model context limits are not credentials"
+  },
+  {
+    "id": "precision-18",
+    "prompt": "优化 LLM token，当前 token 上限硬编码在配置里",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "LLM token limits are not credentials"
+  },
+  {
+    "id": "precision-19",
+    "prompt": "清空 SQLite 表",
+    "required": ["database-ops", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["database-ops", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "clearing a local table is destructive"
+  },
+  {
+    "id": "precision-20",
+    "prompt": "执行 DELETE FROM users",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "raw SQL delete is destructive even without a database qualifier"
+  },
+  {
+    "id": "precision-21",
+    "prompt": "执行 DROP DATABASE demo",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "dropping a database is destructive"
+  },
+  {
+    "id": "precision-22",
+    "prompt": "新增 Tauri Command 并增加单测",
+    "required": ["api-development", "test-development"],
+    "forbidden": ["command"],
+    "exactSkills": ["api-development", "test-development"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "common unit-test wording"
+  },
+  {
+    "id": "precision-23",
+    "prompt": "做个 Tauri Command，再写用例",
+    "required": ["api-development", "test-development"],
+    "forbidden": ["command"],
+    "exactSkills": ["api-development", "test-development"],
+    "riskLevel": "low",
+    "scope": "cross",
+    "reason": "common test-case wording"
+  },
+  {
+    "id": "precision-24",
+    "prompt": "提交修改，commit message 用中文",
+    "required": ["git-workflow"],
+    "forbidden": ["security-permissions", "release-publish"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "common local commit wording"
+  },
+  {
+    "id": "precision-25",
+    "prompt": "/dev 把 API Token 硬编码到前端",
+    "required": ["dev", "security-permissions"],
+    "forbidden": ["api-development"],
+    "exactSkills": ["dev", "security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "explicit workflow commands retain credential safety"
+  },
+  {
+    "id": "precision-26",
+    "prompt": "把 GitHub PAT 写入前端配置",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "GitHub personal access tokens are credentials"
+  },
+  {
+    "id": "precision-27",
+    "prompt": "把 OAuth refresh_token 写入日志",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "OAuth refresh tokens are credentials"
+  },
+  {
+    "id": "precision-28",
+    "prompt": "读取 ~/.ssh/id_ed25519 排查 SSH 登录",
+    "required": ["bug-detective", "security-permissions"],
+    "forbidden": ["file-storage"],
+    "exactSkills": ["bug-detective", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "Ed25519 private keys are credentials"
+  },
+  {
+    "id": "precision-29",
+    "prompt": "把 OAuth client_secret 输出到控制台",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "OAuth client secrets are credentials"
+  },
+  {
+    "id": "precision-30",
+    "prompt": "执行 rm -rf /tmp/app-cache",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "recursive forced deletion is destructive"
+  },
+  {
+    "id": "precision-31",
+    "prompt": "用 rusqlite 执行 DELETE FROM audit_log",
+    "required": ["database-ops", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["database-ops", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "SQL delete through rusqlite is destructive"
+  },
+  {
+    "id": "precision-32",
+    "prompt": "修改 Tauri 权限配置以允许所有窗口访问文件",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions", "tauri-capabilities"],
+    "expectedRiskIds": ["capabilities"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "Chinese Tauri permission wording is a capability change"
+  },
+  {
+    "id": "precision-33",
+    "prompt": "给 WebView 放开 shell 权限",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions", "tauri-capabilities"],
+    "expectedRiskIds": ["capabilities"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "WebView shell permission changes are capabilities"
+  },
+  {
+    "id": "precision-34",
+    "prompt": "同步代码到 GitLab",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "exactSkills": ["git-workflow", "security-permissions"],
+    "expectedRiskIds": ["remote-write"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "repository synchronization is an external Git write"
+  },
+  {
+    "id": "precision-35",
+    "prompt": "将当前分支提交到 GitHub",
+    "required": ["git-workflow", "security-permissions"],
+    "forbidden": ["release-publish"],
+    "exactSkills": ["git-workflow", "security-permissions"],
+    "expectedRiskIds": ["remote-write"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "committing a branch to GitHub is an external write"
+  },
+  {
+    "id": "precision-36",
+    "prompt": "创建 GitHub Release",
+    "required": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "forbidden": ["tauri-packaging"],
+    "exactSkills": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "creating a hosted release is an external publication"
+  },
+  {
+    "id": "precision-37",
+    "prompt": "部署应用到生产环境",
+    "required": ["release", "release-publish", "security-permissions"],
+    "forbidden": ["tauri-packaging"],
+    "exactSkills": ["release", "release-publish", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "production deployment is an external publication"
+  },
+  {
+    "id": "precision-38",
+    "prompt": "不要发布旧版本，改为发布 1.4.0 并推送 update.json",
+    "required": [
+      "release",
+      "release-publish",
+      "security-permissions",
+      "tauri-updater"
+    ],
+    "forbidden": [],
+    "exactSkills": [
+      "release",
+      "release-publish",
+      "security-permissions",
+      "tauri-updater"
+    ],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "a negated old release must not suppress the explicit replacement release"
+  },
+  {
+    "id": "precision-39",
+    "prompt": "分析模型 token 消耗，同时检查登录 Token 是否硬编码",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "model token context must not hide a credential in another clause"
+  },
+  {
+    "id": "precision-40",
+    "prompt": "统计 LLM API Token 使用量和费用",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "LLM metering tokens are not API credentials"
+  },
+  {
+    "id": "precision-41",
+    "prompt": "不要部署到生产环境，只在本地运行",
+    "required": [],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "negated production deployment is not an external action"
+  },
+  {
+    "id": "precision-42",
+    "prompt": "不创建 GitHub Release，只生成本地 tag",
+    "required": ["git-workflow"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "negated hosted release preserves only the local tag operation"
+  },
+  {
+    "id": "precision-43",
+    "prompt": "不要同步代码到 GitLab，只做本地 Git commit",
+    "required": ["git-workflow"],
+    "forbidden": ["release-publish", "security-permissions"],
+    "exactSkills": ["git-workflow"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "negated remote sync preserves only the local commit"
+  },
+  {
+    "id": "precision-44",
+    "prompt": "点击按钮清空表单字段",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "clearing a UI form is not destructive storage work"
+  },
+  {
+    "id": "precision-45",
+    "prompt": "不要清空 SQLite 表，只查询数据",
+    "required": ["database-ops"],
+    "forbidden": ["security-permissions"],
+    "exactSkills": ["database-ops"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "negated database clearing is not a destructive action"
+  },
+  {
+    "id": "precision-46",
+    "prompt": "执行 rm -r /tmp/app-cache",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "recursive deletion is destructive without force"
+  },
+  {
+    "id": "precision-47",
+    "prompt": "执行 rm -r -f /tmp/app-cache",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "split recursive and force flags remain destructive"
+  },
+  {
+    "id": "precision-48",
+    "prompt": "执行 unlink /tmp/secret",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "unlink deletes a filesystem entry"
+  },
+  {
+    "id": "precision-49",
+    "prompt": "执行 DROP VIEW audit_view",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["destructive"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "dropping a view is destructive"
+  },
+  {
+    "id": "precision-50",
+    "prompt": "把刷新令牌写入日志",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "Chinese refresh-token wording is a credential"
+  },
+  {
+    "id": "precision-51",
+    "prompt": "把客户端密钥输出到控制台",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "Chinese client-secret wording is a credential"
+  },
+  {
+    "id": "precision-52",
+    "prompt": "把 AWS_SECRET_ACCESS_KEY 写进配置",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "cloud secret access keys are credentials"
+  },
+  {
+    "id": "precision-53",
+    "prompt": "不要推送 update.json，只检查内容",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "negated update publication may still inspect updater metadata"
+  },
+  {
+    "id": "precision-54",
+    "prompt": "不发布旧版，也不推送 update.json",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "fully negated publication must not trigger terminal actions"
+  },
+  {
+    "id": "precision-55",
+    "prompt": "把 1.4.0 发版到生产",
+    "required": ["release", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["release", "release-publish", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "Chinese production release wording is an external publication"
+  },
+  {
+    "id": "precision-56",
+    "prompt": "将应用投产",
+    "required": ["release", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["release", "release-publish", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "production rollout is an external publication"
+  },
+  {
+    "id": "precision-57",
+    "prompt": "向 GitHub 创建 Release",
+    "required": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "forbidden": [],
+    "exactSkills": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "hosted release wording is order independent"
+  },
+  {
+    "id": "precision-58",
+    "prompt": "新建 GitLab Release",
+    "required": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "forbidden": [],
+    "exactSkills": [
+      "git-workflow",
+      "release",
+      "release-publish",
+      "security-permissions"
+    ],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "hosted release creation uses common Chinese wording"
+  },
+  {
+    "id": "precision-59",
+    "prompt": "修改 default.json 允许 shell:allow-execute",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions", "tauri-capabilities"],
+    "expectedRiskIds": ["capabilities"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "capability-file shell permission wording is a capability change"
+  },
+  {
+    "id": "precision-60",
+    "prompt": "开放 core:window 权限给所有窗口",
+    "required": ["tauri-capabilities", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions", "tauri-capabilities"],
+    "expectedRiskIds": ["capabilities"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "core permission expansion is a capability change"
+  },
+  {
+    "id": "precision-61",
+    "prompt": "读取 update.json",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "reading updater metadata is not a publication"
+  },
+  {
+    "id": "precision-62",
+    "prompt": "解析 update.json 的 JSON 结构",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "parsing updater metadata is read only"
+  },
+  {
+    "id": "precision-63",
+    "prompt": "验证 update.json 的 schema",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "schema validation does not publish updater metadata"
+  },
+  {
+    "id": "precision-64",
+    "prompt": "只读检查 update.json 内容",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "explicit read-only inspection has no release risk"
+  },
+  {
+    "id": "precision-65",
+    "prompt": "推送 update.json",
+    "required": ["tauri-updater", "release-publish", "security-permissions"],
+    "forbidden": ["release"],
+    "exactSkills": ["tauri-updater", "release-publish", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "pushing updater metadata remains an external publication"
+  },
+  {
+    "id": "precision-66",
+    "prompt": "把 LLM API Token 硬编码到前端",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "an LLM provider API token is still a credential when hard-coded"
+  },
+  {
+    "id": "precision-67",
+    "prompt": "把大模型 API Token 输出到日志",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "logging a model provider token is credential exposure"
+  },
+  {
+    "id": "precision-68",
+    "prompt": "统计大模型输入和输出 Token 数量",
+    "required": [],
+    "forbidden": ["security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "model input and output token counts are metering data"
+  },
+  {
+    "id": "precision-69",
+    "prompt": "不要把应用部署到生产环境，只在本地运行",
+    "required": [],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated ba-construction deployment is not an external action"
+  },
+  {
+    "id": "precision-70",
+    "prompt": "无需将应用上线生产环境，仅执行本地构建",
+    "required": [],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated jiang-construction deployment stays local"
+  },
+  {
+    "id": "precision-71",
+    "prompt": "不要将代码同步到 GitLab，只做本地 Git commit",
+    "required": ["git-workflow"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["git-workflow"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated remote sync preserves the explicit local commit"
+  },
+  {
+    "id": "precision-72",
+    "prompt": "输出大模型 API Token 到日志",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "action-first model API token logging is credential exposure"
+  },
+  {
+    "id": "precision-73",
+    "prompt": "在日志中输出 LLM API Token",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "inverted API token output wording remains a credential risk"
+  },
+  {
+    "id": "precision-74",
+    "prompt": "打印 LLM API Token 到控制台",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "printing a provider API token is credential exposure"
+  },
+  {
+    "id": "precision-75",
+    "prompt": "记录大模型 API Token 到审计日志",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "recording a provider API token remains sensitive"
+  },
+  {
+    "id": "precision-76",
+    "prompt": "请勿将应用部署到生产环境，只在本地运行",
+    "required": [],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "please-do-not deployment wording is a negated external action"
+  },
+  {
+    "id": "precision-77",
+    "prompt": "禁止把代码推送到 GitHub，只做本地 Git commit",
+    "required": ["git-workflow"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["git-workflow"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "prohibited remote push preserves the explicit local commit"
+  },
+  {
+    "id": "precision-78",
+    "prompt": "只读取 update.json 并生成校验报告",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "generating a report does not mutate updater metadata"
+  },
+  {
+    "id": "precision-79",
+    "prompt": "检查 update.json，同时修改 README 文档",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "an unrelated documentation edit must not activate updater risks"
+  },
+  {
+    "id": "precision-80",
+    "prompt": "只读查看 update.json，不修改不发布",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "compound negation keeps updater inspection read only"
+  },
+  {
+    "id": "precision-81",
+    "prompt": "无须发布",
+    "required": [],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": [],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the alternate no-need wording negates publication"
+  },
+  {
+    "id": "precision-82",
+    "prompt": "配置 LLM API Token",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "provider API token configuration is credential handling"
+  },
+  {
+    "id": "precision-83",
+    "prompt": "使用大模型 API Token 调用服务",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "using a provider API token remains credential handling"
+  },
+  {
+    "id": "precision-84",
+    "prompt": "轮换 LLM API Token",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "provider API token rotation requires credential safeguards"
+  },
+  {
+    "id": "precision-85",
+    "prompt": "撤销大模型 API Token",
+    "required": ["security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["security-permissions"],
+    "expectedRiskIds": ["credentials"],
+    "riskLevel": "high",
+    "scope": "single",
+    "reason": "provider API token revocation is credential lifecycle work"
+  },
+  {
+    "id": "precision-86",
+    "prompt": "不修改代码直接发布当前版本",
+    "required": ["release", "release-publish", "security-permissions"],
+    "forbidden": [],
+    "exactSkills": ["release", "release-publish", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "negating code edits must not suppress a real publication"
+  },
+  {
+    "id": "precision-87",
+    "prompt": "修改 README 后检查 update.json",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "an earlier README edit does not mutate updater metadata"
+  },
+  {
+    "id": "precision-88",
+    "prompt": "先生成报告再读取 update.json",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "report generation does not mutate subsequently read metadata"
+  },
+  {
+    "id": "precision-89",
+    "prompt": "给 update.json 添加下载地址字段",
+    "required": ["tauri-updater", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["tauri-updater", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "adding updater metadata fields mutates the release chain"
+  },
+  {
+    "id": "precision-90",
+    "prompt": "update.json 新增平台字段",
+    "required": ["tauri-updater", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["tauri-updater", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "updater metadata field additions require updater safeguards"
+  },
+  {
+    "id": "precision-91",
+    "prompt": "更新 update.json 的下载地址",
+    "required": ["tauri-updater", "security-permissions"],
+    "forbidden": ["release", "release-publish"],
+    "exactSkills": ["tauri-updater", "security-permissions"],
+    "riskLevel": "high",
+    "scope": "cross",
+    "reason": "updating updater metadata is not a read-only inspection"
+  },
+  {
+    "id": "precision-92",
+    "prompt": "不要修改 update.json，只检查内容",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "a negated updater mutation remains read only"
+  },
+  {
+    "id": "precision-93",
+    "prompt": "update.json 不要新增平台字段，只检查内容",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "object-first negation prevents updater mutation risk"
+  },
+  {
+    "id": "precision-94",
+    "prompt": "update.json 无需修改，只检查内容",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "object-first no-need wording remains read only"
+  },
+  {
+    "id": "precision-95",
+    "prompt": "生成 update.json 的校验报告",
+    "required": ["tauri-updater"],
+    "forbidden": ["release", "release-publish", "security-permissions"],
+    "exactSkills": ["tauri-updater"],
+    "expectedRiskIds": [],
+    "riskLevel": "low",
+    "scope": "single",
+    "reason": "the generated object is a report, not updater metadata"
+  }
+]

@@ -22,7 +22,9 @@ export const systemSettingsApi = {
   reset: () =>
     hasTauriRuntime()
       ? invoke<SystemSettings>("reset_system_settings")
-      : devApiFetch<SystemSettings>("/system-settings/reset", { method: "POST" }),
+      : devApiFetch<SystemSettings>("/system-settings/reset", {
+          method: "POST",
+        }),
   export: () =>
     hasTauriRuntime()
       ? invoke<SystemSettingsExportResult>("export_system_settings")
@@ -33,17 +35,25 @@ export const systemSettingsApi = {
     hasTauriRuntime()
       ? invoke<AiUnrestrictedState>("get_ai_unrestricted_state")
       : devApiFetch<AiUnrestrictedState>("/system-settings/ai-unrestricted"),
-  enableAiUnrestrictedMode: (input: EnableAiUnrestrictedInput = { minutes: 30 }) =>
+  enableAiUnrestrictedMode: (
+    input: EnableAiUnrestrictedInput = { minutes: 30 },
+  ) =>
     hasTauriRuntime()
       ? invoke<AiUnrestrictedState>("enable_ai_unrestricted_mode", { input })
-      : devApiFetch<AiUnrestrictedState>("/system-settings/ai-unrestricted/enable", {
-          method: "POST",
-          body: JSON.stringify(input),
-        }),
+      : devApiFetch<AiUnrestrictedState>(
+          "/system-settings/ai-unrestricted/enable",
+          {
+            method: "POST",
+            body: JSON.stringify(input),
+          },
+        ),
   disableAiUnrestrictedMode: () =>
     hasTauriRuntime()
       ? invoke<AiUnrestrictedState>("disable_ai_unrestricted_mode")
-      : devApiFetch<AiUnrestrictedState>("/system-settings/ai-unrestricted/disable", {
-          method: "POST",
-        }),
+      : devApiFetch<AiUnrestrictedState>(
+          "/system-settings/ai-unrestricted/disable",
+          {
+            method: "POST",
+          },
+        ),
 };

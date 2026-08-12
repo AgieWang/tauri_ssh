@@ -1,11 +1,5 @@
 export type AiSkillScope =
-  | "global"
-  | "terminal"
-  | "sql"
-  | "logs"
-  | "sftp"
-  | "mcp"
-  | "jumpserver";
+  "global" | "terminal" | "sql" | "logs" | "sftp" | "mcp" | "jumpserver";
 
 export type AiSkillSource = "builtin" | "user";
 
@@ -152,7 +146,8 @@ export interface UpsertAiExperienceInput {
 export interface AiRunbookStep {
   id: string;
   title: string;
-  stepType: "note" | "readonly_command" | "approval_command" | "file" | "sql" | "redis";
+  stepType:
+    "note" | "readonly_command" | "approval_command" | "file" | "sql" | "redis";
   content: string;
   riskLevel: "low" | "medium" | "high" | "blocked";
 }

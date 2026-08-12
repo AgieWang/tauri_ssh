@@ -1,173 +1,65 @@
 ---
 name: file-storage
 description: |
-  Tauri 文件操作技能,覆盖 Rust std::fs 和 Tauri FS Plugin 的文件读写。
+  用于实现 Tauri 应用内的本地文件系统能力，包括安全读写、导入导出、拖放和文件对话框。
 
-  触发场景:
-  - 需要读写本地文件
-  - 需要选择文件/目录(对话框)
-  - 需要管理应用数据目录
-  - 需要处理文件拖放
+  触发场景：
+  - 通过 Rust std::fs 或 tauri-plugin-fs 读写用户文件
+  - 实现文件/目录选择、保存对话框或拖放导入
+  - 解析 app_data_dir 等跨平台应用目录
+  - 设计文件导入导出、原子写入、路径范围或 Capabilities
 
-  触发词: 文件、读写、保存、打开、目录、文件系统、fs、拖放、导入、导出
+  不应触发：编辑仓库源码/文档、查找代码文件、读取 SKILL.md、普通 Git 文件变更。
+
+  触发词：std::fs、tauri-plugin-fs、tauri-plugin-dialog、app_data_dir、文件导入、文件导出、文件拖放、原子写入
 ---
 
-# Tauri 文件操作
+# Tauri 文件系统能力
 
-## 两种文件操作方式
+## 适用边界
 
-| 方式 | 技术 | 适用场景 |
-|------|------|---------|
-| **Rust std::fs** | Rust 标准库 | Rust Command 中操作文件 |
-| **Tauri FS Plugin** | @tauri-apps/plugin-fs | 前端直接操作文件(需权限) |
+本 Skill 只处理“应用功能要访问本地文件系统”。Codex 使用工具编辑仓库文件、定位文件或生成文档，不属于此 Skill。仅出现“文件、保存、打开、目录”不得自动触发。
 
----
+## 方案选择
 
-## 方式 1: Rust 文件操作(推荐)
+| 场景 | 首选 |
+|---|---|
+| Rust 业务逻辑、批量处理、受控路径 | Rust Command + `std::fs`/异步文件 API |
+| 简单前端文件读写且 scope 清晰 | `tauri-plugin-fs` |
+| 用户主动选择输入/输出位置 | `tauri-plugin-dialog` |
+| 应用内部数据 | Tauri path API 的 app data/config 目录 |
 
-### 读写文件
+Command 仍遵守 Command → Service → 文件访问逻辑分层；前端调用封装到 `src/lib/api/`。
 
-```rust
-use std::fs;
-use std::path::PathBuf;
+## 安全与正确性规则
 
-#[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| format!("读取失败: {}", e))
-}
+1. 路径来自用户或外部输入时，解析规范化路径并验证其位于允许范围；防止 `..`、符号链接和路径穿越绕过。
+2. 不硬编码 `C:\\Users`、`/Users/...` 或 home；使用 Tauri path API 和 `PathBuf`/`join`。
+3. 文件插件必须在 `capabilities/*.json` 使用最小权限和最小 scope；不要为方便开放整个主目录。
+4. 重要配置或可恢复数据使用“同目录临时文件 → flush/sync（按风险）→ 原子替换”，避免半写入。
+5. 覆盖、删除、批量移动等破坏性操作先解析精确目标并获得请求范围内授权；优先可恢复方案。
+6. 文件内容视为不可信输入：限制大小、校验扩展名不能替代内容校验、解析失败必须可诊断。
+7. 禁止把凭据或敏感数据写入普通文本、日志和前端可读 store。
 
-#[tauri::command]
-fn write_text_file(path: String, content: String) -> Result<(), String> {
-    fs::write(&path, &content).map_err(|e| format!("写入失败: {}", e))
-}
+Rust、FS plugin、Dialog、拖放和路径示例见 [filesystem-patterns.md](references/filesystem-patterns.md)。
 
-#[tauri::command]
-fn read_json_file<T: serde::de::DeserializeOwned>(path: String) -> Result<T, String> {
-    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
-}
+## 实施流程
 
-#[tauri::command]
-fn list_directory(path: String) -> Result<Vec<String>, String> {
-    let entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
-    let names: Vec<String> = entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().to_string_lossy().into())
-        .collect();
-    Ok(names)
-}
-```
+1. 明确用户选择路径还是应用受控路径、读/写/覆盖语义、最大文件和支持格式。
+2. 读取现有 Command、Capabilities 和同类文件功能，复用错误模型与 API 封装。
+3. 选择后端或插件方案，配置最小权限；对输入做路径和内容校验。
+4. 覆盖不存在、无权限、取消对话框、超大文件、乱码、部分写入和跨平台路径测试。
+5. 页面交互变更使用内置浏览器或 Chrome 验证选择、取消、成功和失败反馈。
 
-### 应用数据目录
+## 不应触发示例
 
-```rust
-#[tauri::command]
-fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
-    app.path()
-        .app_data_dir()
-        .map(|p| p.to_string_lossy().into())
-        .map_err(|e| e.to_string())
-}
-```
+- “修改 `src/App.tsx`”或“读取一份 Markdown”。
+- “查找数据库实现在哪个文件”——使用项目导航。
+- “把生成的方案保存到 docs/”——这是仓库文档操作，不是应用文件功能。
 
----
+## 完成条件
 
-## 方式 2: Tauri FS Plugin
-
-### 安装
-
-```bash
-# Cargo.toml
-tauri-plugin-fs = "2"
-# package.json
-pnpm add @tauri-apps/plugin-fs
-```
-
-### Capabilities 权限
-
-```json
-{
-  "permissions": [
-    "fs:default",
-    "fs:allow-read-text-file",
-    "fs:allow-write-text-file",
-    "fs:allow-exists",
-    "fs:allow-mkdir"
-  ]
-}
-```
-
-### TypeScript 使用
-
-```typescript
-import { readTextFile, writeTextFile, exists, mkdir } from "@tauri-apps/plugin-fs";
-import { appDataDir, join } from "@tauri-apps/api/path";
-
-// 读取文件
-const content = await readTextFile("config.json", { baseDir: BaseDirectory.AppData });
-
-// 写入文件
-await writeTextFile("output.txt", "Hello World", { baseDir: BaseDirectory.AppData });
-
-// 检查文件存在
-const fileExists = await exists("config.json", { baseDir: BaseDirectory.AppData });
-```
-
----
-
-## 文件对话框
-
-### 安装 Dialog 插件
-
-```bash
-tauri-plugin-dialog = "2"
-pnpm add @tauri-apps/plugin-dialog
-```
-
-### 打开/保存对话框
-
-```typescript
-import { open, save } from "@tauri-apps/plugin-dialog";
-
-// 选择文件
-const selected = await open({
-  multiple: false,
-  filters: [{ name: "Text", extensions: ["txt", "md"] }],
-});
-if (selected) {
-  const content = await invoke<string>("read_text_file", { path: selected });
-}
-
-// 保存文件
-const savePath = await save({
-  defaultPath: "output.txt",
-  filters: [{ name: "Text", extensions: ["txt"] }],
-});
-if (savePath) {
-  await invoke("write_text_file", { path: savePath, content: "data" });
-}
-```
-
----
-
-## 常见路径 API
-
-```typescript
-import { appDataDir, appConfigDir, homeDir, desktopDir } from "@tauri-apps/api/path";
-
-const dataDir = await appDataDir();    // 应用数据目录
-const configDir = await appConfigDir(); // 应用配置目录
-const home = await homeDir();          // 用户主目录
-const desktop = await desktopDir();    // 桌面目录
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 硬编码路径 `"C:\\Users\\..."` | 使用 Tauri path API |
-| 前端直接用 fs 不声明权限 | 在 capabilities 中声明 fs 权限 |
-| 不处理文件不存在 | 先 exists() 检查或 catch 错误 |
-| 路径拼接用字符串 | 使用 `std::path::PathBuf` (Rust) 或 `join()` (TS) |
+- 路径范围、Capabilities、覆盖/删除语义和错误处理明确。
+- 跨平台路径与对话框取消行为正确，输入大小和格式经过校验。
+- 相关 Rust/TypeScript 测试、格式化、类型检查通过；页面流程已浏览器验收。
+- UTF-8 无 BOM，`git diff --check` 通过。

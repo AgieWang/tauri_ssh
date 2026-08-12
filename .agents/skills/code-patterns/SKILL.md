@@ -1,625 +1,98 @@
 ---
 name: code-patterns
 description: |
-  代码模式与最佳实践技能，提供 Tauri 项目中常用的设计模式和编码规范。
-
-  触发场景：
-  - 用户需要了解项目的编码规范
-  - 用户需要应用设计模式解决问题
-  - 用户需要重构代码以符合最佳实践
-
-  触发词：设计模式、编码规范、最佳实践、代码风格、重构
+  分析或重构 Tauri SSH 代码，使其符合项目已有设计模式、模块边界和编码约定。仅在用户明确询问最佳实践、设计模式、代码规范重构或跨模块一致性时使用；普通功能实现、单个 Bug 修复、数据库/UI/Command 专项开发不触发。
 ---
 
-# 代码模式与最佳实践
+# 代码模式与规范重构
 
-## 概述
+## 目标
 
-Tauri Desktop App 的代码模式与最佳实践技能，涵盖 Rust 后端三层架构和 React 前端的编码规范和设计模式。
+从当前仓库的真实相邻实现提炼模式，评估候选代码是否符合项目边界，并给出最小、安全、可验证的重构。领域 Skill 负责具体实现细节；本 Skill 负责跨代码的模式选择和一致性判断。
 
----
+## 激活边界
 
-## Rust 后端模式（三层架构）
+使用本 Skill：
 
-### 架构总览
+- 用户明确要求最佳实践、设计模式或编码规范说明。
+- 用户要求按项目模式重构、统一多个模块或消除结构性重复。
+- 需要判断逻辑应位于 Command、Service、Database、API、Store、Hook 还是页面。
 
-```
-commands/        → IPC 接口层（前端可调用）
-  ↓ 调用
-services/        → 业务逻辑层（可选）
-  ↓ 调用
-database/        → 数据访问层（DAO）
-```
+不使用本 Skill：
 
-### 1. Database 层模式（数据访问）
+- 普通新增功能或局部 Bug 修复。
+- SQLite、Rust Command、React UI、状态或错误处理的专项实现；使用对应领域 Skill。
+- 仅格式化、lint、测试或代码审查；使用检查/审查流程。
 
-```rust
-// src-tauri/src/database/mod.rs
-use std::sync::Mutex;
-use rusqlite::Connection;
-use crate::error::AppError;
-use crate::models::AppConfig;
+## 强制原则
 
-pub struct Database {
-    conn: Mutex<Connection>,
-}
+- 先读当前代码树和至少 2 个相邻实现，不以旧教程或目录假设替代仓库事实。
+- 模式必须解决当前问题；不要为“更优雅”引入无业务价值的抽象。
+- 保持 Tauri 双进程边界和 Rust Command → Service → Database 分层。
+- 前端 IPC 统一经 `src/lib/api/`，Rust/TypeScript 类型对齐；系统能力不直接放入 WebView。
+- 保留已有业务注释、错误语义、事务和权限边界。
+- 重构应小步、行为等价、可回滚；先有聚焦测试或行为基线。
+- 页面重构必须使用 Codex 内置浏览器或 Control Chrome 验收。
+- 数据库、权限、凭据、发布和远端操作仍遵循对应高风险 Skill，不由通用模式覆盖。
 
-impl Database {
-    /// 初始化数据库（自动迁移）
-    pub fn init(db_path: &str) -> Result<Self, AppError> {
-        let conn = Connection::open(db_path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        schema::migrate(&conn)?;
-        Ok(Self { conn: Mutex::new(conn) })
-    }
+## 工作流
 
-    /// CRUD 模式：获取所有（排除已软删除的）
-    pub fn get_all_config(&self) -> Result<Vec<AppConfig>, AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
+### 1. 建立事实地图
 
-        let mut stmt = conn.prepare(
-            "SELECT key, value FROM app_config WHERE deleted_at IS NULL"
-        )?;
-        let configs = stmt.query_map([], |row| {
-            Ok(AppConfig {
-                key: row.get(0)?,
-                value: row.get(1)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+1. 使用 `rg --files` 和 `rg` 定位入口、调用者、数据模型、错误类型、注册点和测试。
+2. 阅读目标代码、相邻模块和公共基础设施，例如 `src-tauri/src/shared/`、`src/lib/api/client.ts`、分域 API/types/store。
+3. 记录项目当前模式及其变体，区分“明确约束”“主流惯例”“历史遗留”。
+4. 明确重构目标：职责、重复、可测性、错误传播、类型安全或性能。
 
-        Ok(configs)
-    }
+### 2. 选择模式
 
-    /// CRUD 模式：获取单个（返回 Option）
-    pub fn get_config(&self, key: &str) -> Result<Option<String>, AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
+使用最小可行抽象：
 
-        let mut stmt = conn.prepare("SELECT value FROM app_config WHERE key = ?1")?;
-        Ok(stmt.query_row([key], |row| row.get(0)).ok())
-    }
+- 只有一处使用且逻辑简单：保持局部，不提前抽公共层。
+- 多处重复且变化原因一致：抽取共享函数、Service、Hook 或 API client。
+- 跨 IPC：先定义契约和错误，再安排 Rust/TS 两侧。
+- 业务数据持久化：Database/Service；UI 全局状态：Zustand；局部交互：Hooks。
+- 横切能力：优先复用 `shared/`、API client 或统一错误类型，避免复制。
 
-    /// CRUD 模式：Upsert（插入或更新）
-    pub fn set_config(&self, key: &str, value: &str) -> Result<(), AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
+Rust 细节读取 [rust-patterns.md](references/rust-patterns.md)，React/TypeScript 细节读取 [react-patterns.md](references/react-patterns.md)。
 
-        conn.execute(
-            "INSERT INTO app_config (key, value, updated_at)
-             VALUES (?1, ?2, datetime('now', 'localtime'))
-             ON CONFLICT(key) DO UPDATE SET
-               value = excluded.value,
-               updated_at = excluded.updated_at",
-            [key, value],
-        )?;
+### 3. 评估替代方案
 
-        Ok(())
-    }
+对每个候选简要比较：
 
-    /// CRUD 模式：删除（返回是否成功）
-    pub fn delete_config(&self, key: &str) -> Result<bool, AppError> {
-        let conn = self.conn.lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
+- 与现有模式一致性。
+- 复杂度和新增抽象数量。
+- 错误、事务、并发、取消与权限影响。
+- 类型/序列化兼容性。
+- 测试和迁移成本。
 
-        let affected = conn.execute("DELETE FROM app_config WHERE key = ?1", [key])?;
-        Ok(affected > 0)
-    }
-}
-```
+优先选择能减少状态与分支、保持边界清晰、能由当前测试验证的方案。若两种模式在仓库并存，以目标模块最新且经过验证的实现为准，并说明选择依据。
 
-### 2. Service 层模式（业务逻辑）
+### 4. 实施重构
 
-```rust
-// src-tauri/src/services/config_service.rs
-use crate::database::Database;
-use crate::error::AppError;
+1. 先补或确认行为测试。
+2. 每次只移动一个职责，保持编译和测试可运行。
+3. 更新模块导出、Command 注册、API/types/store re-export 等全链路入口。
+4. 删除重复仅限确认无引用后；不触碰其他会话 WIP。
+5. 对公开类型、数据库 schema、Capabilities 或持久化格式变更执行兼容性检查。
 
-pub struct ConfigService;
+### 5. 验证
 
-impl ConfigService {
-    pub fn new() -> Self {
-        Self
-    }
+根据实际文件运行格式化、类型检查、聚焦测试、构建和 `git diff --check`。Rust 运行 fmt/test/check，前端运行 format/tsc/Vitest/build；页面再做强制浏览器验收。
 
-    /// 业务逻辑：获取必需配置（不存在则报错）
-    pub fn get_required(&self, db: &Database, key: &str) -> Result<String, AppError> {
-        db.get_config(key)?
-            .ok_or_else(|| AppError::NotFound(format!("配置 {} 不存在", key)))
-    }
+确认：行为不变或符合新需求、错误码和消息兼容、序列化字段不漂移、权限未扩大、无无效抽象和死代码。
 
-    /// 业务逻辑：批量设置配置
-    pub fn set_multiple(
-        &self,
-        db: &Database,
-        configs: Vec<(String, String)>,
-    ) -> Result<(), AppError> {
-        for (key, value) in configs {
-            db.set_config(&key, &value)?;
-        }
-        Ok(())
-    }
+## 引用索引
 
-    /// 业务逻辑：重置配置为默认值
-    pub fn reset_to_default(&self, db: &Database) -> Result<(), AppError> {
-        let defaults = vec![
-            ("theme".to_string(), "light".to_string()),
-            ("language".to_string(), "zh-CN".to_string()),
-        ];
-        self.set_multiple(db, defaults)
-    }
-}
-```
+- [rust-patterns.md](references/rust-patterns.md)：Rust 分层、错误、共享逻辑、事务与模块组织模式。
+- [react-patterns.md](references/react-patterns.md)：React 组件、API client、Hook、Zustand、类型和样式模式。
 
-### 3. Command 层模式（IPC 接口 → 返回 CommandError）
+专项细节按需读取 `api-development`、`tauri-commands`、`database-ops`、`error-handler`、`ui-frontend`、`store-management` 或 `theme-system`，不要一次加载全部。
 
-```rust
-// src-tauri/src/commands/config.rs
-use crate::error::CommandError;
-use crate::models::AppConfig;
-use crate::services::config::ConfigService;
-use crate::state::AppState;
+## 完成条件
 
-/// 获取所有配置
-#[tauri::command]
-pub fn get_all_config(state: tauri::State<'_, AppState>) -> Result<Vec<AppConfig>, CommandError> {
-    ConfigService::get_all(&state.db).map_err(|e| e.into())
-}
-
-/// 获取单个配置
-#[tauri::command]
-pub fn get_config(state: tauri::State<'_, AppState>, key: String) -> Result<String, CommandError> {
-    ConfigService::get(&state.db, &key).map_err(|e| e.into())
-}
-
-/// 设置配置
-#[tauri::command]
-pub fn set_config(
-    state: tauri::State<'_, AppState>,
-    key: String,
-    value: String,
-) -> Result<(), CommandError> {
-    ConfigService::set(&state.db, &key, &value).map_err(|e| e.into())
-}
-
-/// 删除配置
-#[tauri::command]
-pub fn delete_config(state: tauri::State<'_, AppState>, key: String) -> Result<(), CommandError> {
-    ConfigService::delete(&state.db, &key).map_err(|e| e.into())
-}
-```
-
-### 4. 模块组织模式
-
-```rust
-// src-tauri/src/commands/mod.rs
-pub mod config;
-pub mod system;
-
-// src-tauri/src/lib.rs
-mod commands;
-mod database;
-mod error;
-mod models;
-mod services;
-
-use database::Database;
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let db_path = data_dir.join("app.db");
-            let db = Database::init(db_path.to_str().unwrap())?;
-            app.manage(db);
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            commands::config::get_all_config,
-            commands::config::get_config,
-            commands::config::set_config,
-            commands::config::delete_config,
-            commands::system::get_system_info,
-            commands::system::greet,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-```
-
----
-
-## React 前端模式
-
-### 1. 组件模式（Ant Design + TypeScript）
-
-```tsx
-// src/pages/ConfigPage.tsx
-import { useState, useEffect } from "react";
-import { Table, Button, message, Modal, Form, Input } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { configApi, getErrorMessage } from "@/lib/api";
-import type { AppConfig } from "@/types";
-
-export default function ConfigPage() {
-  const [configs, setConfigs] = useState<AppConfig[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm();
-
-  useEffect(() => {
-    loadConfigs();
-  }, []);
-
-  async function loadConfigs() {
-    setLoading(true);
-    try {
-      const data = await configApi.getAll();
-      setConfigs(data);
-    } catch (error) {
-      message.error(getErrorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSave(values: { key: string; value: string }) {
-    try {
-      await configApi.set(values.key, values.value);
-      message.success("保存成功");
-      setModalOpen(false);
-      loadConfigs();
-    } catch (error) {
-      message.error(getErrorMessage(error));
-    }
-  }
-
-  const columns: ColumnsType<AppConfig> = [
-    { title: "键", dataIndex: "key", key: "key" },
-    { title: "值", dataIndex: "value", key: "value" },
-    {
-      title: "操作",
-      key: "action",
-      render: (_, record) => (
-        <Button danger size="small" onClick={() => handleDelete(record.key)}>
-          删除
-        </Button>
-      ),
-    },
-  ];
-
-  async function handleDelete(key: string) {
-    try {
-      await configApi.delete(key);
-      message.success("删除成功");
-      loadConfigs();
-    } catch (error) {
-      message.error(getErrorMessage(error));
-    }
-  }
-
-  return (
-    <div className="p-6">
-      <div className="mb-4">
-        <Button type="primary" onClick={() => setModalOpen(true)}>
-          新增配置
-        </Button>
-      </div>
-
-      <Table
-        columns={columns}
-        dataSource={configs}
-        rowKey="key"
-        loading={loading}
-      />
-
-      <Modal
-        title="新增配置"
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => form.submit()}
-      >
-        <Form form={form} onFinish={handleSave}>
-          <Form.Item name="key" label="键" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="value" label="值" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
-  );
-}
-```
-
-### 2. API 封装模式（模块化拆分 + Re-export Hub）
-
-```typescript
-// ─── src/lib/api/client.ts ─── 基础客户端 + 错误解析
-import { invoke } from "@tauri-apps/api/core";
-
-/** 结构化错误（与 Rust CommandError 对齐） */
-export interface CommandError {
-  code: string;
-  message: string;
-}
-
-/** 解析 invoke 错误为 CommandError */
-export function parseCommandError(error: unknown): CommandError {
-  if (typeof error === "string") {
-    try {
-      return JSON.parse(error) as CommandError;
-    } catch {
-      return { code: "UNKNOWN", message: error };
-    }
-  }
-  return { code: "UNKNOWN", message: String(error) };
-}
-
-/** 快速获取错误信息（用于 message.error()） */
-export function getErrorMessage(error: unknown): string {
-  return parseCommandError(error).message;
-}
-
-/** 快速获取错误码（用于条件判断） */
-export function getErrorCode(error: unknown): string {
-  return parseCommandError(error).code;
-}
-
-export { invoke };
-
-// ─── src/lib/api/config.ts ─── 配置 API 模块
-import { invoke } from "./client";
-import type { AppConfig } from "@/types";
-
-export const configApi = {
-  getAll: () => invoke<AppConfig[]>("get_all_config"),
-  get: (key: string) => invoke<string>("get_config", { key }),
-  set: (key: string, value: string) =>
-    invoke<void>("set_config", { key, value }),
-  delete: (key: string) => invoke<void>("delete_config", { key }),
-};
-
-// ─── src/lib/api/system.ts ─── 系统 API 模块
-import { invoke } from "./client";
-import type { SystemInfo } from "@/types";
-
-export const systemApi = {
-  greet: (name: string) => invoke<string>("greet", { name }),
-  getSystemInfo: () => invoke<SystemInfo>("get_system_info"),
-};
-
-// ─── src/lib/api/index.ts ─── Re-export Hub（统一出口）
-export { parseCommandError, getErrorMessage, getErrorCode, invoke } from "./client";
-export type { CommandError } from "./client";
-export { systemApi } from "./system";
-export { configApi } from "./config";
-```
-
-### 3. 自定义 Hook 模式
-
-```tsx
-// src/hooks/useConfig.ts
-import { useState, useCallback } from "react";
-import { message } from "antd";
-import { configApi } from "@/lib/api";
-import type { AppConfig } from "@/types";
-
-export function useConfig() {
-  const [configs, setConfigs] = useState<AppConfig[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await configApi.getAll();
-      setConfigs(data);
-    } catch (error) {
-      message.error(`加载失败: ${error}`);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const save = useCallback(async (key: string, value: string) => {
-    try {
-      await configApi.set(key, value);
-      message.success("保存成功");
-      await loadAll();
-    } catch (error) {
-      message.error(`保存失败: ${error}`);
-      throw error;
-    }
-  }, [loadAll]);
-
-  return { configs, loading, loadAll, save };
-}
-
-// 使用
-function MyComponent() {
-  const { configs, loading, loadAll } = useConfig();
-
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
-
-  return <div>{/* ... */}</div>;
-}
-```
-
-### 4. Zustand 状态管理模式（模块化拆分）
-
-```typescript
-// ─── src/store/app.ts ─── UI 状态（主题/侧边栏）
-import { create } from "zustand";
-
-interface AppStore {
-  theme: "light" | "dark";
-  sidebarCollapsed: boolean;
-  toggleTheme: () => void;
-  setTheme: (theme: "light" | "dark") => void;
-  toggleSidebar: () => void;
-}
-
-export const useAppStore = create<AppStore>((set) => ({
-  theme: "light",
-  sidebarCollapsed: false,
-  toggleTheme: () =>
-    set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
-  setTheme: (theme) => set({ theme }),
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-}));
-
-// ─── src/store/settings.ts ─── 设置状态（语言/关闭行为等）
-import { create } from "zustand";
-
-interface SettingsStore {
-  language: string;
-  closeBehavior: "quit" | "tray";
-  setLanguage: (lang: string) => void;
-  setCloseBehavior: (behavior: "quit" | "tray") => void;
-}
-
-export const useSettingsStore = create<SettingsStore>((set) => ({
-  language: "zh-CN",
-  closeBehavior: "quit",
-  setLanguage: (language) => set({ language }),
-  setCloseBehavior: (closeBehavior) => set({ closeBehavior }),
-}));
-
-// ─── src/store/index.ts ─── Re-export Hub
-export { useAppStore } from "./app";
-export { useSettingsStore } from "./settings";
-
-// ─── 使用示例 ───
-function ThemeButton() {
-  const { theme, toggleTheme } = useAppStore();
-  return (
-    <Button onClick={toggleTheme}>
-      当前主题: {theme === "light" ? "亮色" : "暗色"}
-    </Button>
-  );
-}
-```
-
----
-
-## 命名约定
-
-### 文件命名
-
-| 层级 | Rust | TypeScript/React |
-|------|------|------------------|
-| **Database** | `database/mod.rs`, `database/schema.rs` | - |
-| **Service** | `services/config_service.rs` | - |
-| **Command** | `commands/config.rs`, `commands/system.rs` | - |
-| **Shared 工具** | `shared/time_utils.rs` | - |
-| **Model** | `models/mod.rs` | `types/config.ts`, `types/system.ts` |
-| **API 客户端** | - | `lib/api/client.ts` |
-| **API 模块** | - | `lib/api/config.ts`, `lib/api/system.ts` |
-| **API Hub** | - | `lib/api/index.ts`（Re-export） |
-| **组件** | - | `pages/home/index.tsx`, `components/layout/*.tsx` |
-| **Store 模块** | - | `store/app.ts`, `store/settings.ts` |
-| **Store Hub** | - | `store/index.ts`（Re-export） |
-| **Types Hub** | - | `types/index.ts`（Re-export） |
-| **Hook** | - | `hooks/useCommand.ts` |
-
-### 标识符命名
-
-| 项目 | Rust | TypeScript |
-|------|------|-----------|
-| 文件名 | `snake_case.rs` | `PascalCase.tsx` (组件) / `camelCase.ts` (工具) |
-| 函数名 | `snake_case` | `camelCase` |
-| 类型名 | `PascalCase` | `PascalCase` |
-| 常量 | `SCREAMING_SNAKE_CASE` | `SCREAMING_SNAKE_CASE` |
-| Command 名 | `get_all_config` | `invoke("get_all_config")` |
-| 组件 | - | `PascalCase` (函数组件) |
-| Hook | - | `useCamelCase` |
-
----
-
-## 样式与主题模式
-
-### 样式分层原则
-
-| 层级 | 职责 | 使用场景 |
-|------|------|---------|
-| CSS 变量 `var(--xxx)` | 设计令牌（颜色/间距/阴影） | 自定义组件、边框、背景 |
-| Ant Design `token.*` | 组件库内部颜色 | Ant Design 组件上下文（`useToken()`） |
-| TailwindCSS 原子类 | 布局和间距 | `flex gap-4 p-6 max-w-2xl` |
-
-### 正确用法
-
-```tsx
-// ✅ 布局用 TailwindCSS
-<div className="flex items-center justify-between p-4">
-
-// ✅ 颜色用 CSS 变量
-<div style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
-
-// ✅ Ant Design 组件内用 token
-const { token } = antdTheme.useToken();
-<Card style={{ background: token.colorBgContainer }}>
-
-// ✅ TailwindCSS arbitrary values 引用 CSS 变量
-<div className="bg-[var(--bg-hover)] text-[var(--text-primary)]">
-```
-
-### 禁止用法
-
-```tsx
-// ❌ 硬编码颜色值
-<div style={{ background: "#1a1a1c", color: "#dcdcde" }}>
-
-// ❌ 使用 TailwindCSS dark: 前缀（项目用 data-theme 机制）
-<div className="bg-white dark:bg-gray-900">
-
-// ❌ 内联样式写布局（应用 TailwindCSS）
-<div style={{ display: "flex", padding: "16px", gap: "8px" }}>
-```
-
----
-
-## 常见错误
-
-| 错误做法 | 正确做法 |
-|---------|---------|
-| 不遵循项目已有模式 | 先阅读参考代码再编写 |
-| 把所有逻辑放在 Command 层 | 使用三层架构拆分职责 |
-| Rust 中过度使用 `clone()` | 合理使用引用和借用 |
-| React 中不拆分大组件 | 按功能拆分为小组件 |
-| 不定义 TypeScript 接口 | 为每个 Command 返回值定义接口 |
-| 直接 `invoke()` 不封装 | 在 `lib/api/` 中封装 API |
-| 不使用 Zustand 管理全局状态 | 复杂状态用 Zustand |
-| 混用多种状态管理方案 | 统一使用 Zustand |
-| 不使用 TailwindCSS | 优先使用 TailwindCSS 工具类 |
-| 前端路径不使用 `@/` 别名 | 统一使用 `@/` 别名 |
-
----
-
-## 代码审查清单
-
-### Rust 后端
-
-- [ ] 使用三层架构（Database → Service → Command）
-- [ ] 所有 Command 返回 `Result<T, CommandError>`（不是 `String`）
-- [ ] Mutex 加锁使用 `map_err` 处理错误
-- [ ] SQL 查询使用 `?` 占位符防注入
-- [ ] 查询包含 `WHERE deleted_at IS NULL`（软删除过滤）
-- [ ] Database 初始化包含 `busy_timeout(5s)` 和 WAL 模式
-- [ ] 模块在 `mod.rs` 中导出并在 `lib.rs` 注册
-
-### React 前端
-
-- [ ] 组件使用函数组件 + Hooks
-- [ ] API 按模块拆分（`lib/api/config.ts` 等）+ Re-export Hub
-- [ ] 错误处理使用 `try-catch` + `getErrorMessage()` + `message.error()`
-- [ ] 类型按模块拆分（`types/config.ts` 等）+ Re-export Hub
-- [ ] Store 按职责拆分（`store/app.ts` 等）+ Re-export Hub
-- [ ] 样式优先使用 TailwindCSS
-- [ ] 路径使用 `@/` 别名
+- 选择的模式有当前仓库证据，而非只引用通用最佳实践。
+- 重构减少了明确问题，没有增加无用抽象或扩大权限。
+- 分层、IPC、类型、错误、事务和状态边界保持完整。
+- 相关格式、测试、编译、构建与运行时验证通过。
+- 页面用指定浏览器验收，UTF-8 与 `git diff --check` 通过。

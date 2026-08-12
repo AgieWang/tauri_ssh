@@ -1,11 +1,8 @@
 export type CredentialType =
-  | "private_key"
-  | "password"
-  | "token"
-  | "session_reference"
-  | "api_key";
+  "private_key" | "password" | "token" | "session_reference" | "api_key";
 
-export type CredentialStatus = "normal" | "rotation_due" | "session_reference" | "disabled";
+export type CredentialStatus =
+  "normal" | "rotation_due" | "session_reference" | "disabled";
 
 export interface CredentialVaultItem {
   key: string;

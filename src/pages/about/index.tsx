@@ -51,7 +51,9 @@ export default function AboutPage() {
           <Descriptions.Item label="UI 组件库">Ant Design</Descriptions.Item>
           <Descriptions.Item label="样式方案">TailwindCSS 4</Descriptions.Item>
           <Descriptions.Item label="状态管理">Zustand</Descriptions.Item>
-          <Descriptions.Item label="数据库">SQLite (rusqlite)</Descriptions.Item>
+          <Descriptions.Item label="数据库">
+            SQLite (rusqlite)
+          </Descriptions.Item>
         </Descriptions>
       </Card>
     </div>

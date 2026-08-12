@@ -25,12 +25,17 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
     <div className="prototype-page-header">
       <div>
-        <Title level={2} style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}>
+        <Title
+          level={2}
+          style={{ margin: 0, fontSize: 24, lineHeight: "32px" }}
+        >
           {title}
         </Title>
         <Text type="secondary">{description}</Text>
       </div>
-      {actions ? <div className="prototype-header-actions">{actions}</div> : null}
+      {actions ? (
+        <div className="prototype-header-actions">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -51,7 +56,13 @@ export function StatCard({ label, value, hint }: StatCardProps) {
   );
 }
 
-export function RiskBadge({ level, label }: { level: RiskLevel; label?: string }) {
+export function RiskBadge({
+  level,
+  label,
+}: {
+  level: RiskLevel;
+  label?: string;
+}) {
   return <Tag color={riskColor[level]}>{label ?? level}</Tag>;
 }
 
@@ -61,16 +72,29 @@ interface TerminalPanelProps {
   footer?: ReactNode;
 }
 
-export function TerminalPanel({ title = "terminal", lines, footer }: TerminalPanelProps) {
+export function TerminalPanel({
+  title = "terminal",
+  lines,
+  footer,
+}: TerminalPanelProps) {
   return (
     <div className="prototype-terminal">
       <div className="prototype-terminal-title">{title}</div>
       {lines.map((line) => (
-        <div key={line} className={line.includes("ERROR") || line.includes("拒绝") ? "terminal-error" : ""}>
+        <div
+          key={line}
+          className={
+            line.includes("ERROR") || line.includes("拒绝")
+              ? "terminal-error"
+              : ""
+          }
+        >
           {line}
         </div>
       ))}
-      {footer ? <div className="prototype-terminal-footer">{footer}</div> : null}
+      {footer ? (
+        <div className="prototype-terminal-footer">{footer}</div>
+      ) : null}
     </div>
   );
 }
@@ -82,11 +106,18 @@ interface AiInsightPanelProps {
   className?: string;
 }
 
-export function AiInsightPanel({ title = "AI 建议", children, tone = "normal", className }: AiInsightPanelProps) {
+export function AiInsightPanel({
+  title = "AI 建议",
+  children,
+  tone = "normal",
+  className,
+}: AiInsightPanelProps) {
   const cardClassName = [
     tone === "warning" ? "prototype-ai-card warning" : "prototype-ai-card",
     className,
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <Card
       size="small"
@@ -116,7 +147,13 @@ export function CodeBlock({ children, style }: CodeBlockProps) {
   );
 }
 
-export function TwoColumn({ left, right }: { left: ReactNode; right: ReactNode }) {
+export function TwoColumn({
+  left,
+  right,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+}) {
   return (
     <div className="prototype-two-column">
       <div>{left}</div>
@@ -125,10 +162,14 @@ export function TwoColumn({ left, right }: { left: ReactNode; right: ReactNode }
   );
 }
 
-export function SectionGrid({ children, columns = 3 }: { children: ReactNode; columns?: 2 | 3 | 4 }) {
+export function SectionGrid({
+  children,
+  columns = 3,
+}: {
+  children: ReactNode;
+  columns?: 2 | 3 | 4;
+}) {
   return (
-    <div className={`prototype-grid prototype-grid-${columns}`}>
-      {children}
-    </div>
+    <div className={`prototype-grid prototype-grid-${columns}`}>{children}</div>
   );
 }

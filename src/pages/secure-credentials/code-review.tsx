@@ -119,10 +119,16 @@ export default function SecureCredentialCodeReviewPage() {
   const [batchText, setBatchText] = useState("");
   const [batchKey, setBatchKey] = useState("");
   const [batchItems, setBatchItems] = useState<BatchDraftItem[]>([]);
-  const [batchSummary, setBatchSummary] = useState<BatchRunSummary | null>(null);
-  const [branchCache, setBranchCache] = useState<Record<string, GitWorkspaceBranch[]>>({});
+  const [batchSummary, setBatchSummary] = useState<BatchRunSummary | null>(
+    null,
+  );
+  const [branchCache, setBranchCache] = useState<
+    Record<string, GitWorkspaceBranch[]>
+  >({});
   const [selectedTaskKeys, setSelectedTaskKeys] = useState<Key[]>([]);
-  const [reviewingTaskKeys, setReviewingTaskKeys] = useState<Set<string>>(new Set());
+  const [reviewingTaskKeys, setReviewingTaskKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const reviewingTaskKeysRef = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
@@ -206,7 +212,10 @@ export default function SecureCredentialCodeReviewPage() {
   );
 
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.workspaceKey === selectedWorkspaceKey),
+    () =>
+      workspaces.find(
+        (workspace) => workspace.workspaceKey === selectedWorkspaceKey,
+      ),
     [selectedWorkspaceKey, workspaces],
   );
 
@@ -236,10 +245,19 @@ export default function SecureCredentialCodeReviewPage() {
     const map: Record<string, { task: CodeReviewTask; reason: string }> = {};
     for (const task of tasks) {
       const latestCompleted = latestCompletedByGroup.get(reviewGroupKey(task));
-      if (!latestCompleted || latestCompleted.taskKey === task.taskKey || task.id >= latestCompleted.id) {
+      if (
+        !latestCompleted ||
+        latestCompleted.taskKey === task.taskKey ||
+        task.id >= latestCompleted.id
+      ) {
         continue;
       }
-      if (task.status === "merged" || task.status === "stale" || task.status === "cancelled" || task.pushStatus === "pushed") {
+      if (
+        task.status === "merged" ||
+        task.status === "stale" ||
+        task.status === "cancelled" ||
+        task.pushStatus === "pushed"
+      ) {
         continue;
       }
       map[task.taskKey] = {
@@ -261,14 +279,22 @@ export default function SecureCredentialCodeReviewPage() {
     return Boolean(getTaskSupersededInfo(task));
   }
 
-  function getCachedBranch(workspaceKey: string | undefined, branchName: string) {
+  function getCachedBranch(
+    workspaceKey: string | undefined,
+    branchName: string,
+  ) {
     if (!workspaceKey || !branchName) {
       return undefined;
     }
-    return branchCache[workspaceKey]?.find((branch) => branch.name === branchName);
+    return branchCache[workspaceKey]?.find(
+      (branch) => branch.name === branchName,
+    );
   }
 
-  function branchLastCommitText(workspaceKey: string | undefined, branchName: string) {
+  function branchLastCommitText(
+    workspaceKey: string | undefined,
+    branchName: string,
+  ) {
     const branch = getCachedBranch(workspaceKey, branchName);
     if (!branch) {
       return "-";
@@ -276,13 +302,19 @@ export default function SecureCredentialCodeReviewPage() {
     return `${branch.lastCommitHash || "-"} ${branch.lastCommitMessage || ""}`.trim();
   }
 
-  function batchBranchOptions(workspaceKey: string | undefined, currentValue: string) {
-    const rows = workspaceKey ? branchCache[workspaceKey] ?? [] : [];
+  function batchBranchOptions(
+    workspaceKey: string | undefined,
+    currentValue: string,
+  ) {
+    const rows = workspaceKey ? (branchCache[workspaceKey] ?? []) : [];
     const options = rows.map((branch) => ({
       label: branch.displayName || branch.name,
       value: branch.name,
     }));
-    if (currentValue && !options.some((option) => option.value === currentValue)) {
+    if (
+      currentValue &&
+      !options.some((option) => option.value === currentValue)
+    ) {
       return [{ label: currentValue, value: currentValue }, ...options];
     }
     return options;
@@ -321,7 +353,9 @@ export default function SecureCredentialCodeReviewPage() {
   async function runAi(task: CodeReviewTask) {
     const superseded = getTaskSupersededInfo(task);
     if (superseded) {
-      message.warning(`${superseded.reason}，请查看最新任务 ${superseded.task.taskKey}`);
+      message.warning(
+        `${superseded.reason}，请查看最新任务 ${superseded.task.taskKey}`,
+      );
       return;
     }
     if (reviewingTaskKeysRef.current.has(task.taskKey)) {
@@ -347,9 +381,13 @@ export default function SecureCredentialCodeReviewPage() {
   }
 
   async function runAiForSelected() {
-    const selected = tasks.filter((task) => selectedTaskKeys.includes(task.taskKey));
+    const selected = tasks.filter((task) =>
+      selectedTaskKeys.includes(task.taskKey),
+    );
     const candidates = selected.filter(
-      (task) => ["diff_ready", "review_ready"].includes(task.status) && !isTaskSuperseded(task),
+      (task) =>
+        ["diff_ready", "review_ready"].includes(task.status) &&
+        !isTaskSuperseded(task),
     );
     if (candidates.length === 0) {
       message.warning("请选择可执行 AI 审查的任务");
@@ -371,7 +409,9 @@ export default function SecureCredentialCodeReviewPage() {
           await codeReviewApi.runAi({ taskKey: task.taskKey });
           successCount += 1;
         } catch (error) {
-          message.warning(`${task.workspaceName} AI 审查失败：${getErrorMessage(error)}`);
+          message.warning(
+            `${task.workspaceName} AI 审查失败：${getErrorMessage(error)}`,
+          );
         }
       }
       await loadTasks();
@@ -471,10 +511,13 @@ export default function SecureCredentialCodeReviewPage() {
   }
 
   async function mergeSelectedTasks() {
-    const selected = tasks.filter((task) => selectedTaskKeys.includes(task.taskKey));
+    const selected = tasks.filter((task) =>
+      selectedTaskKeys.includes(task.taskKey),
+    );
     const supersededCount = selected.filter(isTaskSuperseded).length;
     const mergeable = selected.filter(
-      (task) => mergeableTaskStatuses.includes(task.status) && !isTaskSuperseded(task),
+      (task) =>
+        mergeableTaskStatuses.includes(task.status) && !isTaskSuperseded(task),
     );
     const highRiskItems = mergeable.filter(isHighRiskTask);
     const candidates = mergeable.filter((task) => !isHighRiskTask(task));
@@ -509,9 +552,15 @@ export default function SecureCredentialCodeReviewPage() {
               summary.success += 1;
             } catch (error) {
               const errorMessage = getErrorMessage(error);
-              if (errorMessage.includes("变化") || errorMessage.toLowerCase().includes("stale")) {
+              if (
+                errorMessage.includes("变化") ||
+                errorMessage.toLowerCase().includes("stale")
+              ) {
                 summary.stale += 1;
-              } else if (errorMessage.includes("冲突") || errorMessage.toLowerCase().includes("conflict")) {
+              } else if (
+                errorMessage.includes("冲突") ||
+                errorMessage.toLowerCase().includes("conflict")
+              ) {
                 summary.conflict += 1;
               } else {
                 summary.failed += 1;
@@ -523,7 +572,9 @@ export default function SecureCredentialCodeReviewPage() {
           }
           setBatchSummary(summary);
           await loadTasks();
-          message.success(`已完成 ${summary.success}/${candidates.length} 个本地合并`);
+          message.success(
+            `已完成 ${summary.success}/${candidates.length} 个本地合并`,
+          );
         } finally {
           setLoading(false);
         }
@@ -574,9 +625,13 @@ export default function SecureCredentialCodeReviewPage() {
       setBatchItems(parsedItems);
       setBatchSummary(null);
       await Promise.all(
-        Array.from(new Set(parsedItems.map((item) => item.selectedWorkspaceKey).filter(Boolean))).map((workspaceKey) =>
-          loadWorkspaceBranchesCached(workspaceKey!),
-        ),
+        Array.from(
+          new Set(
+            parsedItems
+              .map((item) => item.selectedWorkspaceKey)
+              .filter(Boolean),
+          ),
+        ).map((workspaceKey) => loadWorkspaceBranchesCached(workspaceKey!)),
       );
       if (result.items.length === 0) {
         message.warning("未解析到可用任务");
@@ -595,7 +650,9 @@ export default function SecureCredentialCodeReviewPage() {
 
   function updateBatchItem(index: number, patch: Partial<BatchDraftItem>) {
     setBatchItems((items) =>
-      items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
     );
   }
 
@@ -638,7 +695,9 @@ export default function SecureCredentialCodeReviewPage() {
         errors,
       });
       await loadTasks();
-      message.success(`已创建 ${created.length} 个任务，成功生成 ${successCount} 个 Diff`);
+      message.success(
+        `已创建 ${created.length} 个任务，成功生成 ${successCount} 个 Diff`,
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -675,7 +734,11 @@ export default function SecureCredentialCodeReviewPage() {
         const superseded = getTaskSupersededInfo(row);
         return (
           <Space size={4} wrap>
-            <Tag color={superseded ? "default" : undefined}>{superseded ? "已有最新任务完成" : statusText[row.status] ?? row.status}</Tag>
+            <Tag color={superseded ? "default" : undefined}>
+              {superseded
+                ? "已有最新任务完成"
+                : (statusText[row.status] ?? row.status)}
+            </Tag>
             <Tag>{pushText[row.pushStatus] ?? row.pushStatus}</Tag>
           </Space>
         );
@@ -694,10 +757,16 @@ export default function SecureCredentialCodeReviewPage() {
       fixed: "right",
       render: (_, row) => {
         const superseded = getTaskSupersededInfo(row);
-        const supersededTitle = superseded ? `${superseded.reason}，最新任务：${superseded.task.taskKey}` : "";
+        const supersededTitle = superseded
+          ? `${superseded.reason}，最新任务：${superseded.task.taskKey}`
+          : "";
         return (
           <Space size={6} wrap>
-            <Button icon={<Eye size={14} />} size="small" onClick={() => openTask(row)}>
+            <Button
+              icon={<Eye size={14} />}
+              size="small"
+              onClick={() => openTask(row)}
+            >
               查看
             </Button>
             <Tooltip title={supersededTitle}>
@@ -715,7 +784,12 @@ export default function SecureCredentialCodeReviewPage() {
                 AI 审查
               </Button>
             </Tooltip>
-            <Tooltip title={supersededTitle || (isHighRiskTask(row) ? "高风险任务请进入详情页手动确认" : "")}>
+            <Tooltip
+              title={
+                supersededTitle ||
+                (isHighRiskTask(row) ? "高风险任务请进入详情页手动确认" : "")
+              }
+            >
               <Button
                 icon={<GitMerge size={14} />}
                 size="small"
@@ -730,7 +804,11 @@ export default function SecureCredentialCodeReviewPage() {
               </Button>
             </Tooltip>
             {["conflict", "merge_failed"].includes(row.status) ? (
-              <Button icon={<Undo2 size={14} />} size="small" onClick={() => void abortMerge(row)}>
+              <Button
+                icon={<Undo2 size={14} />}
+                size="small"
+                onClick={() => void abortMerge(row)}
+              >
                 中止
               </Button>
             ) : null}
@@ -738,7 +816,11 @@ export default function SecureCredentialCodeReviewPage() {
               <Button
                 icon={<Upload size={14} />}
                 size="small"
-                disabled={Boolean(superseded) || row.status !== "merged" || row.pushStatus === "pushed"}
+                disabled={
+                  Boolean(superseded) ||
+                  row.status !== "merged" ||
+                  row.pushStatus === "pushed"
+                }
                 onClick={() => void pushTask(row)}
               >
                 推送
@@ -778,7 +860,9 @@ export default function SecureCredentialCodeReviewPage() {
           showSearch
           optionFilterProp="label"
           value={value || undefined}
-          placeholder={row.selectedWorkspaceKey ? "选择源分支" : "先选择 Git 工作区"}
+          placeholder={
+            row.selectedWorkspaceKey ? "选择源分支" : "先选择 Git 工作区"
+          }
           disabled={!row.selectedWorkspaceKey}
           options={batchBranchOptions(row.selectedWorkspaceKey, value)}
           style={{ width: 200 }}
@@ -795,7 +879,9 @@ export default function SecureCredentialCodeReviewPage() {
           showSearch
           optionFilterProp="label"
           value={value || undefined}
-          placeholder={row.selectedWorkspaceKey ? "选择目标分支" : "先选择 Git 工作区"}
+          placeholder={
+            row.selectedWorkspaceKey ? "选择目标分支" : "先选择 Git 工作区"
+          }
           disabled={!row.selectedWorkspaceKey}
           options={batchBranchOptions(row.selectedWorkspaceKey, value)}
           style={{ width: 200 }}
@@ -830,12 +916,22 @@ export default function SecureCredentialCodeReviewPage() {
       width: 320,
       render: (_, row) => (
         <Space direction="vertical" size={2}>
-          <Text type="secondary">源：{branchLastCommitText(row.selectedWorkspaceKey, row.sourceBranch)}</Text>
-          <Text type="secondary">目标：{branchLastCommitText(row.selectedWorkspaceKey, row.targetBranch)}</Text>
+          <Text type="secondary">
+            源：
+            {branchLastCommitText(row.selectedWorkspaceKey, row.sourceBranch)}
+          </Text>
+          <Text type="secondary">
+            目标：
+            {branchLastCommitText(row.selectedWorkspaceKey, row.targetBranch)}
+          </Text>
         </Space>
       ),
     },
-    { title: "置信度", dataIndex: "confidence", render: (value) => `${Math.round(value * 100)}%` },
+    {
+      title: "置信度",
+      dataIndex: "confidence",
+      render: (value) => `${Math.round(value * 100)}%`,
+    },
     {
       title: "状态",
       dataIndex: "status",
@@ -876,7 +972,9 @@ export default function SecureCredentialCodeReviewPage() {
                           className="mb-0"
                           label="Git 工作区"
                           name="workspaceKey"
-                          rules={[{ required: true, message: "请选择 Git 工作区" }]}
+                          rules={[
+                            { required: true, message: "请选择 Git 工作区" },
+                          ]}
                         >
                           <Select
                             showSearch
@@ -902,7 +1000,9 @@ export default function SecureCredentialCodeReviewPage() {
                           className="mb-0"
                           label="目标分支"
                           name="targetBranch"
-                          rules={[{ required: true, message: "请选择目标分支" }]}
+                          rules={[
+                            { required: true, message: "请选择目标分支" },
+                          ]}
                         >
                           <Select
                             showSearch
@@ -917,7 +1017,9 @@ export default function SecureCredentialCodeReviewPage() {
                           <Button
                             block
                             icon={<RefreshCw size={14} />}
-                            onClick={() => void loadBranches(selectedWorkspaceKey)}
+                            onClick={() =>
+                              void loadBranches(selectedWorkspaceKey)
+                            }
                           >
                             刷新分支
                           </Button>
@@ -938,26 +1040,38 @@ export default function SecureCredentialCodeReviewPage() {
                 <Card title="当前选择状态">
                   {selectedWorkspace ? (
                     <Descriptions bordered size="small" column={3}>
-                      <Descriptions.Item label="工作区">{selectedWorkspace.name}</Descriptions.Item>
+                      <Descriptions.Item label="工作区">
+                        {selectedWorkspace.name}
+                      </Descriptions.Item>
                       <Descriptions.Item label="当前分支">
                         {selectedWorkspace.branch || "-"}
                       </Descriptions.Item>
-                      <Descriptions.Item label="状态">{selectedWorkspace.status || "-"}</Descriptions.Item>
-                      <Descriptions.Item label="未提交文件">{selectedWorkspace.changedFiles}</Descriptions.Item>
+                      <Descriptions.Item label="状态">
+                        {selectedWorkspace.status || "-"}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="未提交文件">
+                        {selectedWorkspace.changedFiles}
+                      </Descriptions.Item>
                       <Descriptions.Item label="Ahead / Behind">
                         {selectedWorkspace.ahead} / {selectedWorkspace.behind}
                       </Descriptions.Item>
                       <Descriptions.Item label="远程">
-                        <Text ellipsis>{selectedWorkspace.remoteUrl || "-"}</Text>
+                        <Text ellipsis>
+                          {selectedWorkspace.remoteUrl || "-"}
+                        </Text>
                       </Descriptions.Item>
                       <Descriptions.Item label="源分支最后提交">
                         {selectedSourceBranchInfo ? (
                           <Space direction="vertical" size={2}>
                             <Text>
-                              {selectedSourceBranchInfo.lastCommitHash} {selectedSourceBranchInfo.lastCommitMessage}
+                              {selectedSourceBranchInfo.lastCommitHash}{" "}
+                              {selectedSourceBranchInfo.lastCommitMessage}
                             </Text>
                             <Text type="secondary">
-                              更新时间：{formatCommitUpdatedAt(selectedSourceBranchInfo.lastCommitAt)}
+                              更新时间：
+                              {formatCommitUpdatedAt(
+                                selectedSourceBranchInfo.lastCommitAt,
+                              )}
                             </Text>
                           </Space>
                         ) : (
@@ -968,10 +1082,14 @@ export default function SecureCredentialCodeReviewPage() {
                         {selectedTargetBranchInfo ? (
                           <Space direction="vertical" size={2}>
                             <Text>
-                              {selectedTargetBranchInfo.lastCommitHash} {selectedTargetBranchInfo.lastCommitMessage}
+                              {selectedTargetBranchInfo.lastCommitHash}{" "}
+                              {selectedTargetBranchInfo.lastCommitMessage}
                             </Text>
                             <Text type="secondary">
-                              更新时间：{formatCommitUpdatedAt(selectedTargetBranchInfo.lastCommitAt)}
+                              更新时间：
+                              {formatCommitUpdatedAt(
+                                selectedTargetBranchInfo.lastCommitAt,
+                              )}
                             </Text>
                           </Space>
                         ) : (
@@ -1003,7 +1121,10 @@ export default function SecureCredentialCodeReviewPage() {
                       >
                         合并选中
                       </Button>
-                      <Button icon={<RefreshCw size={14} />} onClick={() => void loadTasks()}>
+                      <Button
+                        icon={<RefreshCw size={14} />}
+                        onClick={() => void loadTasks()}
+                      >
                         刷新
                       </Button>
                     </Space>
@@ -1042,7 +1163,11 @@ export default function SecureCredentialCodeReviewPage() {
                       onChange={(event) => setBatchText(event.target.value)}
                       placeholder="例如：前端项目：fj-evaluate-app 分支：dev-v3.7，后端项目：fj-evaluate、fj-feb 分支：dev-过错认定v3.7，都合并 dev 分支"
                     />
-                    <Button icon={<GitPullRequestArrow size={14} />} loading={loading} onClick={() => void parseBatch()}>
+                    <Button
+                      icon={<GitPullRequestArrow size={14} />}
+                      loading={loading}
+                      onClick={() => void parseBatch()}
+                    >
                       解析合并任务
                     </Button>
                   </Space>
@@ -1050,20 +1175,26 @@ export default function SecureCredentialCodeReviewPage() {
                 <Card title="解析结果">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <Text type="secondary">
-                      {batchKey ? `批次：${batchKey}` : "解析后可在表格中修正分支并选择 Git 工作区。"}
+                      {batchKey
+                        ? `批次：${batchKey}`
+                        : "解析后可在表格中修正分支并选择 Git 工作区。"}
                     </Text>
                     <Button
                       type="primary"
                       icon={<Search size={14} />}
                       loading={loading}
-                      disabled={!batchItems.some((item) => item.selectedWorkspaceKey)}
+                      disabled={
+                        !batchItems.some((item) => item.selectedWorkspaceKey)
+                      }
                       onClick={() => void createBatchTasksAndPrepare()}
                     >
                       创建任务并生成 Diff
                     </Button>
                   </div>
                   <Table
-                    rowKey={(row) => `${row.projectName}-${row.sourceBranch}-${row.targetBranch}`}
+                    rowKey={(row) =>
+                      `${row.projectName}-${row.sourceBranch}-${row.targetBranch}`
+                    }
                     columns={batchColumns}
                     dataSource={batchItems}
                     scroll={{ x: 1100 }}
@@ -1072,7 +1203,13 @@ export default function SecureCredentialCodeReviewPage() {
                   {batchSummary ? (
                     <Alert
                       className="mt-3"
-                      type={batchSummary.failed || batchSummary.conflict || batchSummary.stale ? "warning" : "success"}
+                      type={
+                        batchSummary.failed ||
+                        batchSummary.conflict ||
+                        batchSummary.stale
+                          ? "warning"
+                          : "success"
+                      }
                       showIcon
                       message={`批量结果：成功 ${batchSummary.success}，失败 ${batchSummary.failed}，冲突 ${batchSummary.conflict}，stale ${batchSummary.stale}，跳过 ${batchSummary.skipped}，待确认 ${batchSummary.pending}`}
                       description={
@@ -1115,94 +1252,133 @@ export default function SecureCredentialCodeReviewPage() {
       />
 
       <Drawer
-        title={activeTask ? `审查详情：${activeTask.workspaceName}` : "审查详情"}
+        title={
+          activeTask ? `审查详情：${activeTask.workspaceName}` : "审查详情"
+        }
         width={920}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         extra={
-          activeTask ? (
-            (() => {
-              const superseded = getTaskSupersededInfo(activeTask);
-              const supersededTitle = superseded ? `${superseded.reason}，最新任务：${superseded.task.taskKey}` : "";
-              const hasAiReviewReport = Boolean(activeTask.aiReviewMarkdown.trim());
-              return (
-                <Space>
-                  <Tooltip title={hasAiReviewReport ? "" : "请先完成 AI 审查后再复制报告"}>
-                    <Button
-                      icon={<ClipboardCopy size={14} />}
-                      disabled={!hasAiReviewReport}
-                      onClick={() => copyReport(activeTask)}
-                    >
-                      复制报告
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title={supersededTitle}>
-                    <Button
-                      icon={<Bot size={14} />}
-                      loading={reviewingTaskKeys.has(activeTask.taskKey)}
-                      disabled={
-                        Boolean(superseded) ||
-                        !["diff_ready", "review_ready"].includes(activeTask.status) ||
-                        reviewingTaskKeys.has(activeTask.taskKey)
+          activeTask
+            ? (() => {
+                const superseded = getTaskSupersededInfo(activeTask);
+                const supersededTitle = superseded
+                  ? `${superseded.reason}，最新任务：${superseded.task.taskKey}`
+                  : "";
+                const hasAiReviewReport = Boolean(
+                  activeTask.aiReviewMarkdown.trim(),
+                );
+                return (
+                  <Space>
+                    <Tooltip
+                      title={
+                        hasAiReviewReport ? "" : "请先完成 AI 审查后再复制报告"
                       }
-                      onClick={() => void runAi(activeTask)}
                     >
-                      AI 审查
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title={supersededTitle}>
-                    <Button
-                      icon={<ShieldCheck size={14} />}
-                      disabled={Boolean(superseded) || !mergeableTaskStatuses.includes(activeTask.status)}
-                      onClick={() => void mergeTask(activeTask)}
-                    >
-                      确认合并
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title={supersededTitle}>
-                    <Button
-                      icon={<Upload size={14} />}
-                      loading={loading && activeTask.status === "merged" && activeTask.pushStatus !== "pushed"}
-                      disabled={
-                        Boolean(superseded) ||
-                        activeTask.status !== "merged" ||
-                        activeTask.pushStatus === "pushed" ||
-                        loading
-                      }
-                      onClick={() => void pushTask(activeTask)}
-                    >
-                      Push 推送
-                    </Button>
-                  </Tooltip>
-                  {["conflict", "merge_failed"].includes(activeTask.status) ? (
-                    <Button icon={<Undo2 size={14} />} onClick={() => void abortMerge(activeTask)}>
-                      中止合并
-                    </Button>
-                  ) : null}
-                  {activeTask.status === "cancelled" ? (
-                    <Button onClick={() => setDetailOpen(false)}>
-                      关闭
-                    </Button>
-                  ) : activeTask.status !== "merged" && activeTask.pushStatus !== "pushed" ? (
-                    <Button danger icon={<Ban size={14} />} onClick={() => void cancelTask(activeTask)}>
-                      放弃
-                    </Button>
-                  ) : null}
-                </Space>
-              );
-            })()
-          ) : null
+                      <Button
+                        icon={<ClipboardCopy size={14} />}
+                        disabled={!hasAiReviewReport}
+                        onClick={() => copyReport(activeTask)}
+                      >
+                        复制报告
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title={supersededTitle}>
+                      <Button
+                        icon={<Bot size={14} />}
+                        loading={reviewingTaskKeys.has(activeTask.taskKey)}
+                        disabled={
+                          Boolean(superseded) ||
+                          !["diff_ready", "review_ready"].includes(
+                            activeTask.status,
+                          ) ||
+                          reviewingTaskKeys.has(activeTask.taskKey)
+                        }
+                        onClick={() => void runAi(activeTask)}
+                      >
+                        AI 审查
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title={supersededTitle}>
+                      <Button
+                        icon={<ShieldCheck size={14} />}
+                        disabled={
+                          Boolean(superseded) ||
+                          !mergeableTaskStatuses.includes(activeTask.status)
+                        }
+                        onClick={() => void mergeTask(activeTask)}
+                      >
+                        确认合并
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title={supersededTitle}>
+                      <Button
+                        icon={<Upload size={14} />}
+                        loading={
+                          loading &&
+                          activeTask.status === "merged" &&
+                          activeTask.pushStatus !== "pushed"
+                        }
+                        disabled={
+                          Boolean(superseded) ||
+                          activeTask.status !== "merged" ||
+                          activeTask.pushStatus === "pushed" ||
+                          loading
+                        }
+                        onClick={() => void pushTask(activeTask)}
+                      >
+                        Push 推送
+                      </Button>
+                    </Tooltip>
+                    {["conflict", "merge_failed"].includes(
+                      activeTask.status,
+                    ) ? (
+                      <Button
+                        icon={<Undo2 size={14} />}
+                        onClick={() => void abortMerge(activeTask)}
+                      >
+                        中止合并
+                      </Button>
+                    ) : null}
+                    {activeTask.status === "cancelled" ? (
+                      <Button onClick={() => setDetailOpen(false)}>关闭</Button>
+                    ) : activeTask.status !== "merged" &&
+                      activeTask.pushStatus !== "pushed" ? (
+                      <Button
+                        danger
+                        icon={<Ban size={14} />}
+                        onClick={() => void cancelTask(activeTask)}
+                      >
+                        放弃
+                      </Button>
+                    ) : null}
+                  </Space>
+                );
+              })()
+            : null
         }
       >
         {activeTask ? (
           <Space direction="vertical" size={16} className="w-full">
             <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="工作区">{activeTask.workspaceName}</Descriptions.Item>
-              <Descriptions.Item label="状态">{statusText[activeTask.status] ?? activeTask.status}</Descriptions.Item>
-              <Descriptions.Item label="源分支">{activeTask.sourceBranch}</Descriptions.Item>
-              <Descriptions.Item label="目标分支">{activeTask.targetBranch}</Descriptions.Item>
-              <Descriptions.Item label="源 HEAD">{activeTask.sourceHead || "-"}</Descriptions.Item>
-              <Descriptions.Item label="目标 HEAD">{activeTask.targetHead || "-"}</Descriptions.Item>
+              <Descriptions.Item label="工作区">
+                {activeTask.workspaceName}
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {statusText[activeTask.status] ?? activeTask.status}
+              </Descriptions.Item>
+              <Descriptions.Item label="源分支">
+                {activeTask.sourceBranch}
+              </Descriptions.Item>
+              <Descriptions.Item label="目标分支">
+                {activeTask.targetBranch}
+              </Descriptions.Item>
+              <Descriptions.Item label="源 HEAD">
+                {activeTask.sourceHead || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="目标 HEAD">
+                {activeTask.targetHead || "-"}
+              </Descriptions.Item>
               <Descriptions.Item label="风险">
                 <RiskTag value={activeTask.riskLevel} />
               </Descriptions.Item>
@@ -1225,7 +1401,9 @@ export default function SecureCredentialCodeReviewPage() {
                 description={`最新任务：${getTaskSupersededInfo(activeTask)!.task.taskKey}。当前旧任务不会再允许 AI 审查、合并或推送。`}
               />
             ) : null}
-            {activeTask.errorMessage ? <Alert type="error" showIcon message={activeTask.errorMessage} /> : null}
+            {activeTask.errorMessage ? (
+              <Alert type="error" showIcon message={activeTask.errorMessage} />
+            ) : null}
             <Card title="文件变更">
               <Table
                 rowKey="path"
@@ -1239,8 +1417,13 @@ export default function SecureCredentialCodeReviewPage() {
                 <Space direction="vertical" size={12} className="w-full">
                   {getDiffExcerpts(activeTask).map((excerpt) => (
                     <Card key={excerpt.path} size="small" title={excerpt.path}>
-                      {excerpt.truncated ? <Tag color="gold">已截断</Tag> : null}
-                      <DiffCodeBlock path={excerpt.path} content={excerpt.content} />
+                      {excerpt.truncated ? (
+                        <Tag color="gold">已截断</Tag>
+                      ) : null}
+                      <DiffCodeBlock
+                        path={excerpt.path}
+                        content={excerpt.content}
+                      />
                     </Card>
                   ))}
                 </Space>
@@ -1255,7 +1438,8 @@ export default function SecureCredentialCodeReviewPage() {
                     <div key={commit.hash} className="flex items-start gap-2">
                       <GitBranch size={14} className="mt-1" />
                       <div>
-                        <Text code>{commit.hash}</Text> <Text>{commit.message}</Text>
+                        <Text code>{commit.hash}</Text>{" "}
+                        <Text>{commit.message}</Text>
                         <br />
                         <Text type="secondary">
                           {commit.author} / {commit.date}
@@ -1301,17 +1485,21 @@ function getDiffExcerpts(task: CodeReviewTask): DiffExcerpt[] {
 }
 
 function reviewGroupKey(task: CodeReviewTask) {
-  return [task.workspaceKey, task.sourceBranch, task.targetBranch].join("\u0001");
+  return [task.workspaceKey, task.sourceBranch, task.targetBranch].join(
+    "\u0001",
+  );
 }
 
-function ChangeNumber({ value, type }: { value?: number; type: "add" | "delete" }) {
+function ChangeNumber({
+  value,
+  type,
+}: {
+  value?: number;
+  type: "add" | "delete";
+}) {
   const count = Number(value ?? 0);
   const color = type === "add" ? "#16a34a" : "#dc2626";
-  return (
-    <span style={{ color, fontWeight: 700 }}>
-      {count}
-    </span>
-  );
+  return <span style={{ color, fontWeight: 700 }}>{count}</span>;
 }
 
 interface DiffRenderLine {
@@ -1411,9 +1599,10 @@ function parseDiffLines(content: string): DiffRenderLine[] {
       };
     }
 
-    const contentText = raw.startsWith("+") || raw.startsWith("-") || raw.startsWith(" ")
-      ? raw.slice(1)
-      : raw;
+    const contentText =
+      raw.startsWith("+") || raw.startsWith("-") || raw.startsWith(" ")
+        ? raw.slice(1)
+        : raw;
     if (tone === "add") {
       return {
         key: `${index}-add-${newLine}`,
@@ -1454,7 +1643,12 @@ function diffLineTone(line: string): DiffRenderLine["tone"] {
   if (line.startsWith("@@")) {
     return "hunk";
   }
-  if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+  if (
+    line.startsWith("diff --git") ||
+    line.startsWith("index ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("+++ ")
+  ) {
     return "meta";
   }
   if (line.startsWith("+")) {
@@ -1471,7 +1665,13 @@ function languageFromPath(path: string) {
   if (lower.endsWith(".java")) return "java";
   if (lower.endsWith(".xml")) return "xml";
   if (lower.endsWith(".sql")) return "sql";
-  if (lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".js") || lower.endsWith(".jsx")) return "ts";
+  if (
+    lower.endsWith(".ts") ||
+    lower.endsWith(".tsx") ||
+    lower.endsWith(".js") ||
+    lower.endsWith(".jsx")
+  )
+    return "ts";
   if (lower.endsWith(".json")) return "json";
   if (lower.endsWith(".yml") || lower.endsWith(".yaml")) return "yaml";
   return "plain";
@@ -1491,7 +1691,10 @@ function highlightCode(code: string, language: string) {
       nodes.push(code.slice(cursor, start));
     }
     nodes.push(
-      <span key={`${start}-${value}`} className={syntaxTokenClass(value, language)}>
+      <span
+        key={`${start}-${value}`}
+        className={syntaxTokenClass(value, language)}
+      >
         {value}
       </span>,
     );
@@ -1504,10 +1707,14 @@ function highlightCode(code: string, language: string) {
 }
 
 function syntaxTokenClass(token: string, language: string) {
-  if (token.startsWith("\"") || token.startsWith("'") || token.startsWith("`")) {
+  if (token.startsWith('"') || token.startsWith("'") || token.startsWith("`")) {
     return "text-amber-700";
   }
-  if (token.startsWith("//") || token.startsWith("/*") || token.startsWith("<!--")) {
+  if (
+    token.startsWith("//") ||
+    token.startsWith("/*") ||
+    token.startsWith("<!--")
+  ) {
     return "text-slate-400";
   }
   if (token.startsWith("@")) {
@@ -1516,14 +1723,21 @@ function syntaxTokenClass(token: string, language: string) {
   if (/^\d/.test(token)) {
     return "text-cyan-700";
   }
-  if (language === "xml" && (token.startsWith("<") || token === ">" || token === "/>")) {
+  if (
+    language === "xml" &&
+    (token.startsWith("<") || token === ">" || token === "/>")
+  ) {
     return "text-blue-700";
   }
   return "text-violet-700";
 }
 
 function MarkdownReport({ content }: { content: string }) {
-  return <div className="space-y-3 text-sm leading-7 text-slate-800">{renderMarkdownBlocks(content)}</div>;
+  return (
+    <div className="space-y-3 text-sm leading-7 text-slate-800">
+      {renderMarkdownBlocks(content)}
+    </div>
+  );
 }
 
 function renderMarkdownBlocks(markdown: string) {
@@ -1553,7 +1767,12 @@ function renderMarkdownBlocks(markdown: string) {
           key={`code-${index}`}
           className="overflow-auto rounded border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-800"
         >
-          <code>{highlightCode(codeLines.join("\n"), normalizeMarkdownLanguage(language))}</code>
+          <code>
+            {highlightCode(
+              codeLines.join("\n"),
+              normalizeMarkdownLanguage(language),
+            )}
+          </code>
         </pre>,
       );
       continue;
@@ -1576,7 +1795,9 @@ function renderMarkdownBlocks(markdown: string) {
     }
 
     if (/^[-*_]{3,}$/.test(trimmed)) {
-      blocks.push(<div key={`hr-${index}`} className="my-3 border-t border-slate-200" />);
+      blocks.push(
+        <div key={`hr-${index}`} className="my-3 border-t border-slate-200" />,
+      );
       index += 1;
       continue;
     }
@@ -1649,13 +1870,19 @@ function renderInlineMarkdown(text: string) {
     }
     if (value.startsWith("`")) {
       parts.push(
-        <code key={`${start}-code`} className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.92em] text-slate-900">
+        <code
+          key={`${start}-code`}
+          className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.92em] text-slate-900"
+        >
           {value.slice(1, -1)}
         </code>,
       );
     } else {
       parts.push(
-        <strong key={`${start}-strong`} className="font-semibold text-slate-950">
+        <strong
+          key={`${start}-strong`}
+          className="font-semibold text-slate-950"
+        >
           {value.slice(2, -2)}
         </strong>,
       );
@@ -1673,7 +1900,9 @@ function normalizeMarkdownLanguage(language: string) {
   if (["java", "xml", "sql", "json", "yaml"].includes(normalized)) {
     return normalized;
   }
-  if (["ts", "tsx", "js", "jsx", "typescript", "javascript"].includes(normalized)) {
+  if (
+    ["ts", "tsx", "js", "jsx", "typescript", "javascript"].includes(normalized)
+  ) {
     return "ts";
   }
   return "plain";
@@ -1777,5 +2006,9 @@ function formatRiskText(value?: string) {
 }
 
 function RiskTag({ value }: { value?: string }) {
-  return <Tag color={riskColor[value ?? "unknown"] ?? "default"}>{formatRiskText(value)}</Tag>;
+  return (
+    <Tag color={riskColor[value ?? "unknown"] ?? "default"}>
+      {formatRiskText(value)}
+    </Tag>
+  );
 }

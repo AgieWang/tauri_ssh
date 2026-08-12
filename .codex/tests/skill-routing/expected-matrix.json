@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "rust-source",
+      "patterns": ["src-tauri/src/**/*.rs", "src-tauri/tests/**/*.rs"],
+      "required": ["cargo fmt --check", "focused cargo test", "cargo check"],
+      "conditional": ["cargo clippy for high-risk or broad changes"]
+    },
+    {
+      "id": "frontend-source",
+      "patterns": ["src/**/*.ts", "src/**/*.tsx"],
+      "required": [
+        "project formatter",
+        "tsc --noEmit",
+        "focused vitest",
+        "pnpm build"
+      ]
+    },
+    {
+      "id": "frontend-page",
+      "patterns": ["src/pages/**", "src/components/**", "src/styles/**"],
+      "required": [
+        "frontend-source",
+        "Codex in-app browser or Control Chrome acceptance"
+      ]
+    },
+    {
+      "id": "database-schema",
+      "patterns": ["src-tauri/src/database/**", "**/*schema*.rs", "**/*.sql"],
+      "required": [
+        "migration tests",
+        "old database upgrade",
+        "fresh database initialization",
+        "real DDL/data-format verification"
+      ]
+    },
+    {
+      "id": "capabilities",
+      "patterns": ["src-tauri/capabilities/**/*.json"],
+      "required": [
+        "JSON parse",
+        "least-privilege review",
+        "runtime capability verification"
+      ]
+    },
+    {
+      "id": "cargo-dependencies",
+      "patterns": ["src-tauri/Cargo.toml", "src-tauri/Cargo.lock"],
+      "required": [
+        "cargo check",
+        "focused cargo test",
+        "dependency and cross-platform review"
+      ]
+    },
+    {
+      "id": "node-dependencies",
+      "patterns": ["package.json", "pnpm-lock.yaml"],
+      "required": [
+        "install consistency",
+        "tsc --noEmit",
+        "focused tests",
+        "pnpm build"
+      ]
+    },
+    {
+      "id": "updater-release",
+      "patterns": [
+        "**/tauri.conf.json",
+        "**/update.json",
+        ".github/workflows/**",
+        "**/*release*"
+      ],
+      "required": [
+        "version consistency",
+        "signature verification",
+        "artifact verification",
+        "update manifest validation",
+        "rollback review"
+      ]
+    },
+    {
+      "id": "all-text",
+      "patterns": ["**/*"],
+      "required": [
+        "UTF-8 without BOM",
+        "no replacement characters",
+        "git diff --check"
+      ]
+    }
+  ]
+}

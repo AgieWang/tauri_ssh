@@ -1,4 +1,11 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Alert,
   Button,
@@ -22,8 +29,29 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Copy, Download, Edit, FileText, Folder, PackageCheck, PlayCircle, Plus, RefreshCw, RotateCcw, Square, Star, Trash2 } from "lucide-react";
-import { getErrorMessage, gitWorkspaceApi, hasTauriRuntime, jenkinsApi, secureCredentialApi, sshServerApi } from "@/lib/api";
+import {
+  Copy,
+  Download,
+  Edit,
+  FileText,
+  Folder,
+  PackageCheck,
+  PlayCircle,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Square,
+  Star,
+  Trash2,
+} from "lucide-react";
+import {
+  getErrorMessage,
+  gitWorkspaceApi,
+  hasTauriRuntime,
+  jenkinsApi,
+  secureCredentialApi,
+  sshServerApi,
+} from "@/lib/api";
 import type {
   GitWorkspace,
   GitWorkspaceStatusResult,
@@ -77,7 +105,8 @@ interface JenkinsRiskRuleFormValues {
   riskParameterRules?: JenkinsRiskParameterRuleFormValue[];
 }
 
-type ConnectionFormValues = UpsertJenkinsConnectionInput & JenkinsRiskRuleFormValues;
+type ConnectionFormValues = UpsertJenkinsConnectionInput &
+  JenkinsRiskRuleFormValues;
 type ParameterFormValue =
   | string
   | boolean
@@ -127,7 +156,10 @@ const riskLevelOptions = [
   { label: "blocked（禁止）", value: "blocked" },
 ];
 
-const environmentRiskOptions = [{ label: "自动：生产环境 L3，其余 L2", value: "auto" }, ...riskLevelOptions];
+const environmentRiskOptions = [
+  { label: "自动：生产环境 L3，其余 L2", value: "auto" },
+  ...riskLevelOptions,
+];
 const unfinishedBuildStatuses = new Set([
   "queued",
   "waiting",
@@ -155,7 +187,10 @@ const defaultRiskRuleFormValues: Required<JenkinsRiskRuleFormValues> = {
 };
 
 function statusTag(status: string) {
-  const meta = statusMeta[status] ?? { label: status || "未知", color: "default" };
+  const meta = statusMeta[status] ?? {
+    label: status || "未知",
+    color: "default",
+  };
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
@@ -219,7 +254,10 @@ function countMatches(text: string, needle: string) {
   return matches?.length ?? 0;
 }
 
-function collectLogHighlightMatches(text: string, searchTerm: string): LogHighlightMatch[] {
+function collectLogHighlightMatches(
+  text: string,
+  searchTerm: string,
+): LogHighlightMatch[] {
   const matches: LogHighlightMatch[] = [];
   const pushMatches = (pattern: string, kind: LogHighlightKind) => {
     if (!pattern.trim()) {
@@ -259,7 +297,10 @@ function collectLogHighlightMatches(text: string, searchTerm: string): LogHighli
     }, []);
 }
 
-function renderHighlightedLogText(text: string, searchTerm: string): ReactNode[] {
+function renderHighlightedLogText(
+  text: string,
+  searchTerm: string,
+): ReactNode[] {
   const matches = collectLogHighlightMatches(text, searchTerm);
   if (!matches.length) {
     return [text];
@@ -296,7 +337,9 @@ function extractFailureLogSummary(text: string): FailureLogSummary | null {
   const matchedIndexes = lines
     .map((line, index) => ({
       index,
-      matched: logErrorPatterns.some((pattern) => line.toLowerCase().includes(pattern.toLowerCase())),
+      matched: logErrorPatterns.some((pattern) =>
+        line.toLowerCase().includes(pattern.toLowerCase()),
+      ),
     }))
     .filter((item) => item.matched)
     .map((item) => item.index);
@@ -314,18 +357,28 @@ function extractFailureLogSummary(text: string): FailureLogSummary | null {
     }
   });
 
-  const sortedIndexes = Array.from(selectedIndexes).sort((left, right) => left - right);
+  const sortedIndexes = Array.from(selectedIndexes).sort(
+    (left, right) => left - right,
+  );
   const clippedIndexes = sortedIndexes.slice(0, 120);
   return {
     matchedLines: matchedIndexes.length,
     startLine: clippedIndexes[0] + 1,
     endLine: clippedIndexes[clippedIndexes.length - 1] + 1,
-    text: clippedIndexes.map((index) => `${String(index + 1).padStart(5, " ")} | ${lines[index]}`).join("\n"),
+    text: clippedIndexes
+      .map((index) => `${String(index + 1).padStart(5, " ")} | ${lines[index]}`)
+      .join("\n"),
   };
 }
 
-function parseRiskRuleFormValues(riskRulesJson?: string): JenkinsRiskRuleFormValues {
-  if (!riskRulesJson || riskRulesJson.trim() === "{}" || riskRulesJson.trim() === "[]") {
+function parseRiskRuleFormValues(
+  riskRulesJson?: string,
+): JenkinsRiskRuleFormValues {
+  if (
+    !riskRulesJson ||
+    riskRulesJson.trim() === "{}" ||
+    riskRulesJson.trim() === "[]"
+  ) {
     return defaultRiskRuleFormValues;
   }
   try {
@@ -341,13 +394,22 @@ function parseRiskRuleFormValues(riskRulesJson?: string): JenkinsRiskRuleFormVal
       parameterRules?: JenkinsRiskParameterRuleFormValue[];
     };
     return {
-      riskFallbackRisk: value.fallbackRisk ?? defaultRiskRuleFormValues.riskFallbackRisk,
-      riskFileParameterRisk: value.fileParameterRisk ?? defaultRiskRuleFormValues.riskFileParameterRisk,
-      riskEnvironmentRisk: value.environmentRisk ?? defaultRiskRuleFormValues.riskEnvironmentRisk,
+      riskFallbackRisk:
+        value.fallbackRisk ?? defaultRiskRuleFormValues.riskFallbackRisk,
+      riskFileParameterRisk:
+        value.fileParameterRisk ??
+        defaultRiskRuleFormValues.riskFileParameterRisk,
+      riskEnvironmentRisk:
+        value.environmentRisk ?? defaultRiskRuleFormValues.riskEnvironmentRisk,
       riskAllowConcurrentBuilds:
-        value.concurrency?.allowConcurrentBuilds ?? defaultRiskRuleFormValues.riskAllowConcurrentBuilds,
-      riskAllowConcurrentPatternsText: (value.concurrency?.allowConcurrentPatterns ?? []).join("\n"),
-      riskJobRules: value.jobRules?.length ? value.jobRules : defaultRiskRuleFormValues.riskJobRules,
+        value.concurrency?.allowConcurrentBuilds ??
+        defaultRiskRuleFormValues.riskAllowConcurrentBuilds,
+      riskAllowConcurrentPatternsText: (
+        value.concurrency?.allowConcurrentPatterns ?? []
+      ).join("\n"),
+      riskJobRules: value.jobRules?.length
+        ? value.jobRules
+        : defaultRiskRuleFormValues.riskJobRules,
       riskParameterRules: value.parameterRules?.length
         ? value.parameterRules
         : defaultRiskRuleFormValues.riskParameterRules,
@@ -360,12 +422,19 @@ function parseRiskRuleFormValues(riskRulesJson?: string): JenkinsRiskRuleFormVal
 function buildRiskRulesJson(values: JenkinsRiskRuleFormValues) {
   return JSON.stringify({
     version: 1,
-    fallbackRisk: values.riskFallbackRisk ?? defaultRiskRuleFormValues.riskFallbackRisk,
-    fileParameterRisk: values.riskFileParameterRisk ?? defaultRiskRuleFormValues.riskFileParameterRisk,
-    environmentRisk: values.riskEnvironmentRisk ?? defaultRiskRuleFormValues.riskEnvironmentRisk,
+    fallbackRisk:
+      values.riskFallbackRisk ?? defaultRiskRuleFormValues.riskFallbackRisk,
+    fileParameterRisk:
+      values.riskFileParameterRisk ??
+      defaultRiskRuleFormValues.riskFileParameterRisk,
+    environmentRisk:
+      values.riskEnvironmentRisk ??
+      defaultRiskRuleFormValues.riskEnvironmentRisk,
     concurrency: {
       allowConcurrentBuilds: values.riskAllowConcurrentBuilds ?? false,
-      allowConcurrentPatterns: splitLines(values.riskAllowConcurrentPatternsText),
+      allowConcurrentPatterns: splitLines(
+        values.riskAllowConcurrentPatternsText,
+      ),
     },
     jobRules: normalizeJobRiskRules(values.riskJobRules),
     parameterRules: normalizeParameterRiskRules(values.riskParameterRules),
@@ -389,7 +458,9 @@ function normalizeJobRiskRules(rules?: JenkinsRiskJobRuleFormValue[]) {
     .filter((rule) => rule.pattern);
 }
 
-function normalizeParameterRiskRules(rules?: JenkinsRiskParameterRuleFormValue[]) {
+function normalizeParameterRiskRules(
+  rules?: JenkinsRiskParameterRuleFormValue[],
+) {
   return (rules ?? [])
     .map((rule) => ({
       name: rule.name?.trim() ?? "",
@@ -400,7 +471,9 @@ function normalizeParameterRiskRules(rules?: JenkinsRiskParameterRuleFormValue[]
     .filter((rule) => rule.name);
 }
 
-function buildConnectionInput(values: ConnectionFormValues): UpsertJenkinsConnectionInput {
+function buildConnectionInput(
+  values: ConnectionFormValues,
+): UpsertJenkinsConnectionInput {
   const {
     riskFallbackRisk: _riskFallbackRisk,
     riskFileParameterRisk: _riskFileParameterRisk,
@@ -422,7 +495,9 @@ export default function JenkinsPage() {
   const [jobs, setJobs] = useState<JenkinsJob[]>([]);
   const [builds, setBuilds] = useState<JenkinsBuild[]>([]);
   const [queueItems, setQueueItems] = useState<JenkinsQueueItem[]>([]);
-  const [secureCredentials, setSecureCredentials] = useState<SecureCredential[]>([]);
+  const [secureCredentials, setSecureCredentials] = useState<
+    SecureCredential[]
+  >([]);
   const [sshServers, setSshServers] = useState<SshServer[]>([]);
   const [activeDetailTab, setActiveDetailTab] = useState("jobs");
   const [buildSyncingJob, setBuildSyncingJob] = useState("");
@@ -446,30 +521,48 @@ export default function JenkinsPage() {
   const [artifactLoading, setArtifactLoading] = useState(false);
   const [artifactDownloading, setArtifactDownloading] = useState("");
   const [artifactCleaning, setArtifactCleaning] = useState("");
-  const [artifactCandidateCreating, setArtifactCandidateCreating] = useState("");
+  const [artifactCandidateCreating, setArtifactCandidateCreating] =
+    useState("");
   const [deploymentDryRunLoading, setDeploymentDryRunLoading] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JenkinsJob | null>(null);
   const [selectedBuild, setSelectedBuild] = useState<JenkinsBuild | null>(null);
-  const [selectedBuildDetail, setSelectedBuildDetail] = useState<JenkinsBuild | null>(null);
+  const [selectedBuildDetail, setSelectedBuildDetail] =
+    useState<JenkinsBuild | null>(null);
   const [buildLog, setBuildLog] = useState<JenkinsBuildLogResult | null>(null);
   const [logSearchTerm, setLogSearchTerm] = useState("");
-  const [failureLogSummary, setFailureLogSummary] = useState<FailureLogSummary | null>(null);
-  const [buildAnalysis, setBuildAnalysis] = useState<JenkinsBuildAnalysis | null>(null);
+  const [failureLogSummary, setFailureLogSummary] =
+    useState<FailureLogSummary | null>(null);
+  const [buildAnalysis, setBuildAnalysis] =
+    useState<JenkinsBuildAnalysis | null>(null);
   const [artifacts, setArtifacts] = useState<JenkinsArtifact[]>([]);
-  const [deploymentCandidate, setDeploymentCandidate] = useState<DeploymentCandidate | null>(null);
-  const [deploymentDryRunPlan, setDeploymentDryRunPlan] = useState<DeploymentPlan | null>(null);
-  const [deploymentDryRunServerAlias, setDeploymentDryRunServerAlias] = useState("");
-  const [deploymentDryRunDeployRoot, setDeploymentDryRunDeployRoot] = useState("");
-  const [deploymentDryRunPort, setDeploymentDryRunPort] = useState<number | null>(null);
-  const [parameterResult, setParameterResult] = useState<JenkinsParameterDefinitionsResult | null>(null);
-  const [parameterValues, setParameterValues] = useState<ParameterFormValues>({});
-  const [parameterTemplates, setParameterTemplates] = useState<JenkinsParameterTemplate[]>([]);
+  const [deploymentCandidate, setDeploymentCandidate] =
+    useState<DeploymentCandidate | null>(null);
+  const [deploymentDryRunPlan, setDeploymentDryRunPlan] =
+    useState<DeploymentPlan | null>(null);
+  const [deploymentDryRunServerAlias, setDeploymentDryRunServerAlias] =
+    useState("");
+  const [deploymentDryRunDeployRoot, setDeploymentDryRunDeployRoot] =
+    useState("");
+  const [deploymentDryRunPort, setDeploymentDryRunPort] = useState<
+    number | null
+  >(null);
+  const [parameterResult, setParameterResult] =
+    useState<JenkinsParameterDefinitionsResult | null>(null);
+  const [parameterValues, setParameterValues] = useState<ParameterFormValues>(
+    {},
+  );
+  const [parameterTemplates, setParameterTemplates] = useState<
+    JenkinsParameterTemplate[]
+  >([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [templateName, setTemplateName] = useState("");
-  const [recentParameterValues, setRecentParameterValues] = useState<JenkinsRecentParameterValue[]>([]);
+  const [recentParameterValues, setRecentParameterValues] = useState<
+    JenkinsRecentParameterValue[]
+  >([]);
   const [gitWorkspaces, setGitWorkspaces] = useState<GitWorkspace[]>([]);
   const [selectedGitWorkspaceKey, setSelectedGitWorkspaceKey] = useState("");
-  const [gitWorkspaceStatus, setGitWorkspaceStatus] = useState<GitWorkspaceStatusResult | null>(null);
+  const [gitWorkspaceStatus, setGitWorkspaceStatus] =
+    useState<GitWorkspaceStatusResult | null>(null);
   const [gitWorkspaceLoading, setGitWorkspaceLoading] = useState(false);
   const [approvalReason, setApprovalReason] = useState("");
   const [stopReason, setStopReason] = useState("");
@@ -484,12 +577,17 @@ export default function JenkinsPage() {
   const tlsVerifyValue = Form.useWatch("tlsVerify", form);
 
   const selectedConnection = useMemo(
-    () => connections.find((item) => item.connectionKey === selectedKey) ?? null,
+    () =>
+      connections.find((item) => item.connectionKey === selectedKey) ?? null,
     [connections, selectedKey],
   );
-  const currentJobFolder = findJobInTree(jobs, jobFolderStack[jobFolderStack.length - 1]) ?? null;
+  const currentJobFolder =
+    findJobInTree(jobs, jobFolderStack[jobFolderStack.length - 1]) ?? null;
   const visibleJobs = currentJobFolder?.children ?? jobs;
-  const jobTableData = useMemo(() => normalizeJobTableData(visibleJobs), [visibleJobs]);
+  const jobTableData = useMemo(
+    () => normalizeJobTableData(visibleJobs),
+    [visibleJobs],
+  );
   const buildTableData = useMemo(() => sortJenkinsBuilds(builds), [builds]);
   const hasUnfinishedBuilds = useMemo(
     () =>
@@ -528,7 +626,10 @@ export default function JenkinsPage() {
   const secureCredentialOptions = useMemo(
     () =>
       secureCredentials.map((credential) => {
-        const disabled = !credential.enabled || credential.status !== "active" || !credential.hasSecret;
+        const disabled =
+          !credential.enabled ||
+          credential.status !== "active" ||
+          !credential.hasSecret;
         const reason = !credential.enabled
           ? "已禁用"
           : credential.status !== "active"
@@ -564,30 +665,48 @@ export default function JenkinsPage() {
     [sshServers],
   );
   const loadedLogText = buildLog?.text ?? "";
-  const logSearchCount = useMemo(() => countMatches(loadedLogText, logSearchTerm), [loadedLogText, logSearchTerm]);
+  const logSearchCount = useMemo(
+    () => countMatches(loadedLogText, logSearchTerm),
+    [loadedLogText, logSearchTerm],
+  );
   const logErrorHighlightCount = useMemo(
-    () => logErrorPatterns.reduce((sum, pattern) => sum + countMatches(loadedLogText, pattern), 0),
+    () =>
+      logErrorPatterns.reduce(
+        (sum, pattern) => sum + countMatches(loadedLogText, pattern),
+        0,
+      ),
     [loadedLogText],
   );
   const highlightedLogNodes = useMemo(
-    () => renderHighlightedLogText(loadedLogText || "当前偏移未返回日志内容", logSearchTerm),
+    () =>
+      renderHighlightedLogText(
+        loadedLogText || "当前偏移未返回日志内容",
+        logSearchTerm,
+      ),
     [loadedLogText, logSearchTerm],
   );
   const recentParameterValueMap = useMemo(
-    () => new Map(recentParameterValues.map((item) => [item.parameterName, item])),
+    () =>
+      new Map(recentParameterValues.map((item) => [item.parameterName, item])),
     [recentParameterValues],
   );
 
   const loadConnections = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await jenkinsApi.listConnections({ includeDeleted, keyword });
+      const list = await jenkinsApi.listConnections({
+        includeDeleted,
+        keyword,
+      });
       setConnections(list);
       if (!selectedKey && list.length > 0) {
         clearConnectionScopedState();
         setSelectedKey(list[0].connectionKey);
       }
-      if (selectedKey && !list.some((item) => item.connectionKey === selectedKey)) {
+      if (
+        selectedKey &&
+        !list.some((item) => item.connectionKey === selectedKey)
+      ) {
         clearConnectionScopedState();
         setSelectedKey(list[0]?.connectionKey ?? "");
       }
@@ -614,63 +733,71 @@ export default function JenkinsPage() {
     }
   }, []);
 
-  const refreshBuildsAndQueue = useCallback(async (connectionKey: string, jobFullNameOverride?: string | null) => {
-    if (!connectionKey) {
-      return;
-    }
-    const jobFullName =
-      jobFullNameOverride === undefined
-        ? selectedJob?.jobFullName
-        : jobFullNameOverride?.trim() || undefined;
-    const [rows, queueList] = await Promise.all([
-      jenkinsApi.listBuilds({ connectionKey, jobFullName, limit: 30 }),
-      jenkinsApi.listQueue(connectionKey),
-    ]);
-    setBuilds(rows);
-    setQueueItems(queueList);
-  }, [selectedJob?.jobFullName]);
-
-  const loadConnectionDetail = useCallback(async (connectionKey: string) => {
-    if (!connectionKey) {
-      clearConnectionScopedState();
-      return;
-    }
-    setDetailLoading(true);
-    try {
-      const connection = connections.find((item) => item.connectionKey === connectionKey);
-      const defaultView = connection?.defaultView?.trim();
-      const defaultFolder = connection?.defaultFolder?.trim();
-      const [jobList, buildList, queueList] = await Promise.all([
-        jenkinsApi.listJobs({
-          connectionKey,
-          viewName: defaultView || undefined,
-          folder: defaultFolder || undefined,
-          depth: 3,
-        }),
-        jenkinsApi.listBuilds({ connectionKey, limit: 30, offset: 0 }),
+  const refreshBuildsAndQueue = useCallback(
+    async (connectionKey: string, jobFullNameOverride?: string | null) => {
+      if (!connectionKey) {
+        return;
+      }
+      const jobFullName =
+        jobFullNameOverride === undefined
+          ? selectedJob?.jobFullName
+          : jobFullNameOverride?.trim() || undefined;
+      const [rows, queueList] = await Promise.all([
+        jenkinsApi.listBuilds({ connectionKey, jobFullName, limit: 30 }),
         jenkinsApi.listQueue(connectionKey),
       ]);
-      setJobs(jobList);
-      setJobFolderStack([]);
-      setBuilds(buildList);
+      setBuilds(rows);
       setQueueItems(queueList);
-      setSelectedJob(null);
-      setSelectedBuild(null);
-      setSelectedBuildDetail(null);
-      setActiveDetailTab("jobs");
-      setBuildLog(null);
-      setArtifacts([]);
-      setParameterResult(null);
-      setRecentParameterValues([]);
-      setApprovalReason("");
-      parameterForm.resetFields();
-      setParameterValues({});
-    } catch (error) {
-      message.error(getErrorMessage(error));
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [connections, parameterForm]);
+    },
+    [selectedJob?.jobFullName],
+  );
+
+  const loadConnectionDetail = useCallback(
+    async (connectionKey: string) => {
+      if (!connectionKey) {
+        clearConnectionScopedState();
+        return;
+      }
+      setDetailLoading(true);
+      try {
+        const connection = connections.find(
+          (item) => item.connectionKey === connectionKey,
+        );
+        const defaultView = connection?.defaultView?.trim();
+        const defaultFolder = connection?.defaultFolder?.trim();
+        const [jobList, buildList, queueList] = await Promise.all([
+          jenkinsApi.listJobs({
+            connectionKey,
+            viewName: defaultView || undefined,
+            folder: defaultFolder || undefined,
+            depth: 3,
+          }),
+          jenkinsApi.listBuilds({ connectionKey, limit: 30, offset: 0 }),
+          jenkinsApi.listQueue(connectionKey),
+        ]);
+        setJobs(jobList);
+        setJobFolderStack([]);
+        setBuilds(buildList);
+        setQueueItems(queueList);
+        setSelectedJob(null);
+        setSelectedBuild(null);
+        setSelectedBuildDetail(null);
+        setActiveDetailTab("jobs");
+        setBuildLog(null);
+        setArtifacts([]);
+        setParameterResult(null);
+        setRecentParameterValues([]);
+        setApprovalReason("");
+        parameterForm.resetFields();
+        setParameterValues({});
+      } catch (error) {
+        message.error(getErrorMessage(error));
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [connections, parameterForm],
+  );
 
   useEffect(() => {
     void loadConnections();
@@ -689,46 +816,58 @@ export default function JenkinsPage() {
 
     void import("@tauri-apps/api/event")
       .then(({ listen }) =>
-        listen<JenkinsBuildStatusEvent>("jenkins-build-status", async (event) => {
-          if (disposed || event.payload.connectionKey !== selectedKey) {
-            return;
-          }
-          try {
-            if (!disposed) {
-              await refreshBuildsAndQueue(selectedKey);
+        listen<JenkinsBuildStatusEvent>(
+          "jenkins-build-status",
+          async (event) => {
+            if (disposed || event.payload.connectionKey !== selectedKey) {
+              return;
             }
-            if (isSuccessfulBuildLike(event.payload) && event.payload.buildNumber) {
-              const promptKey = `${event.payload.connectionKey}:${event.payload.jobFullName}:${event.payload.buildNumber}`;
-              if (deploymentPromptedBuildKeys.current.has(promptKey)) {
-                return;
+            try {
+              if (!disposed) {
+                await refreshBuildsAndQueue(selectedKey);
               }
-              const list = await jenkinsApi.listArtifacts({
-                connectionKey: event.payload.connectionKey,
-                jobFullName: event.payload.jobFullName,
-                buildNumber: event.payload.buildNumber,
-              });
-              if (!disposed && list.length > 0) {
-                deploymentPromptedBuildKeys.current.add(promptKey);
-                const availableCount = list.filter(isAvailableArtifact).length;
-                message.success(
-                  availableCount > 0
-                    ? `Jenkins 构建成功，已有 ${availableCount} 个可部署 artifact，可打开详情生成部署候选`
-                    : `Jenkins 构建成功，发现 ${list.length} 个 artifact，可打开详情下载后准备部署`,
-                );
+              if (
+                isSuccessfulBuildLike(event.payload) &&
+                event.payload.buildNumber
+              ) {
+                const promptKey = `${event.payload.connectionKey}:${event.payload.jobFullName}:${event.payload.buildNumber}`;
+                if (deploymentPromptedBuildKeys.current.has(promptKey)) {
+                  return;
+                }
+                const list = await jenkinsApi.listArtifacts({
+                  connectionKey: event.payload.connectionKey,
+                  jobFullName: event.payload.jobFullName,
+                  buildNumber: event.payload.buildNumber,
+                });
+                if (!disposed && list.length > 0) {
+                  deploymentPromptedBuildKeys.current.add(promptKey);
+                  const availableCount =
+                    list.filter(isAvailableArtifact).length;
+                  message.success(
+                    availableCount > 0
+                      ? `Jenkins 构建成功，已有 ${availableCount} 个可部署 artifact，可打开详情生成部署候选`
+                      : `Jenkins 构建成功，发现 ${list.length} 个 artifact，可打开详情下载后准备部署`,
+                  );
+                }
+              } else if (
+                isDeploymentBlockedBuildLike(event.payload) &&
+                event.payload.buildNumber
+              ) {
+                const promptKey = `${event.payload.connectionKey}:${event.payload.jobFullName}:${event.payload.buildNumber}:blocked`;
+                if (!deploymentPromptedBuildKeys.current.has(promptKey)) {
+                  deploymentPromptedBuildKeys.current.add(promptKey);
+                  message.warning(
+                    "Jenkins 构建未成功，已阻断该构建的部署候选和 Dry-run 入口",
+                  );
+                }
               }
-            } else if (isDeploymentBlockedBuildLike(event.payload) && event.payload.buildNumber) {
-              const promptKey = `${event.payload.connectionKey}:${event.payload.jobFullName}:${event.payload.buildNumber}:blocked`;
-              if (!deploymentPromptedBuildKeys.current.has(promptKey)) {
-                deploymentPromptedBuildKeys.current.add(promptKey);
-                message.warning("Jenkins 构建未成功，已阻断该构建的部署候选和 Dry-run 入口");
+            } catch (error) {
+              if (!disposed) {
+                message.error(getErrorMessage(error));
               }
             }
-          } catch (error) {
-            if (!disposed) {
-              message.error(getErrorMessage(error));
-            }
-          }
-        }),
+          },
+        ),
       )
       .then((handler) => {
         unlisten = handler;
@@ -857,7 +996,9 @@ export default function JenkinsPage() {
       });
       return;
     }
-    const credential = secureCredentials.find((item) => item.credentialKey === credentialKey);
+    const credential = secureCredentials.find(
+      (item) => item.credentialKey === credentialKey,
+    );
     form.setFieldsValue({
       credentialKey,
       credentialDisplayName: credential?.displayName ?? "",
@@ -884,14 +1025,20 @@ export default function JenkinsPage() {
         setEditing(saved);
         setSelectedKey(saved.connectionKey);
         await loadConnections();
-        message.warning("新建 Jenkins 连接已保存为未启用草稿，请先测试连接成功后再启用");
+        message.warning(
+          "新建 Jenkins 连接已保存为未启用草稿，请先测试连接成功后再启用",
+        );
         return;
       }
-      if (values.enabled && (values.environment === "prod" || values.allowMcpWrite)) {
+      if (
+        values.enabled &&
+        (values.environment === "prod" || values.allowMcpWrite)
+      ) {
         await new Promise<void>((resolve, reject) => {
           Modal.confirm({
             title: "确认启用 Jenkins 写入连接？",
-            content: "生产环境或 MCP 写入开启后，构建触发、停止构建等写入操作将进入审批链路。",
+            content:
+              "生产环境或 MCP 写入开启后，构建触发、停止构建等写入操作将进入审批链路。",
             okText: "确认启用",
             cancelText: "取消",
             onOk: () => resolve(),
@@ -899,7 +1046,9 @@ export default function JenkinsPage() {
           });
         });
       }
-      const saved = await jenkinsApi.upsertConnection(buildConnectionInput(values));
+      const saved = await jenkinsApi.upsertConnection(
+        buildConnectionInput(values),
+      );
       message.success("Jenkins 连接已保存");
       setDrawerOpen(false);
       setSelectedKey(saved.connectionKey);
@@ -1012,7 +1161,10 @@ export default function JenkinsPage() {
     }
     const nextFavorite = !record.favorite;
     setJobs((current) =>
-      updateJobInTree(current, record.jobFullName, (item) => ({ ...item, favorite: nextFavorite })),
+      updateJobInTree(current, record.jobFullName, (item) => ({
+        ...item,
+        favorite: nextFavorite,
+      })),
     );
     try {
       await jenkinsApi.setJobFavorite({
@@ -1024,7 +1176,10 @@ export default function JenkinsPage() {
       message.success(nextFavorite ? "已收藏 Job" : "已取消收藏");
     } catch (error) {
       setJobs((current) =>
-        updateJobInTree(current, record.jobFullName, (item) => ({ ...item, favorite: record.favorite })),
+        updateJobInTree(current, record.jobFullName, (item) => ({
+          ...item,
+          favorite: record.favorite,
+        })),
       );
       message.error(getErrorMessage(error));
     }
@@ -1041,7 +1196,9 @@ export default function JenkinsPage() {
     setFailureLogSummary(null);
     setBuildAnalysis(null);
     setArtifacts([]);
-    setStopReason(`停止 Jenkins 构建 ${record.jobFullName} #${record.buildNumber}`);
+    setStopReason(
+      `停止 Jenkins 构建 ${record.jobFullName} #${record.buildNumber}`,
+    );
     setBuildDrawerOpen(true);
     setBuildDetailLoading(true);
     try {
@@ -1143,7 +1300,11 @@ export default function JenkinsPage() {
       });
       message.success("artifact 已下载到应用托管目录");
       setArtifacts((current) =>
-        current.map((item) => (item.relativePath === saved.relativePath ? { ...item, ...saved } : item)),
+        current.map((item) =>
+          item.relativePath === saved.relativePath
+            ? { ...item, ...saved }
+            : item,
+        ),
       );
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1158,9 +1319,17 @@ export default function JenkinsPage() {
       const cleaned = await jenkinsApi.cleanupArtifactLocalFile({
         artifactKey: record.artifactKey,
       });
-      message.success(cleaned.status === "file_missing" ? "本地文件不存在，已更新状态" : "本地 artifact 文件已清理");
+      message.success(
+        cleaned.status === "file_missing"
+          ? "本地文件不存在，已更新状态"
+          : "本地 artifact 文件已清理",
+      );
       setArtifacts((current) =>
-        current.map((item) => (item.artifactKey === cleaned.artifactKey ? { ...item, ...cleaned } : item)),
+        current.map((item) =>
+          item.artifactKey === cleaned.artifactKey
+            ? { ...item, ...cleaned }
+            : item,
+        ),
       );
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1219,7 +1388,11 @@ export default function JenkinsPage() {
     }
   }
 
-  async function loadBuildLog(record: JenkinsBuild, start = 0, options: { quiet?: boolean } = {}) {
+  async function loadBuildLog(
+    record: JenkinsBuild,
+    start = 0,
+    options: { quiet?: boolean } = {},
+  ) {
     if (!record.buildNumber) {
       if (!options.quiet) {
         message.warning("该构建没有可读取的构建号");
@@ -1272,10 +1445,16 @@ export default function JenkinsPage() {
       }
       const currentLog = buildLogRef.current;
       const currentBuild = selectedBuildDetail ?? selectedBuild;
-      if (currentLog && !currentLog.hasMore && !unfinishedBuildStatuses.has(currentBuild.status)) {
+      if (
+        currentLog &&
+        !currentLog.hasMore &&
+        !unfinishedBuildStatuses.has(currentBuild.status)
+      ) {
         return;
       }
-      await loadBuildLog(selectedBuild, currentLog?.nextStart ?? 0, { quiet: true });
+      await loadBuildLog(selectedBuild, currentLog?.nextStart ?? 0, {
+        quiet: true,
+      });
     };
     void readNextLogChunk();
     const timer = window.setInterval(() => void readNextLogChunk(), 5000);
@@ -1410,7 +1589,10 @@ export default function JenkinsPage() {
       setRecentParameterValues(recentValues);
       setParameterTemplates(templates);
       setGitWorkspaces(workspaces);
-      const initialValues = buildInitialParameterValues(result.parameters, recentValues);
+      const initialValues = buildInitialParameterValues(
+        result.parameters,
+        recentValues,
+      );
       parameterForm.setFieldsValue(initialValues);
       setParameterValues(initialValues);
     } catch (error) {
@@ -1442,7 +1624,10 @@ export default function JenkinsPage() {
     if (!parameterResult) {
       return;
     }
-    const summary = buildSafeParameterSummary(parameterResult.parameters, parameterValues);
+    const summary = buildSafeParameterSummary(
+      parameterResult.parameters,
+      parameterValues,
+    );
     try {
       await navigator.clipboard.writeText(JSON.stringify(summary, null, 2));
       message.success("已复制参数摘要");
@@ -1461,7 +1646,10 @@ export default function JenkinsPage() {
       message.warning("请输入模板名称");
       return;
     }
-    const summary = buildSafeParameterSummary(parameterResult.parameters, parameterValues);
+    const summary = buildSafeParameterSummary(
+      parameterResult.parameters,
+      parameterValues,
+    );
     setTemplateLoading(true);
     try {
       const saved = await jenkinsApi.upsertParameterTemplate({
@@ -1472,7 +1660,10 @@ export default function JenkinsPage() {
         parameterDefinitionHash: parameterResult.parameterDefinitionHash,
         requester: "local-user",
       });
-      setParameterTemplates((current) => [saved, ...current.filter((item) => item.templateKey !== saved.templateKey)]);
+      setParameterTemplates((current) => [
+        saved,
+        ...current.filter((item) => item.templateKey !== saved.templateKey),
+      ]);
       setSelectedTemplateKey(saved.templateKey);
       message.success(`已保存参数模板：${saved.name}`);
     } catch (error) {
@@ -1486,12 +1677,17 @@ export default function JenkinsPage() {
     if (!parameterResult) {
       return;
     }
-    const template = parameterTemplates.find((item) => item.templateKey === selectedTemplateKey);
+    const template = parameterTemplates.find(
+      (item) => item.templateKey === selectedTemplateKey,
+    );
     if (!template) {
       message.warning("请选择参数模板");
       return;
     }
-    const values = templateSummaryToFormValues(parameterResult.parameters, template.parametersJson);
+    const values = templateSummaryToFormValues(
+      parameterResult.parameters,
+      template.parametersJson,
+    );
     parameterForm.setFieldsValue(values);
     setParameterValues((current) => ({ ...current, ...values }));
     setTemplateName(template.name);
@@ -1528,7 +1724,10 @@ export default function JenkinsPage() {
       message.warning("请先选择 Git 工作区并读取状态");
       return;
     }
-    const values = buildGitWorkspaceParameterValues(parameterResult.parameters, gitWorkspaceStatus);
+    const values = buildGitWorkspaceParameterValues(
+      parameterResult.parameters,
+      gitWorkspaceStatus,
+    );
     if (Object.keys(values).length === 0) {
       message.warning("未找到可注入的 branch/commit 类参数");
       return;
@@ -1539,7 +1738,9 @@ export default function JenkinsPage() {
   }
 
   async function deleteParameterTemplate() {
-    const template = parameterTemplates.find((item) => item.templateKey === selectedTemplateKey);
+    const template = parameterTemplates.find(
+      (item) => item.templateKey === selectedTemplateKey,
+    );
     if (!template) {
       message.warning("请选择参数模板");
       return;
@@ -1550,12 +1751,16 @@ export default function JenkinsPage() {
         templateKey: template.templateKey,
         requester: "local-user",
       });
-      setParameterTemplates((current) => current.filter((item) => item.templateKey !== template.templateKey));
+      setParameterTemplates((current) =>
+        current.filter((item) => item.templateKey !== template.templateKey),
+      );
       setSelectedTemplateKey("");
       if (templateName.trim() === template.name) {
         setTemplateName("");
       }
-      message.success(deleted ? "已删除参数模板" : "该参数模板不存在或无权删除");
+      message.success(
+        deleted ? "已删除参数模板" : "该参数模板不存在或无权删除",
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     } finally {
@@ -1574,7 +1779,10 @@ export default function JenkinsPage() {
       message.warning("请输入构建审批理由");
       return;
     }
-    const summary = buildSafeParameterSummary(parameterResult.parameters, parameterValues);
+    const summary = buildSafeParameterSummary(
+      parameterResult.parameters,
+      parameterValues,
+    );
     setApprovalCreating(true);
     try {
       if (noApproval) {
@@ -1592,7 +1800,9 @@ export default function JenkinsPage() {
             : `已触发 Jenkins 构建，队列 ID：${result.queueId || "-"}`,
         );
         setParameterDrawerOpen(false);
-        await showLatestBuildRecordsAfterTrigger(selectedConnection.connectionKey);
+        await showLatestBuildRecordsAfterTrigger(
+          selectedConnection.connectionKey,
+        );
         return;
       }
       const approval = await jenkinsApi.createTriggerApproval({
@@ -1614,9 +1824,13 @@ export default function JenkinsPage() {
             : `已触发 Jenkins 构建，队列 ID：${result.queueId || "-"}`,
         );
         setParameterDrawerOpen(false);
-        await showLatestBuildRecordsAfterTrigger(selectedConnection.connectionKey);
+        await showLatestBuildRecordsAfterTrigger(
+          selectedConnection.connectionKey,
+        );
       } else {
-        message.success(`已创建构建审批 #${approval.id}，批准后将触发 Jenkins 构建`);
+        message.success(
+          `已创建构建审批 #${approval.id}，批准后将触发 Jenkins 构建`,
+        );
       }
     } catch (error) {
       message.error(getErrorMessage(error));
@@ -1634,7 +1848,10 @@ export default function JenkinsPage() {
       message.warning("该构建已结束，不能停止");
       return;
     }
-    const connection = connections.find((item) => item.connectionKey === selectedBuild.connectionKey) ?? selectedConnection;
+    const connection =
+      connections.find(
+        (item) => item.connectionKey === selectedBuild.connectionKey,
+      ) ?? selectedConnection;
     const noApproval = connection?.approvalPolicy === "none";
     const reason = stopReason.trim();
     if (!noApproval && !reason) {
@@ -1681,14 +1898,21 @@ export default function JenkinsPage() {
         parameterName,
         requester: "local-user",
       });
-      setRecentParameterValues((current) => current.filter((item) => item.parameterName !== parameterName));
-      message.success(deleted ? "已忘记该参数最近值" : "该参数没有可忘记的最近值");
+      setRecentParameterValues((current) =>
+        current.filter((item) => item.parameterName !== parameterName),
+      );
+      message.success(
+        deleted ? "已忘记该参数最近值" : "该参数没有可忘记的最近值",
+      );
     } catch (error) {
       message.error(getErrorMessage(error));
     }
   }
 
-  async function inspectFileParameterPath(parameterName: string, localPath: string) {
+  async function inspectFileParameterPath(
+    parameterName: string,
+    localPath: string,
+  ) {
     const trimmed = localPath.trim();
     if (!trimmed) {
       message.warning("请先选择或输入本地文件路径");
@@ -1736,7 +1960,11 @@ export default function JenkinsPage() {
       width: 220,
       render: (_, record) => (
         <Space direction="vertical" size={0}>
-          <Button type="link" className="p-0 h-auto" onClick={() => switchJenkinsConnection(record.connectionKey)}>
+          <Button
+            type="link"
+            className="p-0 h-auto"
+            onClick={() => switchJenkinsConnection(record.connectionKey)}
+          >
             {record.name}
           </Button>
           <Text type="secondary" className="text-xs">
@@ -1753,13 +1981,21 @@ export default function JenkinsPage() {
         record.connectionKey === selectedKey ? (
           <Tag color="blue">当前</Tag>
         ) : (
-          <Button size="small" onClick={() => switchJenkinsConnection(record.connectionKey)}>
+          <Button
+            size="small"
+            onClick={() => switchJenkinsConnection(record.connectionKey)}
+          >
             切换
           </Button>
         ),
     },
     { title: "环境", dataIndex: "environment", width: 90 },
-    { title: "状态", dataIndex: "status", width: 110, render: (value) => statusTag(String(value)) },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 110,
+      render: (value) => statusTag(String(value)),
+    },
     {
       title: "Base URL",
       dataIndex: "baseUrl",
@@ -1771,13 +2007,32 @@ export default function JenkinsPage() {
       fixed: "right",
       render: (_, record) => (
         <Space size={4} wrap>
-          <Button size="small" icon={<Edit size={14} />} onClick={() => openEditDrawer(record)} />
-          <Button size="small" icon={<PlayCircle size={14} />} onClick={() => handleTest(record)} />
-          <Button size="small" icon={<Copy size={14} />} onClick={() => handleDuplicate(record)} />
+          <Button
+            size="small"
+            icon={<Edit size={14} />}
+            onClick={() => openEditDrawer(record)}
+          />
+          <Button
+            size="small"
+            icon={<PlayCircle size={14} />}
+            onClick={() => handleTest(record)}
+          />
+          <Button
+            size="small"
+            icon={<Copy size={14} />}
+            onClick={() => handleDuplicate(record)}
+          />
           {record.deletedAt ? (
-            <Button size="small" icon={<RotateCcw size={14} />} onClick={() => handleRestore(record)} />
+            <Button
+              size="small"
+              icon={<RotateCcw size={14} />}
+              onClick={() => handleRestore(record)}
+            />
           ) : (
-            <Popconfirm title="确认软删除该 Jenkins 连接？" onConfirm={() => handleDelete(record)}>
+            <Popconfirm
+              title="确认软删除该 Jenkins 连接？"
+              onConfirm={() => handleDelete(record)}
+            >
               <Button size="small" danger icon={<Trash2 size={14} />} />
             </Popconfirm>
           )}
@@ -1793,14 +2048,35 @@ export default function JenkinsPage() {
       ellipsis: true,
       render: (_, record) => (
         <Space size={8}>
-          {record.jobType === "folder" ? <Folder size={16} /> : <FileText size={16} />}
-          <Text strong={record.jobType === "folder"}>{record.displayName || record.jobFullName}</Text>
+          {record.jobType === "folder" ? (
+            <Folder size={16} />
+          ) : (
+            <FileText size={16} />
+          )}
+          <Text strong={record.jobType === "folder"}>
+            {record.displayName || record.jobFullName}
+          </Text>
         </Space>
       ),
     },
-    { title: "类型", dataIndex: "jobType", width: 120, render: (value) => formatJobType(String(value)) },
-    { title: "状态", dataIndex: "normalizedStatus", width: 120, render: (_, record) => jobStatusTag(record) },
-    { title: "最近构建", dataIndex: "lastBuildNumber", width: 120, render: (value) => value ?? "-" },
+    {
+      title: "类型",
+      dataIndex: "jobType",
+      width: 120,
+      render: (value) => formatJobType(String(value)),
+    },
+    {
+      title: "状态",
+      dataIndex: "normalizedStatus",
+      width: 120,
+      render: (_, record) => jobStatusTag(record),
+    },
+    {
+      title: "最近构建",
+      dataIndex: "lastBuildNumber",
+      width: 120,
+      render: (value) => value ?? "-",
+    },
     {
       title: "操作",
       width: 240,
@@ -1810,7 +2086,12 @@ export default function JenkinsPage() {
           <Button
             size="small"
             type={record.favorite ? "primary" : "default"}
-            icon={<Star size={14} fill={record.favorite ? "currentColor" : "none"} />}
+            icon={
+              <Star
+                size={14}
+                fill={record.favorite ? "currentColor" : "none"}
+              />
+            }
             onClick={() => toggleJobFavorite(record)}
           />
           {record.jobType === "folder" ? null : (
@@ -1823,7 +2104,11 @@ export default function JenkinsPage() {
               >
                 历史
               </Button>
-              <Button size="small" icon={<PlayCircle size={14} />} onClick={() => openParameterForm(record)}>
+              <Button
+                size="small"
+                icon={<PlayCircle size={14} />}
+                onClick={() => openParameterForm(record)}
+              >
                 构建
               </Button>
             </>
@@ -1835,8 +2120,18 @@ export default function JenkinsPage() {
 
   const buildColumns: ColumnsType<JenkinsBuild> = [
     { title: "Job", dataIndex: "jobFullName", ellipsis: true },
-    { title: "构建号", dataIndex: "buildNumber", width: 100, render: (value) => value ?? "-" },
-    { title: "状态", dataIndex: "status", width: 130, render: (value) => statusTag(String(value)) },
+    {
+      title: "构建号",
+      dataIndex: "buildNumber",
+      width: 100,
+      render: (value) => value ?? "-",
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 130,
+      render: (value) => statusTag(String(value)),
+    },
     { title: "来源", dataIndex: "statusSource", width: 100 },
     {
       title: "开始时间",
@@ -1850,7 +2145,11 @@ export default function JenkinsPage() {
       fixed: "right",
       render: (_, record) => (
         <Space size={4}>
-          <Button size="small" icon={<FileText size={14} />} onClick={() => openBuildDetail(record)}>
+          <Button
+            size="small"
+            icon={<FileText size={14} />}
+            onClick={() => openBuildDetail(record)}
+          >
             详情
           </Button>
           <Button size="small" onClick={() => openBuildLog(record)}>
@@ -1880,7 +2179,11 @@ export default function JenkinsPage() {
       dataIndex: "riskFlags",
       width: 120,
       render: (flags: string[]) =>
-        flags?.length ? <Tag color="orange">高风险</Tag> : <Tag color="green">普通</Tag>,
+        flags?.length ? (
+          <Tag color="orange">高风险</Tag>
+        ) : (
+          <Tag color="green">普通</Tag>
+        ),
     },
     {
       title: "状态",
@@ -1913,14 +2216,22 @@ export default function JenkinsPage() {
               size="small"
               icon={<PackageCheck size={14} />}
               loading={artifactCandidateCreating === record.artifactKey}
-              disabled={record.status !== "available" || isDeploymentBlockedBuildLike(selectedBuildDetail ?? selectedBuild)}
+              disabled={
+                record.status !== "available" ||
+                isDeploymentBlockedBuildLike(
+                  selectedBuildDetail ?? selectedBuild,
+                )
+              }
               onClick={() => createArtifactDeploymentCandidate(record)}
             >
               部署候选
             </Button>
           ) : null}
           {record.localPath ? (
-            <Popconfirm title="确认清理该 artifact 的本地文件？记录、审批和审计日志会保留。" onConfirm={() => cleanupArtifact(record)}>
+            <Popconfirm
+              title="确认清理该 artifact 的本地文件？记录、审批和审计日志会保留。"
+              onConfirm={() => cleanupArtifact(record)}
+            >
               <Button
                 size="small"
                 danger
@@ -1961,7 +2272,9 @@ export default function JenkinsPage() {
       title: "审批",
       dataIndex: "approvalRequired",
       width: 100,
-      render: (value) => <Tag color={value ? "red" : "green"}>{value ? "需要" : "不需要"}</Tag>,
+      render: (value) => (
+        <Tag color={value ? "red" : "green"}>{value ? "需要" : "不需要"}</Tag>
+      ),
     },
     { title: "命令预览", dataIndex: "commandPreview", ellipsis: true },
     { title: "说明", dataIndex: "summary", ellipsis: true },
@@ -1980,7 +2293,11 @@ export default function JenkinsPage() {
           <Button icon={<RefreshCw size={16} />} onClick={loadConnections}>
             刷新
           </Button>
-          <Button type="primary" icon={<Plus size={16} />} onClick={openCreateDrawer}>
+          <Button
+            type="primary"
+            icon={<Plus size={16} />}
+            onClick={openCreateDrawer}
+          >
             新增连接
           </Button>
         </Space>
@@ -2010,7 +2327,9 @@ export default function JenkinsPage() {
             onChange: (keys) => switchJenkinsConnection(String(keys[0] ?? "")),
           }}
           scroll={{ x: 1080 }}
-          rowClassName={(record) => (record.connectionKey === selectedKey ? "ant-table-row-selected" : "")}
+          rowClassName={(record) =>
+            record.connectionKey === selectedKey ? "ant-table-row-selected" : ""
+          }
           pagination={{ pageSize: 8 }}
         />
       </Card>
@@ -2019,21 +2338,39 @@ export default function JenkinsPage() {
         {selectedConnection ? (
           <>
             <Descriptions size="small" column={3} bordered>
-              <Descriptions.Item label="当前连接">{selectedConnection.name}</Descriptions.Item>
-              <Descriptions.Item label="状态">{statusTag(selectedConnection.status)}</Descriptions.Item>
-              <Descriptions.Item label="配置版本">v{selectedConnection.configVersion}</Descriptions.Item>
+              <Descriptions.Item label="当前连接">
+                {selectedConnection.name}
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {statusTag(selectedConnection.status)}
+              </Descriptions.Item>
+              <Descriptions.Item label="配置版本">
+                v{selectedConnection.configVersion}
+              </Descriptions.Item>
               <Descriptions.Item label="URL" span={2}>
                 {selectedConnection.baseUrl}
               </Descriptions.Item>
               <Descriptions.Item label="凭证">
-                {selectedConnection.credentialDisplayName || selectedConnection.credentialKey || "未配置"}
+                {selectedConnection.credentialDisplayName ||
+                  selectedConnection.credentialKey ||
+                  "未配置"}
               </Descriptions.Item>
-              <Descriptions.Item label="MCP 只读">{selectedConnection.allowMcpRead ? "允许" : "禁止"}</Descriptions.Item>
-              <Descriptions.Item label="MCP 写入">{selectedConnection.allowMcpWrite ? "允许" : "禁止"}</Descriptions.Item>
+              <Descriptions.Item label="MCP 只读">
+                {selectedConnection.allowMcpRead ? "允许" : "禁止"}
+              </Descriptions.Item>
+              <Descriptions.Item label="MCP 写入">
+                {selectedConnection.allowMcpWrite ? "允许" : "禁止"}
+              </Descriptions.Item>
               <Descriptions.Item label="TLS 校验">
-                {selectedConnection.tlsVerify ? "启用" : <Tag color="red">已关闭</Tag>}
+                {selectedConnection.tlsVerify ? (
+                  "启用"
+                ) : (
+                  <Tag color="red">已关闭</Tag>
+                )}
               </Descriptions.Item>
-              <Descriptions.Item label="最近测试">{selectedConnection.lastTestedAt || "-"}</Descriptions.Item>
+              <Descriptions.Item label="最近测试">
+                {selectedConnection.lastTestedAt || "-"}
+              </Descriptions.Item>
             </Descriptions>
             <Tabs
               className="mt-4"
@@ -2049,7 +2386,9 @@ export default function JenkinsPage() {
                         <Button
                           size="small"
                           disabled={jobFolderStack.length === 0}
-                          onClick={() => setJobFolderStack((current) => current.slice(0, -1))}
+                          onClick={() =>
+                            setJobFolderStack((current) => current.slice(0, -1))
+                          }
                         >
                           返回上级
                         </Button>
@@ -2064,7 +2403,10 @@ export default function JenkinsPage() {
                           {jobFolderStack.length > 0
                             ? jobFolderStack
                                 .map((jobFullName) => {
-                                  const folder = findJobInTree(jobs, jobFullName);
+                                  const folder = findJobInTree(
+                                    jobs,
+                                    jobFullName,
+                                  );
                                   return folder?.displayName || jobFullName;
                                 })
                                 .join(" / ")
@@ -2079,11 +2421,16 @@ export default function JenkinsPage() {
                         onRow={(record) => ({
                           onDoubleClick: () => {
                             if (record.jobType === "folder") {
-                              setJobFolderStack((current) => [...current, record.jobFullName]);
+                              setJobFolderStack((current) => [
+                                ...current,
+                                record.jobFullName,
+                              ]);
                             }
                           },
                         })}
-                        rowClassName={(record) => (record.jobType === "folder" ? "cursor-pointer" : "")}
+                        rowClassName={(record) =>
+                          record.jobType === "folder" ? "cursor-pointer" : ""
+                        }
                         scroll={{ x: 760 }}
                       />
                     </Space>
@@ -2097,8 +2444,13 @@ export default function JenkinsPage() {
                       <Space wrap>
                         {selectedJob ? (
                           <>
-                            <Tag color="blue">当前 Job：{selectedJob.jobFullName}</Tag>
-                            <Button size="small" onClick={() => void showAllBuildRecords()}>
+                            <Tag color="blue">
+                              当前 Job：{selectedJob.jobFullName}
+                            </Tag>
+                            <Button
+                              size="small"
+                              onClick={() => void showAllBuildRecords()}
+                            >
                               全部历史
                             </Button>
                           </>
@@ -2148,7 +2500,11 @@ export default function JenkinsPage() {
         onClose={() => setDrawerOpen(false)}
         extra={
           <Space>
-            <Button icon={<PlayCircle size={14} />} loading={drawerTesting} onClick={testDrawerConnection}>
+            <Button
+              icon={<PlayCircle size={14} />}
+              loading={drawerTesting}
+              onClick={testDrawerConnection}
+            >
               测试连接
             </Button>
             <Button onClick={() => setDrawerOpen(false)}>取消</Button>
@@ -2162,7 +2518,11 @@ export default function JenkinsPage() {
           <Form.Item name="connectionKey" hidden>
             <Input />
           </Form.Item>
-          <Form.Item name="name" label="连接名称" rules={[{ required: true, message: "请输入连接名称" }]}>
+          <Form.Item
+            name="name"
+            label="连接名称"
+            rules={[{ required: true, message: "请输入连接名称" }]}
+          >
             <Input placeholder="例如：公司 Jenkins" />
           </Form.Item>
           <Form.Item
@@ -2203,7 +2563,11 @@ export default function JenkinsPage() {
             <Form.Item name="environment" label="环境" className="flex-1">
               <Select options={environmentOptions} />
             </Form.Item>
-            <Form.Item name="environmentLabel" label="环境标签" className="flex-1">
+            <Form.Item
+              name="environmentLabel"
+              label="环境标签"
+              className="flex-1"
+            >
               <Input placeholder="可选" />
             </Form.Item>
           </Space>
@@ -2211,7 +2575,11 @@ export default function JenkinsPage() {
             <Form.Item name="defaultView" label="默认 View" className="flex-1">
               <Input placeholder="可选" />
             </Form.Item>
-            <Form.Item name="defaultFolder" label="默认 Folder" className="flex-1">
+            <Form.Item
+              name="defaultFolder"
+              label="默认 Folder"
+              className="flex-1"
+            >
               <Input placeholder="可选" />
             </Form.Item>
           </Space>
@@ -2227,35 +2595,68 @@ export default function JenkinsPage() {
           </Form.Item>
           <Divider>风险规则</Divider>
           <Space size={16} className="w-full" align="start">
-            <Form.Item name="riskFallbackRisk" label="未匹配默认风险" className="flex-1">
+            <Form.Item
+              name="riskFallbackRisk"
+              label="未匹配默认风险"
+              className="flex-1"
+            >
               <Select options={riskLevelOptions} />
             </Form.Item>
-            <Form.Item name="riskEnvironmentRisk" label="环境风险" className="flex-1">
+            <Form.Item
+              name="riskEnvironmentRisk"
+              label="环境风险"
+              className="flex-1"
+            >
               <Select options={environmentRiskOptions} />
             </Form.Item>
           </Space>
           <Space size={16} className="w-full" align="start">
-            <Form.Item name="riskFileParameterRisk" label="File Parameter 风险" className="flex-1">
+            <Form.Item
+              name="riskFileParameterRisk"
+              label="File Parameter 风险"
+              className="flex-1"
+            >
               <Select options={riskLevelOptions} />
             </Form.Item>
-            <Form.Item name="riskAllowConcurrentBuilds" label="允许同 Job 并发" valuePropName="checked" className="flex-1">
+            <Form.Item
+              name="riskAllowConcurrentBuilds"
+              label="允许同 Job 并发"
+              valuePropName="checked"
+              className="flex-1"
+            >
               <Switch />
             </Form.Item>
           </Space>
-          <Form.Item name="riskAllowConcurrentPatternsText" label="并发白名单 Job 正则">
-            <Input.TextArea rows={2} placeholder="每行一个正则；默认空，表示即使开启并发也不会放行任何 Job" />
+          <Form.Item
+            name="riskAllowConcurrentPatternsText"
+            label="并发白名单 Job 正则"
+          >
+            <Input.TextArea
+              rows={2}
+              placeholder="每行一个正则；默认空，表示即使开启并发也不会放行任何 Job"
+            />
           </Form.Item>
           <Form.List name="riskJobRules">
             {(fields, { add, remove }) => (
               <Space direction="vertical" size={8} className="w-full">
                 <div className="flex items-center justify-between">
                   <Text strong>Job 风险规则</Text>
-                  <Button size="small" onClick={() => add({ pattern: "", risk: "L2", enabled: true })}>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      add({ pattern: "", risk: "L2", enabled: true })
+                    }
+                  >
                     新增 Job 规则
                   </Button>
                 </div>
                 {fields.map((field) => (
-                  <Space key={field.key} size={8} className="w-full" align="start">
+                  <Space
+                    key={field.key}
+                    size={8}
+                    className="w-full"
+                    align="start"
+                  >
                     <Form.Item
                       name={[field.name, "pattern"]}
                       className="flex-1"
@@ -2266,7 +2667,11 @@ export default function JenkinsPage() {
                     <Form.Item name={[field.name, "risk"]} className="w-40">
                       <Select options={riskLevelOptions} />
                     </Form.Item>
-                    <Form.Item name={[field.name, "enabled"]} valuePropName="checked" className="w-20">
+                    <Form.Item
+                      name={[field.name, "enabled"]}
+                      valuePropName="checked"
+                      className="w-20"
+                    >
                       <Switch />
                     </Form.Item>
                     <Button danger onClick={() => remove(field.name)}>
@@ -2282,12 +2687,22 @@ export default function JenkinsPage() {
               <Space direction="vertical" size={8} className="w-full mt-4">
                 <div className="flex items-center justify-between">
                   <Text strong>参数风险规则</Text>
-                  <Button size="small" onClick={() => add({ name: "", value: "", risk: "L2", enabled: true })}>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      add({ name: "", value: "", risk: "L2", enabled: true })
+                    }
+                  >
                     新增参数规则
                   </Button>
                 </div>
                 {fields.map((field) => (
-                  <Space key={field.key} size={8} className="w-full" align="start">
+                  <Space
+                    key={field.key}
+                    size={8}
+                    className="w-full"
+                    align="start"
+                  >
                     <Form.Item
                       name={[field.name, "name"]}
                       className="w-40"
@@ -2301,7 +2716,11 @@ export default function JenkinsPage() {
                     <Form.Item name={[field.name, "risk"]} className="w-40">
                       <Select options={riskLevelOptions} />
                     </Form.Item>
-                    <Form.Item name={[field.name, "enabled"]} valuePropName="checked" className="w-20">
+                    <Form.Item
+                      name={[field.name, "enabled"]}
+                      valuePropName="checked"
+                      className="w-20"
+                    >
                       <Switch />
                     </Form.Item>
                     <Button danger onClick={() => remove(field.name)}>
@@ -2318,7 +2737,11 @@ export default function JenkinsPage() {
           <Form.Item shouldUpdate noStyle>
             {() => (
               <Form.Item label="风险规则 JSON 预览">
-                <Input.TextArea rows={5} readOnly value={buildRiskRulesJson(form.getFieldsValue())} />
+                <Input.TextArea
+                  rows={5}
+                  readOnly
+                  value={buildRiskRulesJson(form.getFieldsValue())}
+                />
               </Form.Item>
             )}
           </Form.Item>
@@ -2326,31 +2749,63 @@ export default function JenkinsPage() {
             <Input.TextArea rows={3} />
           </Form.Item>
           <Space size={24} wrap>
-            <Form.Item name="tlsVerify" label="TLS 校验" valuePropName="checked">
+            <Form.Item
+              name="tlsVerify"
+              label="TLS 校验"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
             <Form.Item name="enabled" label="启用" valuePropName="checked">
               <Switch />
             </Form.Item>
-            <Form.Item name="allowMcpRead" label="MCP 只读" valuePropName="checked">
+            <Form.Item
+              name="allowMcpRead"
+              label="MCP 只读"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="allowMcpWrite" label="MCP 写入" valuePropName="checked">
+            <Form.Item
+              name="allowMcpWrite"
+              label="MCP 写入"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="parameterPrefillEnabled" label="参数回填" valuePropName="checked">
+            <Form.Item
+              name="parameterPrefillEnabled"
+              label="参数回填"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="notifyOnSuccess" label="成功通知" valuePropName="checked">
+            <Form.Item
+              name="notifyOnSuccess"
+              label="成功通知"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="notifyOnFailure" label="失败通知" valuePropName="checked">
+            <Form.Item
+              name="notifyOnFailure"
+              label="失败通知"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="notifyOnUnstable" label="不稳定通知" valuePropName="checked">
+            <Form.Item
+              name="notifyOnUnstable"
+              label="不稳定通知"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
-            <Form.Item name="notifyOnAborted" label="终止通知" valuePropName="checked">
+            <Form.Item
+              name="notifyOnAborted"
+              label="终止通知"
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
           </Space>
@@ -2385,7 +2840,9 @@ export default function JenkinsPage() {
               loading={approvalCreating}
               onClick={createBuildTriggerApproval}
             >
-              {selectedConnection?.approvalPolicy === "none" ? "开始构建" : "创建构建审批"}
+              {selectedConnection?.approvalPolicy === "none"
+                ? "开始构建"
+                : "创建构建审批"}
             </Button>
           </Space>
         }
@@ -2402,11 +2859,19 @@ export default function JenkinsPage() {
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="缓存来源">
-                {parameterResult?.fromCache ? <Tag color="blue">缓存</Tag> : <Tag color="green">Jenkins</Tag>}
+                {parameterResult?.fromCache ? (
+                  <Tag color="blue">缓存</Tag>
+                ) : (
+                  <Tag color="green">Jenkins</Tag>
+                )}
               </Descriptions.Item>
-              <Descriptions.Item label="过期时间">{parameterResult?.expiresAt || "-"}</Descriptions.Item>
+              <Descriptions.Item label="过期时间">
+                {parameterResult?.expiresAt || "-"}
+              </Descriptions.Item>
             </Descriptions>
-            {parameterResult?.parameters.some((parameter) => parameter.dynamicParameter) ? (
+            {parameterResult?.parameters.some(
+              (parameter) => parameter.dynamicParameter,
+            ) ? (
               <Alert
                 type="warning"
                 showIcon
@@ -2414,7 +2879,9 @@ export default function JenkinsPage() {
                 description={`以下参数来自 Jenkins 动态参数插件，Tauri SSH 不执行 Jenkins 页面脚本联动：${parameterResult.parameters
                   .filter((parameter) => parameter.dynamicParameter)
                   .map((parameter) => parameter.name)
-                  .join("、")}。请按 Jenkins 页面实际可选值填写，提交审批前会保留 dynamicParameter 标记。`}
+                  .join(
+                    "、",
+                  )}。请按 Jenkins 页面实际可选值填写，提交审批前会保留 dynamicParameter 标记。`}
               />
             ) : null}
             {parameterResult ? (
@@ -2433,14 +2900,19 @@ export default function JenkinsPage() {
                     }))}
                     onChange={(value) => {
                       const nextKey = value ?? "";
-                      const template = parameterTemplates.find((item) => item.templateKey === nextKey);
+                      const template = parameterTemplates.find(
+                        (item) => item.templateKey === nextKey,
+                      );
                       setSelectedTemplateKey(nextKey);
                       if (template) {
                         setTemplateName(template.name);
                       }
                     }}
                   />
-                  <Button disabled={!selectedTemplateKey} onClick={applyParameterTemplate}>
+                  <Button
+                    disabled={!selectedTemplateKey}
+                    onClick={applyParameterTemplate}
+                  >
                     套用模板
                   </Button>
                   <Input
@@ -2449,15 +2921,24 @@ export default function JenkinsPage() {
                     placeholder="模板名称"
                     style={{ width: 220 }}
                   />
-                  <Button loading={templateLoading} onClick={saveParameterTemplate}>
+                  <Button
+                    loading={templateLoading}
+                    onClick={saveParameterTemplate}
+                  >
                     保存模板
                   </Button>
-                  <Button danger disabled={!selectedTemplateKey} loading={templateLoading} onClick={deleteParameterTemplate}>
+                  <Button
+                    danger
+                    disabled={!selectedTemplateKey}
+                    loading={templateLoading}
+                    onClick={deleteParameterTemplate}
+                  >
                     删除模板
                   </Button>
                 </Space>
                 <Text type="secondary">
-                  模板仅保存脱敏参数摘要；敏感参数留空时不传给 Jenkins，填写后必须保存为 secretRef。
+                  模板仅保存脱敏参数摘要；敏感参数留空时不传给
+                  Jenkins，填写后必须保存为 secretRef。
                 </Text>
               </Space>
             ) : null}
@@ -2477,29 +2958,53 @@ export default function JenkinsPage() {
                       value: workspace.workspaceKey,
                     }))}
                     optionFilterProp="label"
-                    onChange={(value) => void selectGitWorkspaceForParameters(value ?? "")}
+                    onChange={(value) =>
+                      void selectGitWorkspaceForParameters(value ?? "")
+                    }
                   />
-                  <Button disabled={!selectedGitWorkspaceKey} loading={gitWorkspaceLoading} onClick={refreshSelectedGitWorkspaceStatus}>
+                  <Button
+                    disabled={!selectedGitWorkspaceKey}
+                    loading={gitWorkspaceLoading}
+                    onClick={refreshSelectedGitWorkspaceStatus}
+                  >
                     刷新 Git 状态
                   </Button>
-                  <Button type="primary" disabled={!gitWorkspaceStatus} onClick={applyGitWorkspaceParameters}>
+                  <Button
+                    type="primary"
+                    disabled={!gitWorkspaceStatus}
+                    onClick={applyGitWorkspaceParameters}
+                  >
                     注入 branch/commit 参数
                   </Button>
                 </Space>
                 {gitWorkspaceStatus ? (
                   <Descriptions size="small" bordered column={3}>
-                    <Descriptions.Item label="分支">{gitWorkspaceStatus.workspace.branch || "-"}</Descriptions.Item>
+                    <Descriptions.Item label="分支">
+                      {gitWorkspaceStatus.workspace.branch || "-"}
+                    </Descriptions.Item>
                     <Descriptions.Item label="HEAD">
                       <Text code>{gitWorkspaceStatus.headCommit || "-"}</Text>
                     </Descriptions.Item>
                     <Descriptions.Item label="状态">
-                      <Tag color={gitWorkspaceStatus.workspace.changedFiles > 0 ? "orange" : "green"}>
+                      <Tag
+                        color={
+                          gitWorkspaceStatus.workspace.changedFiles > 0
+                            ? "orange"
+                            : "green"
+                        }
+                      >
                         {gitWorkspaceStatus.workspace.status}
                       </Tag>
                     </Descriptions.Item>
-                    <Descriptions.Item label="变更文件">{gitWorkspaceStatus.workspace.changedFiles}</Descriptions.Item>
-                    <Descriptions.Item label="Ahead">{gitWorkspaceStatus.workspace.ahead}</Descriptions.Item>
-                    <Descriptions.Item label="Behind">{gitWorkspaceStatus.workspace.behind}</Descriptions.Item>
+                    <Descriptions.Item label="变更文件">
+                      {gitWorkspaceStatus.workspace.changedFiles}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Ahead">
+                      {gitWorkspaceStatus.workspace.ahead}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Behind">
+                      {gitWorkspaceStatus.workspace.behind}
+                    </Descriptions.Item>
                   </Descriptions>
                 ) : (
                   <Alert
@@ -2524,10 +3029,18 @@ export default function JenkinsPage() {
                       <Space size={6} wrap>
                         <span>{parameter.name}</span>
                         <Tag>{parameter.parameterType}</Tag>
-                        {parameter.sensitive ? <Tag color="red">敏感</Tag> : null}
-                        {parameter.fileParameter ? <Tag color="orange">文件</Tag> : null}
-                        {parameter.dynamicParameter ? <Tag color="purple">动态</Tag> : null}
-                        {parameter.unsupported ? <Tag color="red">不支持</Tag> : null}
+                        {parameter.sensitive ? (
+                          <Tag color="red">敏感</Tag>
+                        ) : null}
+                        {parameter.fileParameter ? (
+                          <Tag color="orange">文件</Tag>
+                        ) : null}
+                        {parameter.dynamicParameter ? (
+                          <Tag color="purple">动态</Tag>
+                        ) : null}
+                        {parameter.unsupported ? (
+                          <Tag color="red">不支持</Tag>
+                        ) : null}
                         {recentParameterValueMap.has(parameter.name) ? (
                           <>
                             <Tag color="blue">最近值</Tag>
@@ -2535,7 +3048,9 @@ export default function JenkinsPage() {
                               size="small"
                               type="link"
                               className="px-0"
-                              onClick={() => forgetRecentParameterValue(parameter.name)}
+                              onClick={() =>
+                                forgetRecentParameterValue(parameter.name)
+                              }
                             >
                               忘记
                             </Button>
@@ -2544,9 +3059,17 @@ export default function JenkinsPage() {
                       </Space>
                     }
                     tooltip={parameter.description || undefined}
-                    valuePropName={parameter.parameterType === "boolean" ? "checked" : "value"}
+                    valuePropName={
+                      parameter.parameterType === "boolean"
+                        ? "checked"
+                        : "value"
+                    }
                   >
-                    {renderParameterInput(parameter, chooseFileParameter, inspectFileParameterPath)}
+                    {renderParameterInput(
+                      parameter,
+                      chooseFileParameter,
+                      inspectFileParameterPath,
+                    )}
                   </Form.Item>
                 ))}
               </Form>
@@ -2572,7 +3095,10 @@ export default function JenkinsPage() {
                 readOnly
                 rows={8}
                 value={JSON.stringify(
-                  buildSafeParameterSummary(parameterResult.parameters, parameterValues),
+                  buildSafeParameterSummary(
+                    parameterResult.parameters,
+                    parameterValues,
+                  ),
                   null,
                   2,
                 )}
@@ -2593,7 +3119,8 @@ export default function JenkinsPage() {
       >
         {selectedBuild ? (
           <Space direction="vertical" size={16} className="w-full">
-            {isSuccessfulBuildLike(selectedBuildDetail ?? selectedBuild) && artifacts.length > 0 ? (
+            {isSuccessfulBuildLike(selectedBuildDetail ?? selectedBuild) &&
+            artifacts.length > 0 ? (
               <Alert
                 type="success"
                 showIcon
@@ -2609,8 +3136,16 @@ export default function JenkinsPage() {
                       size="small"
                       type="primary"
                       icon={<PackageCheck size={14} />}
-                      loading={artifactCandidateCreating === getAvailableDeploymentArtifacts(artifacts)[0].artifactKey}
-                      onClick={() => createArtifactDeploymentCandidate(getAvailableDeploymentArtifacts(artifacts)[0])}
+                      loading={
+                        artifactCandidateCreating ===
+                        getAvailableDeploymentArtifacts(artifacts)[0]
+                          .artifactKey
+                      }
+                      onClick={() =>
+                        createArtifactDeploymentCandidate(
+                          getAvailableDeploymentArtifacts(artifacts)[0],
+                        )
+                      }
                     >
                       生成部署候选
                     </Button>
@@ -2618,7 +3153,9 @@ export default function JenkinsPage() {
                 }
               />
             ) : null}
-            {isDeploymentBlockedBuildLike(selectedBuildDetail ?? selectedBuild) ? (
+            {isDeploymentBlockedBuildLike(
+              selectedBuildDetail ?? selectedBuild,
+            ) ? (
               <Alert
                 type="error"
                 showIcon
@@ -2630,25 +3167,37 @@ export default function JenkinsPage() {
               <Descriptions.Item label="Job" span={2}>
                 {selectedBuild.jobFullName}
               </Descriptions.Item>
-              <Descriptions.Item label="构建号">{selectedBuild.buildNumber ?? "-"}</Descriptions.Item>
+              <Descriptions.Item label="构建号">
+                {selectedBuild.buildNumber ?? "-"}
+              </Descriptions.Item>
               <Descriptions.Item label="状态">
                 {statusTag(selectedBuildDetail?.status ?? selectedBuild.status)}
               </Descriptions.Item>
-              <Descriptions.Item label="结果">{selectedBuildDetail?.result || selectedBuild.result || "-"}</Descriptions.Item>
+              <Descriptions.Item label="结果">
+                {selectedBuildDetail?.result || selectedBuild.result || "-"}
+              </Descriptions.Item>
               <Descriptions.Item label="来源">
-                {selectedBuildDetail?.statusSource || selectedBuild.statusSource || "-"}
+                {selectedBuildDetail?.statusSource ||
+                  selectedBuild.statusSource ||
+                  "-"}
               </Descriptions.Item>
               <Descriptions.Item label="触发人">
-                {selectedBuildDetail?.createdBy || selectedBuild.createdBy || "-"}
+                {selectedBuildDetail?.createdBy ||
+                  selectedBuild.createdBy ||
+                  "-"}
               </Descriptions.Item>
               <Descriptions.Item label="触发原因" span={2}>
                 {selectedBuildDetail?.cause || selectedBuild.cause || "-"}
               </Descriptions.Item>
               <Descriptions.Item label="开始时间">
-                {selectedBuildDetail?.startedAt || selectedBuild.startedAt || "-"}
+                {selectedBuildDetail?.startedAt ||
+                  selectedBuild.startedAt ||
+                  "-"}
               </Descriptions.Item>
               <Descriptions.Item label="结束时间">
-                {selectedBuildDetail?.finishedAt || selectedBuild.finishedAt || "-"}
+                {selectedBuildDetail?.finishedAt ||
+                  selectedBuild.finishedAt ||
+                  "-"}
               </Descriptions.Item>
             </Descriptions>
             <Input.TextArea
@@ -2679,20 +3228,32 @@ export default function JenkinsPage() {
               <Button disabled={!buildLog?.text} onClick={copyLoadedBuildLog}>
                 复制已加载日志
               </Button>
-              <Button disabled={!buildLog?.text} onClick={extractLoadedFailureLogSummary}>
+              <Button
+                disabled={!buildLog?.text}
+                onClick={extractLoadedFailureLogSummary}
+              >
                 提取失败片段
               </Button>
-              <Button loading={analysisLoading} disabled={!failureLogSummary} onClick={generateFailureAnalysis}>
+              <Button
+                loading={analysisLoading}
+                disabled={!failureLogSummary}
+                onClick={generateFailureAnalysis}
+              >
                 AI 失败总结
               </Button>
               <Button
                 danger
                 icon={<Square size={14} />}
                 loading={stopApprovalCreating}
-                disabled={!selectedBuild.buildNumber || !isStoppableBuildLike(selectedBuildDetail ?? selectedBuild)}
+                disabled={
+                  !selectedBuild.buildNumber ||
+                  !isStoppableBuildLike(selectedBuildDetail ?? selectedBuild)
+                }
                 onClick={createBuildStopApproval}
               >
-                {selectedConnection?.approvalPolicy === "none" ? "停止构建" : "创建停止审批"}
+                {selectedConnection?.approvalPolicy === "none"
+                  ? "停止构建"
+                  : "创建停止审批"}
               </Button>
             </Space>
             {buildLog ? (
@@ -2713,7 +3274,9 @@ export default function JenkinsPage() {
                     onChange={(event) => setLogSearchTerm(event.target.value)}
                     style={{ width: 260 }}
                   />
-                  <Tag color={logSearchTerm.trim() ? "blue" : "default"}>搜索命中 {logSearchCount}</Tag>
+                  <Tag color={logSearchTerm.trim() ? "blue" : "default"}>
+                    搜索命中 {logSearchCount}
+                  </Tag>
                   <Tag color={logErrorHighlightCount > 0 ? "red" : "default"}>
                     错误高亮 {logErrorHighlightCount}
                   </Tag>
@@ -2764,17 +3327,25 @@ export default function JenkinsPage() {
                     description={
                       <Space direction="vertical" size={8} className="w-full">
                         <Text type="secondary">
-                          范围 {buildAnalysis.snippetStartLine}-{buildAnalysis.snippetEndLine}，命中{" "}
-                          {buildAnalysis.matchedLines} 行，片段哈希 {buildAnalysis.snippetSha256.slice(0, 12)}
+                          范围 {buildAnalysis.snippetStartLine}-
+                          {buildAnalysis.snippetEndLine}，命中{" "}
+                          {buildAnalysis.matchedLines} 行，片段哈希{" "}
+                          {buildAnalysis.snippetSha256.slice(0, 12)}
                         </Text>
-                        <JenkinsMarkdownSummary content={buildAnalysis.summaryMarkdown} />
+                        <JenkinsMarkdownSummary
+                          content={buildAnalysis.summaryMarkdown}
+                        />
                       </Space>
                     }
                   />
                 ) : null}
               </>
             ) : (
-              <Alert type="info" showIcon message="正在自动读取脱敏后的 Jenkins 控制台输出片段，每 5 秒刷新一次。" />
+              <Alert
+                type="info"
+                showIcon
+                message="正在自动读取脱敏后的 Jenkins 控制台输出片段，每 5 秒刷新一次。"
+              />
             )}
             <Table
               rowKey="relativePath"
@@ -2789,23 +3360,35 @@ export default function JenkinsPage() {
               <Card size="small" title="部署候选与 Dry-run">
                 <Space direction="vertical" className="w-full" size="middle">
                   <Descriptions size="small" column={1}>
-                    <Descriptions.Item label="名称">{deploymentCandidate.name}</Descriptions.Item>
-                    <Descriptions.Item label="配方">{deploymentCandidate.recipe}</Descriptions.Item>
-                    <Descriptions.Item label="来源">{deploymentCandidate.sourceType}</Descriptions.Item>
-                    <Descriptions.Item label="制品">{deploymentCandidate.artifactDir}</Descriptions.Item>
+                    <Descriptions.Item label="名称">
+                      {deploymentCandidate.name}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="配方">
+                      {deploymentCandidate.recipe}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="来源">
+                      {deploymentCandidate.sourceType}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="制品">
+                      {deploymentCandidate.artifactDir}
+                    </Descriptions.Item>
                   </Descriptions>
                   <Space size={12} wrap>
                     <Input
                       style={{ width: 220 }}
                       placeholder="目标服务器别名"
                       value={deploymentDryRunServerAlias}
-                      onChange={(event) => setDeploymentDryRunServerAlias(event.target.value)}
+                      onChange={(event) =>
+                        setDeploymentDryRunServerAlias(event.target.value)
+                      }
                     />
                     <Input
                       style={{ width: 320 }}
                       placeholder="部署根目录"
                       value={deploymentDryRunDeployRoot}
-                      onChange={(event) => setDeploymentDryRunDeployRoot(event.target.value)}
+                      onChange={(event) =>
+                        setDeploymentDryRunDeployRoot(event.target.value)
+                      }
                     />
                     <InputNumber
                       style={{ width: 120 }}
@@ -2813,29 +3396,63 @@ export default function JenkinsPage() {
                       max={65535}
                       placeholder="端口"
                       value={deploymentDryRunPort}
-                      onChange={(value) => setDeploymentDryRunPort(typeof value === "number" ? value : null)}
+                      onChange={(value) =>
+                        setDeploymentDryRunPort(
+                          typeof value === "number" ? value : null,
+                        )
+                      }
                     />
-                    <Button type="primary" loading={deploymentDryRunLoading} onClick={() => void createBuildDeploymentDryRun()}>
+                    <Button
+                      type="primary"
+                      loading={deploymentDryRunLoading}
+                      onClick={() => void createBuildDeploymentDryRun()}
+                    >
                       生成 Dry-run
                     </Button>
                   </Space>
                   {deploymentDryRunPlan ? (
-                    <Space direction="vertical" className="w-full" size="middle">
+                    <Space
+                      direction="vertical"
+                      className="w-full"
+                      size="middle"
+                    >
                       <Alert
-                        type={deploymentDryRunPlan.approvalRequired ? "warning" : "info"}
+                        type={
+                          deploymentDryRunPlan.approvalRequired
+                            ? "warning"
+                            : "info"
+                        }
                         showIcon
                         message={deploymentDryRunPlan.title}
                         description="Dry-run 只生成计划和风险预览，不会执行部署命令。"
                       />
                       <Descriptions size="small" bordered column={3}>
-                        <Descriptions.Item label="Plan ID">{deploymentDryRunPlan.planId}</Descriptions.Item>
-                        <Descriptions.Item label="目标">{deploymentDryRunPlan.targetKey}</Descriptions.Item>
-                        <Descriptions.Item label="服务器">{deploymentDryRunPlan.serverAlias}</Descriptions.Item>
-                        <Descriptions.Item label="配方">{deploymentDryRunPlan.recipe}</Descriptions.Item>
-                        <Descriptions.Item label="风险">{deploymentRiskTag(deploymentDryRunPlan.risk)}</Descriptions.Item>
+                        <Descriptions.Item label="Plan ID">
+                          {deploymentDryRunPlan.planId}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="目标">
+                          {deploymentDryRunPlan.targetKey}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="服务器">
+                          {deploymentDryRunPlan.serverAlias}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="配方">
+                          {deploymentDryRunPlan.recipe}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="风险">
+                          {deploymentRiskTag(deploymentDryRunPlan.risk)}
+                        </Descriptions.Item>
                         <Descriptions.Item label="审批">
-                          <Tag color={deploymentDryRunPlan.approvalRequired ? "red" : "green"}>
-                            {deploymentDryRunPlan.approvalRequired ? "需要" : "不需要"}
+                          <Tag
+                            color={
+                              deploymentDryRunPlan.approvalRequired
+                                ? "red"
+                                : "green"
+                            }
+                          >
+                            {deploymentDryRunPlan.approvalRequired
+                              ? "需要"
+                              : "不需要"}
                           </Tag>
                         </Descriptions.Item>
                       </Descriptions>
@@ -2894,15 +3511,24 @@ function formatBytes(value?: number | null) {
 
 function getDeploymentCandidateArtifactKey(candidate: DeploymentCandidate) {
   try {
-    const value = JSON.parse(candidate.configJson || "{}") as { artifactKey?: string };
+    const value = JSON.parse(candidate.configJson || "{}") as {
+      artifactKey?: string;
+    };
     return value.artifactKey || "";
   } catch {
     return "";
   }
 }
 
-function isSuccessfulBuildLike(build: Pick<JenkinsBuild, "status" | "result"> | Pick<JenkinsBuildStatusEvent, "status" | "result">) {
-  return build.status?.toLowerCase() === "success" || build.result?.toUpperCase() === "SUCCESS";
+function isSuccessfulBuildLike(
+  build:
+    | Pick<JenkinsBuild, "status" | "result">
+    | Pick<JenkinsBuildStatusEvent, "status" | "result">,
+) {
+  return (
+    build.status?.toLowerCase() === "success" ||
+    build.result?.toUpperCase() === "SUCCESS"
+  );
 }
 
 function isStoppableBuildLike(
@@ -2938,9 +3564,14 @@ function isDeploymentBlockedBuildLike(
   if (result) {
     return true;
   }
-  return ["failure", "failed", "unstable", "aborted", "not_built", "sync_failed"].includes(
-    build.status?.toLowerCase() ?? "",
-  );
+  return [
+    "failure",
+    "failed",
+    "unstable",
+    "aborted",
+    "not_built",
+    "sync_failed",
+  ].includes(build.status?.toLowerCase() ?? "");
 }
 
 function isAvailableArtifact(record: JenkinsArtifact) {
@@ -2958,7 +3589,11 @@ function buildGitWorkspaceParameterValues(
   const branch = status.workspace.branch || "";
   const commit = status.headCommit || "";
   return parameters.reduce<ParameterFormValues>((values, parameter) => {
-    if (parameter.sensitive || parameter.fileParameter || parameter.unsupported) {
+    if (
+      parameter.sensitive ||
+      parameter.fileParameter ||
+      parameter.unsupported
+    ) {
       return values;
     }
     const normalized = parameter.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
@@ -3009,7 +3644,9 @@ function buildInitialParameterValues(
   parameters: JenkinsParameterDefinition[],
   recentValues: JenkinsRecentParameterValue[] = [],
 ) {
-  const recentValueMap = new Map(recentValues.map((value) => [value.parameterName, value]));
+  const recentValueMap = new Map(
+    recentValues.map((value) => [value.parameterName, value]),
+  );
   return parameters.reduce<ParameterFormValues>((values, parameter) => {
     if (parameter.fileParameter || parameter.unsupported) {
       values[parameter.name] = undefined;
@@ -3026,12 +3663,20 @@ function buildInitialParameterValues(
       return values;
     }
     if (parameter.parameterType === "boolean") {
-      values[parameter.name] = typeof parameter.defaultValue === "boolean" ? parameter.defaultValue : false;
+      values[parameter.name] =
+        typeof parameter.defaultValue === "boolean"
+          ? parameter.defaultValue
+          : false;
       return values;
     }
     if (parameter.parameterType === "choice") {
-      const defaultValue = typeof parameter.defaultValue === "string" ? parameter.defaultValue : "";
-      values[parameter.name] = parameter.choices.includes(defaultValue) ? defaultValue : parameter.choices[0];
+      const defaultValue =
+        typeof parameter.defaultValue === "string"
+          ? parameter.defaultValue
+          : "";
+      values[parameter.name] = parameter.choices.includes(defaultValue)
+        ? defaultValue
+        : parameter.choices[0];
       return values;
     }
     values[parameter.name] = scalarToString(parameter.defaultValue);
@@ -3054,9 +3699,14 @@ function recentValueToFormValue(
     return undefined;
   }
   if (parameter.parameterType === "boolean") {
-    return typeof recentValue.valueJson === "boolean" ? recentValue.valueJson : undefined;
+    return typeof recentValue.valueJson === "boolean"
+      ? recentValue.valueJson
+      : undefined;
   }
-  if (typeof recentValue.valueJson === "string" || typeof recentValue.valueJson === "number") {
+  if (
+    typeof recentValue.valueJson === "string" ||
+    typeof recentValue.valueJson === "number"
+  ) {
     return String(recentValue.valueJson);
   }
   return undefined;
@@ -3070,22 +3720,35 @@ function recentSecretRef(value: unknown) {
   return typeof secretRef === "string" ? secretRef : "";
 }
 
-function templateSummaryToFormValues(parameters: JenkinsParameterDefinition[], summary: unknown) {
+function templateSummaryToFormValues(
+  parameters: JenkinsParameterDefinition[],
+  summary: unknown,
+) {
   if (!summary || typeof summary !== "object") {
     return {};
   }
-  const entries = Array.isArray((summary as { parameters?: unknown }).parameters)
-    ? ((summary as { parameters: unknown[] }).parameters)
+  const entries = Array.isArray(
+    (summary as { parameters?: unknown }).parameters,
+  )
+    ? (summary as { parameters: unknown[] }).parameters
     : [];
   const entryMap = new Map(
     entries
       .filter((entry): entry is { name: string; value?: unknown } => {
-        return Boolean(entry && typeof entry === "object" && typeof (entry as { name?: unknown }).name === "string");
+        return Boolean(
+          entry &&
+          typeof entry === "object" &&
+          typeof (entry as { name?: unknown }).name === "string",
+        );
       })
       .map((entry) => [entry.name, entry.value]),
   );
   return parameters.reduce<ParameterFormValues>((values, parameter) => {
-    if (!entryMap.has(parameter.name) || parameter.fileParameter || parameter.unsupported) {
+    if (
+      !entryMap.has(parameter.name) ||
+      parameter.fileParameter ||
+      parameter.unsupported
+    ) {
       return values;
     }
     const value = entryMap.get(parameter.name);
@@ -3097,7 +3760,8 @@ function templateSummaryToFormValues(parameters: JenkinsParameterDefinition[], s
       return values;
     }
     if (parameter.parameterType === "boolean") {
-      values[parameter.name] = typeof value === "boolean" ? value : value === "true";
+      values[parameter.name] =
+        typeof value === "boolean" ? value : value === "true";
       return values;
     }
     if (typeof value === "string" || typeof value === "number") {
@@ -3125,7 +3789,9 @@ function renderParameterInput(
     return <SensitiveParameterInput parameter={parameter} />;
   }
   if (parameter.dynamicParameter) {
-    return <Input placeholder="动态参数已降级为手动输入，请按 Jenkins 页面实际值填写" />;
+    return (
+      <Input placeholder="动态参数已降级为手动输入，请按 Jenkins 页面实际值填写" />
+    );
   }
   if (parameter.unsupported) {
     return <Input disabled placeholder="当前参数类型暂不支持" />;
@@ -3134,12 +3800,22 @@ function renderParameterInput(
     return <Switch />;
   }
   if (parameter.parameterType === "choice") {
-    return <Select options={parameter.choices.map((choice) => ({ label: choice, value: choice }))} />;
+    return (
+      <Select
+        options={parameter.choices.map((choice) => ({
+          label: choice,
+          value: choice,
+        }))}
+      />
+    );
   }
   return <Input placeholder={parameter.description || "请输入参数值"} />;
 }
 
-function buildSafeParameterSummary(parameters: JenkinsParameterDefinition[], values: ParameterFormValues) {
+function buildSafeParameterSummary(
+  parameters: JenkinsParameterDefinition[],
+  values: ParameterFormValues,
+) {
   return {
     parameters: parameters
       .map((parameter) => {
@@ -3157,7 +3833,10 @@ function buildSafeParameterSummary(parameters: JenkinsParameterDefinition[], val
           value,
         };
       })
-      .filter((parameter): parameter is NonNullable<typeof parameter> => parameter !== null),
+      .filter(
+        (parameter): parameter is NonNullable<typeof parameter> =>
+          parameter !== null,
+      ),
   };
 }
 
@@ -3211,7 +3890,10 @@ function FileParameterInput({
   );
 }
 
-function safeParameterValue(parameter: JenkinsParameterDefinition, value: ParameterFormValue) {
+function safeParameterValue(
+  parameter: JenkinsParameterDefinition,
+  value: ParameterFormValue,
+) {
   if (parameter.sensitive) {
     if (isSensitiveParameterReference(value) && value.secretRef.trim()) {
       return {
@@ -3247,7 +3929,11 @@ interface SensitiveParameterInputProps {
   onChange?: (value: JenkinsSensitiveParameterReference) => void;
 }
 
-function SensitiveParameterInput({ parameter, value, onChange }: SensitiveParameterInputProps) {
+function SensitiveParameterInput({
+  parameter,
+  value,
+  onChange,
+}: SensitiveParameterInputProps) {
   const secretRef = isSensitiveParameterReference(value) ? value.secretRef : "";
 
   return (
@@ -3266,7 +3952,11 @@ function SensitiveParameterInput({ parameter, value, onChange }: SensitiveParame
 }
 
 function JenkinsMarkdownSummary({ content }: { content: string }) {
-  return <div className="jenkins-ai-markdown">{renderJenkinsMarkdownBlocks(content)}</div>;
+  return (
+    <div className="jenkins-ai-markdown">
+      {renderJenkinsMarkdownBlocks(content)}
+    </div>
+  );
 }
 
 function normalizeJenkinsMarkdown(markdown: string) {
@@ -3292,7 +3982,11 @@ function renderJenkinsMarkdownBlocks(markdown: string) {
     const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       const HeadingTag = (heading[1].length <= 3 ? "h3" : "h4") as "h3" | "h4";
-      blocks.push(<HeadingTag key={`heading-${index}`}>{renderJenkinsInlineMarkdown(heading[2])}</HeadingTag>);
+      blocks.push(
+        <HeadingTag key={`heading-${index}`}>
+          {renderJenkinsInlineMarkdown(heading[2])}
+        </HeadingTag>,
+      );
       index += 1;
       continue;
     }
@@ -3306,7 +4000,9 @@ function renderJenkinsMarkdownBlocks(markdown: string) {
       blocks.push(
         <ul key={`ul-${index}`}>
           {items.map((item, itemIndex) => (
-            <li key={`${item}-${itemIndex}`}>{renderJenkinsInlineMarkdown(item)}</li>
+            <li key={`${item}-${itemIndex}`}>
+              {renderJenkinsInlineMarkdown(item)}
+            </li>
           ))}
         </ul>,
       );
@@ -3322,7 +4018,9 @@ function renderJenkinsMarkdownBlocks(markdown: string) {
       blocks.push(
         <ol key={`ol-${index}`}>
           {items.map((item, itemIndex) => (
-            <li key={`${item}-${itemIndex}`}>{renderJenkinsInlineMarkdown(item)}</li>
+            <li key={`${item}-${itemIndex}`}>
+              {renderJenkinsInlineMarkdown(item)}
+            </li>
           ))}
         </ol>,
       );
@@ -3333,26 +4031,42 @@ function renderJenkinsMarkdownBlocks(markdown: string) {
     index += 1;
     while (index < lines.length) {
       const next = lines[index].trim();
-      if (!next || /^(#{1,6})\s+/.test(next) || /^[-*]\s+/.test(next) || /^\d+[.)]\s+/.test(next)) {
+      if (
+        !next ||
+        /^(#{1,6})\s+/.test(next) ||
+        /^[-*]\s+/.test(next) ||
+        /^\d+[.)]\s+/.test(next)
+      ) {
         break;
       }
       paragraphLines.push(next);
       index += 1;
     }
-    blocks.push(<p key={`p-${index}`}>{renderJenkinsInlineMarkdown(paragraphLines.join(" "))}</p>);
+    blocks.push(
+      <p key={`p-${index}`}>
+        {renderJenkinsInlineMarkdown(paragraphLines.join(" "))}
+      </p>,
+    );
   }
 
   return blocks;
 }
 
 function renderJenkinsInlineMarkdown(value: string) {
-  const segments = value.split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g).filter(Boolean);
+  const segments = value
+    .split(/(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g)
+    .filter(Boolean);
   return segments.map((segment, index) => {
     if (segment.startsWith("`") && segment.endsWith("`")) {
       return <code key={`${segment}-${index}`}>{segment.slice(1, -1)}</code>;
     }
-    if ((segment.startsWith("**") && segment.endsWith("**")) || (segment.startsWith("__") && segment.endsWith("__"))) {
-      return <strong key={`${segment}-${index}`}>{segment.slice(2, -2)}</strong>;
+    if (
+      (segment.startsWith("**") && segment.endsWith("**")) ||
+      (segment.startsWith("__") && segment.endsWith("__"))
+    ) {
+      return (
+        <strong key={`${segment}-${index}`}>{segment.slice(2, -2)}</strong>
+      );
     }
     if (segment.startsWith("*") && segment.endsWith("*")) {
       return <em key={`${segment}-${index}`}>{segment.slice(1, -1)}</em>;
@@ -3384,9 +4098,17 @@ function normalizeJobTableData(items: JenkinsJob[]): JenkinsJob[] {
 
 function sortJenkinsBuilds(items: JenkinsBuild[]): JenkinsBuild[] {
   return [...items].sort((left, right) => {
-    const leftTime = parseJenkinsBuildTime(left.startedAt || left.updatedAt || left.createdAt);
-    const rightTime = parseJenkinsBuildTime(right.startedAt || right.updatedAt || right.createdAt);
-    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    const leftTime = parseJenkinsBuildTime(
+      left.startedAt || left.updatedAt || left.createdAt,
+    );
+    const rightTime = parseJenkinsBuildTime(
+      right.startedAt || right.updatedAt || right.createdAt,
+    );
+    if (
+      Number.isFinite(leftTime) &&
+      Number.isFinite(rightTime) &&
+      leftTime !== rightTime
+    ) {
       return rightTime - leftTime;
     }
     const leftBuildNumber = left.buildNumber ?? Number.NEGATIVE_INFINITY;
@@ -3413,14 +4135,18 @@ function formatJenkinsBuildTime(value?: string | null): string {
   }
   const date = new Date(millis);
   const pad = (item: number) => String(item).padStart(2, "0");
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join("-") + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return (
+    [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join(
+      "-",
+    ) +
+    ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
 }
 
-function findJobInTree(items: JenkinsJob[], jobFullName?: string): JenkinsJob | null {
+function findJobInTree(
+  items: JenkinsJob[],
+  jobFullName?: string,
+): JenkinsJob | null {
   if (!jobFullName) {
     return null;
   }
@@ -3455,7 +4181,9 @@ function updateJobInTree(
   });
 }
 
-function isFileParameterMetadata(value: ParameterFormValue): value is JenkinsFileParameterMetadata {
+function isFileParameterMetadata(
+  value: ParameterFormValue,
+): value is JenkinsFileParameterMetadata {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -3466,7 +4194,9 @@ function isFileParameterMetadata(value: ParameterFormValue): value is JenkinsFil
   );
 }
 
-function isSensitiveParameterReference(value: ParameterFormValue): value is JenkinsSensitiveParameterReference {
+function isSensitiveParameterReference(
+  value: ParameterFormValue,
+): value is JenkinsSensitiveParameterReference {
   return (
     typeof value === "object" &&
     value !== null &&

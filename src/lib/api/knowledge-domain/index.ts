@@ -1,0 +1,10 @@
+export { knowledgeAnalysisApi } from "./analysis";
+export { knowledgeCatalogApi } from "./catalog";
+export { knowledgeDocumentsApi } from "./documents";
+export { knowledgeGovernanceApi } from "./governance";
+export { knowledgeGraphApi } from "./graph";
+export { knowledgeIngestionApi } from "./ingestion";
+export { knowledgeJobsApi } from "./jobs";
+export { knowledgeQaApi } from "./qa";
+export { knowledgeSearchApi } from "./search";
+export { knowledgeTerminologyApi } from "./terminology";

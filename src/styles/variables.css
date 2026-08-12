@@ -112,10 +112,12 @@
   --transition-slow: 0.2s ease;
 
   /* 字体 */
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas,
-    "Liberation Mono", monospace;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans SC", sans-serif;
+  --font-mono:
+    "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, "Liberation Mono",
+    monospace;
 
   /* 字号 */
   --font-size: 13px;
@@ -126,5 +128,5 @@
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 60px;
   --header-height: 48px;
-  --content-max-width: none;  /* 默认无限制，新项目可覆盖为如 1200px */
+  --content-max-width: none; /* 默认无限制，新项目可覆盖为如 1200px */
 }

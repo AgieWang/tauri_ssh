@@ -1,4 +1,5 @@
-export type AuditRisk = "L0" | "L1" | "L2" | "L3" | "readonly" | "blocked" | "ai";
+export type AuditRisk =
+  "L0" | "L1" | "L2" | "L3" | "readonly" | "blocked" | "ai";
 
 export interface AuditLog {
   id: number;
