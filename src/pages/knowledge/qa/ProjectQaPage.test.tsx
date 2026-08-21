@@ -320,6 +320,77 @@ describe("ProjectQaPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("展示 Git Agent 的冻结版本口径、工具证据和部分失败摘要", async () => {
+    knowledgeQaApi.askScopedQuestion.mockResolvedValue({
+      answer:
+        "已按冻结版本统计。\n\n合计 **249 次**。[tool:git_commit_count:release:21:repository:7]",
+      citationValidation: "notApplicable",
+      citations: [
+        {
+          citationKey: "tool:git_commit_count:release:21:repository:7",
+          sourceType: "git_statistics",
+          title: "订单服务 Git 提交统计",
+          logicalPath: "git/orders-api",
+          headingPath: "提交统计",
+          commitSha: "d03ccf7b4d4d9d837e2330255c2460a039c926c9",
+          externalKey: "orders-api",
+          symbolKey: "git.commit_count",
+          excerpt:
+            "截至所选版本冻结提交 d03ccf7，可达提交 249 次，包含合并提交。",
+        },
+      ],
+      conflicts: [],
+      evidenceGaps: ["仓库“orders-ui”：冻结提交在本地仓库中不可达。"],
+      retrievalDiagnostics: {
+        queryMode: "gitAgent",
+        agent: {
+          intent: "git.commit_count",
+          status: "partial",
+          repositoryCount: 2,
+          succeededCount: 1,
+          failedCount: 1,
+          scope: "selectedRelease",
+          includeMerges: true,
+          totalCommitCount: 249,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("问答 订单中心");
+    await user.type(
+      screen.getByLabelText("项目问题"),
+      "当前版本有多少次 git 提交？",
+    );
+    await user.click(screen.getByRole("button", { name: "查看本地证据" }));
+
+    expect(
+      await screen.findByText("Git Agent 已返回部分结果"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/冻结提交查询 2 个关联仓库，成功 1 个，失败 1 个/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Git 实时证据")).toHaveLength(2);
+    expect(screen.getByText(/仓库“orders-ui”/)).toBeInTheDocument();
+    await user.click(screen.getByText("订单服务 Git 提交统计 · 提交统计"));
+    expect(
+      await screen.findByText(
+        "冻结提交 d03ccf7b4d4d9d837e2330255c2460a039c926c9",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Users\/bin/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("[tool:git_commit_count:release:21:repository:7]"),
+    ).not.toBeInTheDocument();
+    expect(knowledgeQaApi.persistRound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "",
+        model: "",
+        evidenceOnly: true,
+      }),
+    );
+  });
+
   it("连续追问会携带上一轮用户问题和助手回答", async () => {
     const user = userEvent.setup();
     knowledgeQaApi.askScopedQuestion

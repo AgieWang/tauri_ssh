@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 function renderInlineMarkdown(text: string) {
   const parts: ReactNode[] = [];
   const pattern =
-    /(\[(?:code:(?:\d+:file:\d+|snapshot:\d+:chunk:\d+)|citation:(?:code:(?:\d+:file:\d+|snapshot:\d+:chunk:\d+)|(?:chunk:)?\d+|(?:[A-Za-z0-9_-]+:)+chunk:\d+)|(?:[A-Za-z0-9_-]+:)+chunk:\d+)\]|\[[^\]]+\]\(https?:\/\/[^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    /(\[(?:tool:[A-Za-z0-9_:-]+|code:(?:\d+:file:\d+|snapshot:\d+:chunk:\d+)|citation:(?:code:(?:\d+:file:\d+|snapshot:\d+:chunk:\d+)|(?:chunk:)?\d+|(?:[A-Za-z0-9_-]+:)+chunk:\d+)|(?:[A-Za-z0-9_-]+:)+chunk:\d+)\]|\[[^\]]+\]\(https?:\/\/[^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     const value = match[0];
@@ -28,7 +28,20 @@ function renderInlineMarkdown(text: string) {
     const documentChunkCitation = value.match(
       /^\[(?:[A-Za-z0-9_-]+:)+chunk:(\d+)\]$/,
     );
-    if (
+    const toolCitation = value.match(/^\[(tool:[A-Za-z0-9_:-]+)\]$/);
+    if (toolCitation) {
+      parts.push(
+        <span
+          key={`${start}-tool-citation`}
+          data-tool-citation={toolCitation[1]}
+          aria-label="Git 实时证据"
+          title="由本地只读 Git 工具生成的动态证据"
+          className="mx-0.5 inline-flex rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-xs font-medium text-[var(--accent)]"
+        >
+          Git 实时证据
+        </span>,
+      );
+    } else if (
       fileCitation ||
       chunkCitation ||
       wrappedFileCitation ||

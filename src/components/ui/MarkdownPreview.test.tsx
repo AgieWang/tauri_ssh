@@ -93,6 +93,19 @@ describe("MarkdownPreview", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("将 Git 工具引用渲染为可读标签而不是内部键", () => {
+    render(
+      <MarkdownPreview content="提交数为 249。[tool:git_commit_count:release:1:repository:2]" />,
+    );
+
+    expect(screen.getByLabelText("Git 实时证据")).toHaveTextContent(
+      "Git 实时证据",
+    );
+    expect(
+      screen.queryByText("[tool:git_commit_count:release:1:repository:2]"),
+    ).not.toBeInTheDocument();
+  });
+
   it("使用语义主题令牌渲染正文和内联元素", () => {
     render(
       <MarkdownPreview

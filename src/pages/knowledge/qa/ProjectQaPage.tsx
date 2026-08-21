@@ -62,6 +62,14 @@ type RequirementCoverageDiagnostics = {
   explicitRelationCount: number;
 };
 
+type GitAgentDiagnostics = {
+  status: "completed" | "partial" | "failed";
+  repositoryCount: number;
+  succeededCount: number;
+  failedCount: number;
+  totalCommitCount?: number;
+};
+
 function isChatProvider(provider: AiProvider) {
   const capabilities = provider.capabilities.map((value) =>
     value.trim().toLowerCase(),
@@ -116,6 +124,32 @@ function requirementCoverageDiagnostics(
   };
 }
 
+function gitAgentDiagnostics(
+  answer: KnowledgeAskResult,
+): GitAgentDiagnostics | null {
+  if (answer.retrievalDiagnostics.queryMode !== "gitAgent") return null;
+  const agent = answer.retrievalDiagnostics.agent;
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) return null;
+  const values = agent as Record<string, unknown>;
+  const numberValue = (key: string) =>
+    typeof values[key] === "number" ? (values[key] as number) : 0;
+  const status = ["completed", "partial", "failed"].includes(
+    String(values.status),
+  )
+    ? (String(values.status) as GitAgentDiagnostics["status"])
+    : "failed";
+  return {
+    status,
+    repositoryCount: numberValue("repositoryCount"),
+    succeededCount: numberValue("succeededCount"),
+    failedCount: numberValue("failedCount"),
+    totalCommitCount:
+      typeof values.totalCommitCount === "number"
+        ? values.totalCommitCount
+        : undefined,
+  };
+}
+
 function isTestCitationPath(logicalPath: string) {
   const normalized = logicalPath.replace(/\\/g, "/").toLowerCase();
   const fileName = normalized.split("/").pop() ?? normalized;
@@ -144,6 +178,14 @@ function coverageCitationRole(
     return "代码候选";
   }
   return "需求基线";
+}
+
+function citationRole(
+  citation: KnowledgeAskResult["citations"][number],
+  coverage: RequirementCoverageDiagnostics | null,
+) {
+  if (citation.sourceType === "git_statistics") return "Git 实时证据";
+  return coverage ? coverageCitationRole(citation) : null;
 }
 
 function conversationMessages(turns: QaTurn[]): KnowledgeConversationMessage[] {
@@ -226,7 +268,7 @@ function formatAnswerForExport(
       .map((citation) => [citation.chunkId as number, citation]),
   );
   return answer.replace(
-    /\[((?:code|citation):[^\]\r\n]+|(?:[A-Za-z0-9_-]+:)+chunk:\d+)\]/g,
+    /\[((?:code|citation|tool):[^\]\r\n]+|(?:[A-Za-z0-9_-]+:)+chunk:\d+)\]/g,
     (token, rawKey: string) => {
       const normalized = rawKey.startsWith("citation:")
         ? rawKey.slice("citation:".length)
@@ -328,6 +370,7 @@ function buildConversationMarkdown(
 function renderTurnAnswer(turn: QaTurn, index: number) {
   const answer = turn.answer;
   const coverage = requirementCoverageDiagnostics(answer);
+  const gitAgent = gitAgentDiagnostics(answer);
   return (
     <Space orientation="vertical" size="middle" className="w-full">
       {coverage ? (
@@ -343,6 +386,24 @@ function renderTurnAnswer(turn: QaTurn, index: number) {
             coverage.explicitRelationCount > 0
               ? `当前版本存在 ${coverage.explicitRelationCount} 条已确认的实现或验证关系，其中 ${coverage.verifiedRelationCount} 条为验证关系。`
               : "尚无显式需求—代码关系，系统会保留“待确认”状态，不会把“没搜到”误判成“未实现”。"
+          }`}
+        />
+      ) : null}
+      {gitAgent ? (
+        <Alert
+          type={gitAgent.status === "completed" ? "success" : "warning"}
+          showIcon
+          title={
+            gitAgent.status === "completed"
+              ? "Git Agent 已完成只读统计"
+              : gitAgent.status === "partial"
+                ? "Git Agent 已返回部分结果"
+                : "Git Agent 未取得可用证据"
+          }
+          description={`按所选版本的冻结提交查询 ${gitAgent.repositoryCount} 个关联仓库，成功 ${gitAgent.succeededCount} 个，失败 ${gitAgent.failedCount} 个。统计包含合并提交，逐仓库计算后相加${
+            gitAgent.totalCommitCount == null
+              ? "。"
+              : `，合计 ${gitAgent.totalCommitCount} 次。`
           }`}
         />
       ) : null}
@@ -387,11 +448,11 @@ function renderTurnAnswer(turn: QaTurn, index: number) {
             className="mt-2"
             items={answer.citations.map((citation) => ({
               key: citation.citationKey,
-              label: coverage ? (
+              label: citationRole(citation, coverage) ? (
                 <Space size={6} wrap>
                   <span>{citationLabel(citation)}</span>
                   <Tag className="!mr-0" color="blue">
-                    {coverageCitationRole(citation)}
+                    {citationRole(citation, coverage)}
                   </Tag>
                 </Space>
               ) : (
@@ -405,6 +466,9 @@ function renderTurnAnswer(turn: QaTurn, index: number) {
                   <Paragraph className="!mb-0 whitespace-pre-wrap">
                     {citation.excerpt}
                   </Paragraph>
+                  {citation.commitSha ? (
+                    <Text code>冻结提交 {citation.commitSha}</Text>
+                  ) : null}
                   <Tag>{citation.citationKey}</Tag>
                 </Space>
               ),
@@ -631,16 +695,31 @@ export default function ProjectQaPage() {
         conversation: history,
       });
       if (askRequest !== askRequestId.current) return;
+      const handledByLocalAgent =
+        result.retrievalDiagnostics.queryMode === "gitAgent";
+      const persistedEvidenceOnly = evidenceOnly || handledByLocalAgent;
+      const persistedProviderKey = persistedEvidenceOnly
+        ? ""
+        : (selectedProvider?.key ?? "");
+      const persistedModel = persistedEvidenceOnly
+        ? ""
+        : (selectedProvider?.defaultModel ?? "");
+      const currentSession = sessions.find((item) => item.id === sessionId);
+      const compatibleSessionId =
+        currentSession?.providerKey === persistedProviderKey &&
+        currentSession.model === persistedModel
+          ? sessionId
+          : null;
       try {
         const detail = await knowledgeQaApi.persistRound({
-          sessionId: sessionId ?? undefined,
+          sessionId: compatibleSessionId ?? undefined,
           projectId: project.id,
           projectVersionId: releaseId,
-          providerKey: selectedProvider?.key ?? "",
-          model: selectedProvider?.defaultModel ?? "",
+          providerKey: persistedProviderKey,
+          model: persistedModel,
           question: questionText,
           answer: result,
-          evidenceOnly,
+          evidenceOnly: persistedEvidenceOnly,
         });
         if (askRequest !== askRequestId.current) return;
         setSessionId(detail.session.id);

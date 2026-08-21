@@ -10,6 +10,7 @@ use crate::models::{
     KnowledgeAskInput, KnowledgeAskResult, KnowledgeConversationMessage, KnowledgeSearchInput,
 };
 use crate::services::knowledge::validate_positive_id;
+use crate::services::knowledge_domain::git_agent::KnowledgeGitAgentService;
 use crate::services::knowledge_domain::terminology::KnowledgeProjectTerminologyService;
 use crate::services::knowledge_embedding::KnowledgeEmbeddingService;
 use crate::services::knowledge_retrieval::KnowledgeRetrievalService;
@@ -141,6 +142,17 @@ impl KnowledgeScopedQuestionService {
             return Err(AppError::InvalidInput(
                 "项目问答当前按完整版本范围检索，请清除仓库筛选后重试".to_string(),
             ));
+        }
+        if let Some(answer) = KnowledgeGitAgentService::try_answer(
+            db,
+            input.project_id,
+            input.project_version_id,
+            &release.version,
+            &input.question,
+        )
+        .await?
+        {
+            return Ok(answer);
         }
         if !input.evidence_only
             && (input.provider_key.trim().is_empty() || input.model.trim().is_empty())

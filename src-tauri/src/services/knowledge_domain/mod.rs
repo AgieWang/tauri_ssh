@@ -4,6 +4,7 @@
 pub mod analysis;
 pub mod catalog;
 pub mod documents;
+pub mod git_agent;
 pub mod governance;
 pub mod graph;
 pub mod ingestion;
