@@ -92,3 +92,7 @@ export interface KnowledgeProjectVersionCompleteness {
   status: "ready" | "partial";
   stages: KnowledgeProjectVersionStageCompleteness[];
 }
+
+export interface KnowledgeProjectVersionBackfillInput {
+  releaseId: number;
+}

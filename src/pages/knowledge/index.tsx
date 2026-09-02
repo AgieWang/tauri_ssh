@@ -813,7 +813,7 @@ function CitationList({
 export type KnowledgeInitialCatalogTab = "documents" | "embedding";
 
 export interface KnowledgePageProps {
-  /** 项目工作台可直接进入全局向量索引配置；其他入口仍默认文档页。 */
+  /** 项目工作台可直接进入文档或全局向量索引配置。 */
   initialCatalogTab?: KnowledgeInitialCatalogTab;
 }
 
@@ -2534,6 +2534,16 @@ export default function KnowledgePage({
       render: (_, row) => row.rootPath || row.gitWorkspaceKey || "系统来源",
     },
     {
+      title: "远程向量化",
+      width: 130,
+      render: (_, row) =>
+        row.allowRemoteEmbedding ? (
+          <Tag color="green">已授权</Tag>
+        ) : (
+          <Tag>未授权</Tag>
+        ),
+    },
+    {
       title: "最近同步",
       render: (_, row) => {
         const syncStatus = knowledgeSyncStatus(row.lastSyncStatus);
@@ -4031,7 +4041,7 @@ export default function KnowledgePage({
               </Space>
             ),
           },
-        ]}
+        ].filter((item) => item.key !== "sources")}
       />
 
       <Modal

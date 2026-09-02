@@ -3,6 +3,9 @@ use rusqlite::{
 };
 
 use super::Database;
+use crate::database::knowledge_domain::documents::{
+    insert_knowledge_document_parse_artifact_in_transaction, NewKnowledgeDocumentParseArtifact,
+};
 use crate::database::knowledge_domain::search::{
     append_selected_document_version_filter, rebuild_knowledge_document_title_index_in_transaction,
     release_scope_visibility_predicate, sync_knowledge_document_title_index,
@@ -38,6 +41,7 @@ pub(crate) struct CompleteKnowledgeDocumentIndexJobInput<'a> {
     pub parsed_meta: &'a serde_json::Value,
     pub token_estimate: i64,
     pub chunks: &'a [KnowledgeChunkWriteInput],
+    pub parse_artifact: &'a NewKnowledgeDocumentParseArtifact,
     pub job_id: i64,
     pub message: &'a str,
     pub checkpoint: &'a serde_json::Value,
@@ -2793,6 +2797,39 @@ impl Database {
         self.list_knowledge_chunks(document_version_id)
     }
 
+    /// 用于手动解析和历史回填。分块、全文索引与解析产物必须一次提交，避免完整度
+    /// 将“已有分块但没有解析产物”永久显示为未完成。
+    pub fn replace_knowledge_document_chunks_with_parse_artifact(
+        &self,
+        document_version_id: i64,
+        parsed_meta: &serde_json::Value,
+        token_estimate: i64,
+        chunks: &[KnowledgeChunkWriteInput],
+        parse_artifact: &NewKnowledgeDocumentParseArtifact,
+    ) -> Result<Vec<KnowledgeChunk>, AppError> {
+        let parsed_meta_json = serde_json::to_string(parsed_meta)?;
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|error| AppError::Custom(error.to_string()))?;
+        let transaction = conn.transaction()?;
+        replace_knowledge_document_chunks_in_transaction(
+            &transaction,
+            document_version_id,
+            &parsed_meta_json,
+            token_estimate,
+            chunks,
+        )?;
+        insert_knowledge_document_parse_artifact_in_transaction(
+            &transaction,
+            document_version_id,
+            parse_artifact,
+        )?;
+        transaction.commit()?;
+        drop(conn);
+        self.list_knowledge_chunks(document_version_id)
+    }
+
     /// 文档索引写入与任务完成必须在同一事务中提交：取消请求若先线性化，分块和 FTS
     /// 写入会一起回滚；完成若先线性化，后续取消会被明确拒绝，避免“已入索引却显示取消”。
     pub fn replace_knowledge_document_chunks_and_finish_job(
@@ -2812,6 +2849,11 @@ impl Database {
             &parsed_meta_json,
             input.token_estimate,
             input.chunks,
+        )?;
+        insert_knowledge_document_parse_artifact_in_transaction(
+            &transaction,
+            input.document_version_id,
+            input.parse_artifact,
         )?;
         let changed = transaction.execute(
             "UPDATE knowledge_jobs SET
@@ -3768,6 +3810,12 @@ impl Database {
             .conn
             .lock()
             .map_err(|error| AppError::Custom(error.to_string()))?;
+        let existing = get_embedding_profile(&conn, profile_id)?;
+        if !existing.is_active && existing.status == "building" {
+            // 应用重启后的 interrupted 向量任务仍保留 building Profile；再次进入页面时
+            // 必须允许同一 Profile 幂等恢复，由任务状态机决定从检查点继续还是拒绝并发。
+            return Ok(existing);
+        }
         let changed = conn.execute(
             "UPDATE knowledge_embedding_profiles
              SET status = 'building', updated_at = datetime('now', 'localtime')
@@ -4230,6 +4278,24 @@ impl Database {
         Ok(changed > 0)
     }
 
+    /// 向量构建由多个短 Command 批次组成；每批落盘后回到 queued，下一批再原子地
+    /// 领取为 running。这样页面刷新不会把已经安全保存检查点的任务永久卡在 running。
+    pub fn queue_knowledge_job_next_batch(&self, id: i64) -> Result<bool, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| AppError::Custom(error.to_string()))?;
+        let changed = conn.execute(
+            "UPDATE knowledge_jobs SET
+                status = 'queued',
+                message = '等待下一批向量构建',
+                heartbeat_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND status = 'running' AND cancel_requested = 0",
+            [id],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn touch_knowledge_job_heartbeat(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -4273,6 +4339,54 @@ impl Database {
             ));
         }
         get_knowledge_job_by_id(&conn, id)
+    }
+
+    /// 停止非活动向量构建时，取消标记与 Profile 禁写必须原子提交。否则远程请求刚好
+    /// 返回的窗口可能继续写入即将删除的副本向量。
+    pub fn cancel_knowledge_embedding_job_and_fail_profile(
+        &self,
+        id: i64,
+    ) -> Result<KnowledgeJob, AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|error| AppError::Custom(error.to_string()))?;
+        let transaction = conn.transaction()?;
+        let profile_id: i64 = transaction
+            .query_row(
+                "SELECT profile_id FROM knowledge_jobs
+                 WHERE id = ?1 AND job_type = 'embedding_build' AND profile_id IS NOT NULL",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                AppError::InvalidInput("向量构建任务不存在或缺少方案引用".to_string())
+            })?;
+        let changed = transaction.execute(
+            "UPDATE knowledge_jobs SET
+                cancel_requested = 1,
+                status = 'cancelled',
+                message = '远程向量构建已取消',
+                error = NULL,
+                finished_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND status IN ('queued', 'running', 'interrupted')",
+            [id],
+        )?;
+        if changed == 0 {
+            return Err(AppError::InvalidInput(
+                "知识任务已结束或当前状态不允许取消".to_string(),
+            ));
+        }
+        transaction.execute(
+            "UPDATE knowledge_embedding_profiles
+             SET status = 'failed', updated_at = datetime('now', 'localtime')
+             WHERE id = ?1 AND is_active = 0 AND status = 'building'",
+            [profile_id],
+        )?;
+        let job = get_knowledge_job_by_id(&transaction, id)?;
+        transaction.commit()?;
+        Ok(job)
     }
 
     pub fn is_knowledge_job_cancel_requested(&self, id: i64) -> Result<bool, AppError> {
@@ -4321,6 +4435,53 @@ impl Database {
                 "知识任务当前状态不允许结束".to_string(),
             ));
         }
+        get_knowledge_job_by_id(&conn, id)
+    }
+
+    /// 失败与取消的收尾必须比较并交换：用户已经请求取消时，解析错误不能把任务重新
+    /// 标记为失败，避免界面显示与实际用户操作相反的终态。
+    pub fn finish_knowledge_job_failed_or_cancel(
+        &self,
+        id: i64,
+        failure_message: &str,
+        error: &str,
+        failed_checkpoint: &serde_json::Value,
+        cancelled_message: &str,
+        cancelled_checkpoint: &serde_json::Value,
+    ) -> Result<KnowledgeJob, AppError> {
+        let failed_checkpoint_json = serde_json::to_string(failed_checkpoint)?;
+        let cancelled_checkpoint_json = serde_json::to_string(cancelled_checkpoint)?;
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|lock_error| AppError::Custom(lock_error.to_string()))?;
+        let transaction = conn.transaction()?;
+        let failed = transaction.execute(
+            "UPDATE knowledge_jobs SET
+                status = 'failed', message = ?1, error = ?2, checkpoint_json = ?3,
+                heartbeat_at = datetime('now', 'localtime'),
+                finished_at = datetime('now', 'localtime')
+             WHERE id = ?4 AND status IN ('queued', 'running', 'interrupted')
+               AND cancel_requested = 0",
+            params![failure_message, error, failed_checkpoint_json, id],
+        )?;
+        if failed == 0 {
+            let cancelled = transaction.execute(
+                "UPDATE knowledge_jobs SET
+                    status = 'cancelled', message = ?1, error = NULL, checkpoint_json = ?2,
+                    heartbeat_at = datetime('now', 'localtime'),
+                    finished_at = datetime('now', 'localtime')
+                 WHERE id = ?3 AND status IN ('queued', 'running', 'interrupted')
+                   AND cancel_requested = 1",
+                params![cancelled_message, cancelled_checkpoint_json, id],
+            )?;
+            if cancelled == 0 {
+                return Err(AppError::InvalidInput(
+                    "知识任务当前状态不允许结束".to_string(),
+                ));
+            }
+        }
+        transaction.commit()?;
         get_knowledge_job_by_id(&conn, id)
     }
 
@@ -7881,6 +8042,35 @@ mod tests {
             .ok_or("中断任务不存在")?;
         assert_eq!(interrupted.status, "interrupted");
         assert_eq!(interrupted.checkpoint["lastPath"], "docs/requirement.md");
+        Ok(())
+    }
+
+    #[test]
+    fn failed_job_completion_yields_to_concurrent_cancellation(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let database = test_database()?;
+        let checkpoint = serde_json::json!({"releaseId": 7, "stage": "backfill"});
+        let job = database.create_knowledge_job(&CreateKnowledgeJobInput {
+            job_key: "project-version-backfill-cancel".to_string(),
+            job_type: "project_version_backfill".to_string(),
+            source_id: None,
+            profile_id: None,
+            message: "排队".to_string(),
+            checkpoint: checkpoint.clone(),
+        })?;
+        database.mark_knowledge_job_running(job.id, "backfill", "开始", &checkpoint)?;
+        database.request_knowledge_job_cancel(job.id)?;
+
+        let finished = database.finish_knowledge_job_failed_or_cancel(
+            job.id,
+            "回填失败",
+            "不应覆盖取消",
+            &checkpoint,
+            "回填已取消",
+            &checkpoint,
+        )?;
+        assert_eq!(finished.status, "cancelled");
+        assert!(finished.error.is_none());
         Ok(())
     }
 

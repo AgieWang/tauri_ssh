@@ -381,6 +381,7 @@ impl KnowledgeParser for MarkdownParser {
         let normalized = normalize_content(&input.content);
         let lines = normalized.lines().collect::<Vec<_>>();
         let mut blocks = Vec::new();
+        let mut warnings = Vec::new();
         let mut front_matter = serde_json::json!({});
         let mut index = 0_usize;
 
@@ -390,26 +391,52 @@ impl KnowledgeParser for MarkdownParser {
                 .enumerate()
                 .skip(1)
                 .find(|(_, line)| line.trim() == "---")
-                .map(|(line_index, _)| line_index)
-                .ok_or_else(|| {
-                    AppError::InvalidInput("Markdown front matter 缺少结束分隔符".to_string())
-                })?;
-            let raw = lines[1..closing].join("\n");
-            let yaml = parse_markdown_front_matter(&raw).map_err(|error| {
-                AppError::InvalidInput(format!("Markdown front matter 解析失败: {error}"))
-            })?;
-            front_matter = serde_json::to_value(yaml).map_err(|error| {
-                AppError::InvalidInput(format!("Markdown front matter 转换失败: {error}"))
-            })?;
-            blocks.push(KnowledgeParsedBlock {
-                block_type: "front_matter".to_string(),
-                heading_path: Vec::new(),
-                content: lines[..=closing].join("\n"),
-                start_line: 1,
-                end_line: usize_to_i64(closing + 1),
-                metadata: front_matter.clone(),
-            });
-            index = closing + 1;
+                .map(|(line_index, _)| line_index);
+            if let Some(closing) = closing {
+                let raw = lines[1..closing].join("\n");
+                let raw_block = || KnowledgeParsedBlock {
+                    block_type: "front_matter_raw".to_string(),
+                    heading_path: Vec::new(),
+                    content: lines[..=closing].join("\n"),
+                    start_line: 1,
+                    end_line: usize_to_i64(closing + 1),
+                    metadata: serde_json::json!({"valid": false}),
+                };
+                match parse_markdown_front_matter(&raw) {
+                    Ok(yaml) => match serde_json::to_value(yaml) {
+                        Ok(value) => {
+                            front_matter = value;
+                            blocks.push(KnowledgeParsedBlock {
+                                block_type: "front_matter".to_string(),
+                                heading_path: Vec::new(),
+                                content: lines[..=closing].join("\n"),
+                                start_line: 1,
+                                end_line: usize_to_i64(closing + 1),
+                                metadata: front_matter.clone(),
+                            });
+                        }
+                        Err(error) => {
+                            warnings.push(format!(
+                                "Markdown front matter 转换失败，已按原文保留：{error}"
+                            ));
+                            blocks.push(raw_block());
+                        }
+                    },
+                    Err(error) => {
+                        warnings.push(format!(
+                            "Markdown front matter 解析失败，已按原文保留：{error}"
+                        ));
+                        blocks.push(raw_block());
+                    }
+                }
+                index = closing + 1;
+            } else {
+                // 历史资料偶尔只有 front matter 的起始分隔符。保留原文作为普通
+                // Markdown 内容，而不是让单个文档阻断整个版本的回填。
+                warnings.push(
+                    "Markdown front matter 缺少结束分隔符，已按普通 Markdown 解析".to_string(),
+                );
+            }
         }
 
         let mut headings = Vec::<String>::new();
@@ -439,10 +466,21 @@ impl KnowledgeParser for MarkdownParser {
                     index += 1;
                 }
                 if index >= lines.len() {
-                    return Err(AppError::InvalidInput(format!(
-                        "Markdown 代码块未闭合，起始行 {}",
+                    // 历史仓库中的未闭合围栏不应阻断整批知识回填。将 EOF 视为闭合点，
+                    // 保留原始代码内容和可追溯的行号，并把格式问题写入解析警告。
+                    warnings.push(format!(
+                        "Markdown 代码块未闭合，已将文件结尾作为结束位置（起始行 {}）",
                         start + 1
-                    )));
+                    ));
+                    blocks.push(block(
+                        "code_block",
+                        &headings,
+                        lines[start..].join("\n"),
+                        start,
+                        lines.len().saturating_sub(1),
+                        serde_json::json!({"language": language, "closed": false}),
+                    ));
+                    break;
                 }
                 blocks.push(block(
                     "code_block",
@@ -495,12 +533,14 @@ impl KnowledgeParser for MarkdownParser {
             ));
         }
 
-        Ok(parsed_document(
-            self.parser_id(),
-            normalized,
+        Ok(KnowledgeParsedDocument {
+            parser_id: self.parser_id().to_string(),
+            normalization_version: CONTENT_NORMALIZATION_VERSION.to_string(),
+            normalized_content: normalized,
             front_matter,
             blocks,
-        ))
+            warnings,
+        })
     }
 }
 
@@ -2676,6 +2716,89 @@ mod tests {
             .iter()
             .any(|block| block.block_type == "code_block"));
         assert_eq!(result.chunk_strategy_id, STRUCTURE_CHUNK_STRATEGY_ID);
+        assert!(!result.chunks.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_unclosed_code_fence_is_indexed_with_a_warning(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let result = KnowledgeParserService::parse_and_chunk(KnowledgeParseAndChunkInput {
+            document: KnowledgeParseInput {
+                source_path: "legacy/invalid-fence.md".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: "# 历史脚本\n\n```shell\necho unfinished".to_string(),
+                binary_content: None,
+            },
+            options: None,
+        })?;
+        let code = result
+            .parsed
+            .blocks
+            .iter()
+            .find(|block| block.block_type == "code_block")
+            .expect("未闭合围栏仍应保留为代码块");
+        assert_eq!(code.metadata["closed"], false);
+        assert!(result
+            .parsed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("未闭合")));
+        assert!(!result.chunks.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_unclosed_front_matter_is_indexed_with_a_warning(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let result = KnowledgeParserService::parse_and_chunk(KnowledgeParseAndChunkInput {
+            document: KnowledgeParseInput {
+                source_path: "legacy/invalid-front-matter.md".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: "---\ntitle: 历史文档\n# 仍需索引的正文".to_string(),
+                binary_content: None,
+            },
+            options: None,
+        })?;
+        assert!(result
+            .parsed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("front matter 缺少结束分隔符")));
+        assert!(!result.chunks.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_invalid_front_matter_is_preserved_without_blocking_body(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let result = KnowledgeParserService::parse_and_chunk(KnowledgeParseAndChunkInput {
+            document: KnowledgeParseInput {
+                source_path: "legacy/invalid-yaml.md".to_string(),
+                mime_type: "text/markdown".to_string(),
+                content: "---\ntitle: [未闭合\n---\n# 仍需索引的正文".to_string(),
+                binary_content: None,
+            },
+            options: None,
+        })?;
+        assert_eq!(result.parsed.front_matter, serde_json::json!({}));
+        let raw = result
+            .parsed
+            .blocks
+            .iter()
+            .find(|block| block.block_type == "front_matter_raw")
+            .expect("无效 front matter 应保留原文块");
+        assert_eq!(raw.metadata["valid"], false);
+        assert!(result
+            .parsed
+            .blocks
+            .iter()
+            .any(|block| block.block_type == "heading" && block.content == "# 仍需索引的正文"));
+        assert!(result
+            .parsed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("front matter 解析失败")));
         assert!(!result.chunks.is_empty());
         Ok(())
     }

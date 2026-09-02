@@ -274,6 +274,67 @@ describe("ProjectSetupPage", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("已有版本的项目仍可登记新的版本清单", async () => {
+    const user = userEvent.setup();
+    knowledgeCatalogApi.listProjects.mockResolvedValue({
+      items: [
+        {
+          id: 21,
+          projectKey: "project-orders",
+          name: "订单中心",
+          aliases: [],
+          description: "订单知识库",
+          gitWorkspaceKeys: ["orders"],
+          gitWorkspaceKey: "orders",
+          defaultBranch: "main",
+          enabled: true,
+        },
+      ],
+    });
+    knowledgeCatalogApi.listRepositoryBindings.mockResolvedValue([
+      {
+        id: 31,
+        projectId: 21,
+        workspaceKey: "orders",
+        alias: "订单服务",
+        repositoryRole: "service",
+        defaultBranch: "main",
+        versionStrategy: "branch",
+        enabled: true,
+        deletedAt: null,
+      },
+    ]);
+    knowledgeCatalogApi.listReleases.mockResolvedValue([
+      { id: 40, version: "v1.0.0" },
+    ]);
+
+    renderPage("/knowledge/projects/21/setup");
+
+    await screen.findByText("继续项目设置");
+    await user.click(screen.getByRole("button", { name: "选择初始版本" }));
+    await user.type(screen.getByLabelText("版本名称"), "v1.1.0");
+    await user.click(screen.getByRole("button", { name: "查看同步内容" }));
+    await user.click(
+      await screen.findByRole("button", { name: "登记版本并开始同步" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        knowledgeCatalogApi.createProjectVersionManifest,
+      ).toHaveBeenCalledWith({
+        projectId: 21,
+        version: "v1.1.0",
+        repositories: [
+          { repositoryBindingId: 31, refType: "branch", refName: "main" },
+        ],
+      }),
+    );
+    expect(knowledgeCatalogApi.upsertProject).not.toHaveBeenCalled();
+    expect(
+      knowledgeCatalogApi.replaceRepositoryBindings,
+    ).not.toHaveBeenCalled();
+  });
+
   it("首次响应丢失后重试复用已有版本并继续来源登记，且不重复项目或绑定", async () => {
     const user = userEvent.setup();
     knowledgeCatalogApi.createProjectVersionManifest

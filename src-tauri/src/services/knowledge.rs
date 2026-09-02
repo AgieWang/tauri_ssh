@@ -14,6 +14,7 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::time::{sleep_until, timeout, Instant};
 
+use crate::database::knowledge_domain::documents::parse_artifact_from_result;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
@@ -3781,7 +3782,7 @@ impl KnowledgeService {
                 "当前知识源类型尚不支持后台同步".to_string(),
             ));
         }
-        if let Some(release_id) = input.release_id {
+        let frozen_git_ref = if let Some(release_id) = input.release_id {
             let release = state
                 .db
                 .get_knowledge_release_by_id(release_id)?
@@ -3791,7 +3792,42 @@ impl KnowledgeService {
                     "知识源与目标版本不属于同一项目".to_string(),
                 ));
             }
-        }
+            if source.source_type != "git_workspace" {
+                None
+            } else {
+                let mut frozen_commit = None;
+                for manifest in state
+                    .db
+                    .list_knowledge_release_repository_manifests(release_id)?
+                    .into_iter()
+                {
+                    if manifest.inclusion_status != "ready"
+                        || manifest.resolved_commit_sha.trim().is_empty()
+                    {
+                        continue;
+                    }
+                    let binding = state
+                        .db
+                        .get_knowledge_project_repository_binding_including_history(
+                            manifest.repository_binding_id,
+                        )?;
+                    if binding.is_some_and(|binding| {
+                        binding.project_id == release.project_id
+                            && binding.workspace_key == source.git_workspace_key
+                    }) {
+                        frozen_commit = Some(manifest.resolved_commit_sha);
+                        break;
+                    }
+                }
+                Some(frozen_commit.ok_or_else(|| {
+                    AppError::InvalidInput(
+                        "目标版本清单没有该仓库的冻结 Commit，不能同步".to_string(),
+                    )
+                })?)
+            }
+        } else {
+            None
+        };
         if let Some(active) = state
             .db
             .find_active_knowledge_job("source_sync", Some(source.id))?
@@ -3800,7 +3836,16 @@ impl KnowledgeService {
         }
 
         let mut normalized_input = input;
-        normalized_input.git_ref = if source.source_type == "git_workspace" {
+        normalized_input.git_ref = if let Some(frozen_ref) = frozen_git_ref {
+            if let Some(requested_ref) = normalized_input.git_ref.as_deref() {
+                if requested_ref.trim() != frozen_ref {
+                    return Err(AppError::InvalidInput(
+                        "请求 Git 引用与目标版本冻结 Commit 不一致".to_string(),
+                    ));
+                }
+            }
+            Some(frozen_ref)
+        } else if source.source_type == "git_workspace" {
             Some(validate_git_ref(
                 normalized_input.git_ref.as_deref().unwrap_or("HEAD"),
             )?)
@@ -3851,6 +3896,10 @@ impl KnowledgeService {
         let job = Self::get_job(&state.db, job_key)?;
         let job = if job.job_type == "upload_import" {
             state.db.request_knowledge_document_upload_cancel(job.id)?
+        } else if job.job_type == "embedding_build" {
+            state
+                .db
+                .cancel_knowledge_embedding_job_and_fail_profile(job.id)?
         } else {
             state.db.request_knowledge_job_cancel(job.id)?
         };
@@ -3946,6 +3995,9 @@ impl KnowledgeService {
                 Ok(restarted)
             }
             "document_index" => KnowledgeDocumentJobService::retry_document_index_job(app, job.id),
+            "project_version_backfill" => {
+                KnowledgeDocumentJobService::retry_project_version_backfill(app, job)
+            }
             "upload_import" => {
                 KnowledgeUploadImportJobService::retry_upload_import_job(app, job.id)
             }
@@ -4613,11 +4665,13 @@ impl KnowledgeService {
             "frontMatter": result.parsed.front_matter,
             "warnings": result.parsed.warnings,
         });
-        db.replace_knowledge_document_chunks(
+        let parse_artifact = parse_artifact_from_result(document_version_id, None, &result)?;
+        db.replace_knowledge_document_chunks_with_parse_artifact(
             document_version_id,
             &parsed_meta,
             token_estimate,
             &result.chunks,
+            &parse_artifact,
         )?;
         Ok(result)
     }
@@ -5255,7 +5309,7 @@ fn report_knowledge_job_progress(
     Ok(())
 }
 
-fn emit_knowledge_job_progress(app: &tauri::AppHandle, job: &KnowledgeJob) {
+pub(crate) fn emit_knowledge_job_progress(app: &tauri::AppHandle, job: &KnowledgeJob) {
     let stage = job
         .checkpoint
         .get("stage")

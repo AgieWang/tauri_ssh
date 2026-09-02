@@ -49,6 +49,9 @@ const ProjectSearchPage = lazy(
 const ProjectEmbeddingPage = lazy(
   () => import("@/pages/knowledge/embedding/ProjectEmbeddingPage"),
 );
+const ProjectSourcesPage = lazy(
+  () => import("@/pages/knowledge/sources/ProjectSourcesPage"),
+);
 
 const prototypePages = () => import("@/pages/prototype");
 const OnboardingPage = lazy(() =>
@@ -218,6 +221,10 @@ const router = createBrowserRouter([
         path: "knowledge",
         // 未启用目录阶段时，项目页会指向这里完成线性启用；不能再重定向回被拒绝的目录页。
         element: <KnowledgePage />,
+      },
+      {
+        path: "knowledge/projects/:projectId/sources",
+        element: <ProjectSourcesPage />,
       },
       { path: "knowledge/projects", element: <ProjectCatalogPage /> },
       { path: "knowledge/projects/new", element: <ProjectSetupPage /> },

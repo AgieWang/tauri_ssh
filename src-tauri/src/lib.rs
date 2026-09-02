@@ -317,6 +317,7 @@ pub fn run() {
             commands::knowledge_domain::catalog::create_knowledge_project_version_manifest,
             commands::knowledge_domain::catalog::get_knowledge_project_version_manifest,
             commands::knowledge_domain::catalog::get_knowledge_project_version_completeness,
+            commands::knowledge_domain::catalog::start_knowledge_project_version_backfill,
             commands::knowledge_domain::search::search_knowledge_catalog,
             commands::knowledge_domain::terminology::list_knowledge_project_terms,
             commands::knowledge_domain::terminology::upsert_knowledge_project_term,

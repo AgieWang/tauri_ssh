@@ -25,6 +25,8 @@ const knowledgeApi = vi.hoisted(() => ({
   completeEmbeddingProfileRebuild: vi.fn(),
   activateEmbeddingProfileRebuild: vi.fn(),
   retireEmbeddingProfileRebuild: vi.fn(),
+  cancelJob: vi.fn(),
+  getJob: vi.fn(),
   calculateEmbeddingFingerprint: vi.fn(),
   upsertEmbeddingProfile: vi.fn(),
   importLocalEmbeddingModel: vi.fn(),
@@ -190,6 +192,120 @@ describe("ProjectEmbeddingPage", () => {
     expect(screen.getByRole("button", { name: "构建并校验" })).toBeVisible();
   });
 
+  it("构建开始后立即展示并按批次更新进度", async () => {
+    const user = userEvent.setup();
+    const completedBatch = {
+      profileId: 3,
+      jobKey: "embedding-progress",
+      totalChunks: 5,
+      processedChunks: 5,
+      embeddedChunks: 4,
+      skippedChunks: 1,
+      blockedChunks: 0,
+      completed: true,
+      checkpoint: { lastChunkId: 5 },
+    };
+    let resolveBuild!: (value: typeof completedBatch) => void;
+    knowledgeApi.buildLocalEmbeddingBatch.mockImplementationOnce(
+      () =>
+        new Promise<typeof completedBatch>((resolve) => {
+          resolveBuild = resolve;
+        }),
+    );
+    knowledgeApi.validateEmbeddingProfileRebuild.mockResolvedValue({
+      profileId: 3,
+      profileKey: "local-e5",
+      expectedChunks: 5,
+      indexedChunks: 5,
+      staleChunks: 0,
+      dimensionMismatchChunks: 0,
+      invalidVectorChunks: 0,
+      complete: true,
+    });
+    knowledgeApi.completeEmbeddingProfileRebuild.mockResolvedValue({
+      profile: { ...profile, status: "ready" },
+      validation: {
+        profileId: 3,
+        profileKey: "local-e5",
+        expectedChunks: 5,
+        indexedChunks: 5,
+        staleChunks: 0,
+        dimensionMismatchChunks: 0,
+        invalidVectorChunks: 0,
+        complete: true,
+      },
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "检查并估算" }));
+    await user.click(await screen.findByRole("button", { name: "构建并校验" }));
+
+    expect(await screen.findByText("已处理 0 个内容片段")).toBeVisible();
+    expect(screen.getByText("0/5")).toBeVisible();
+    expect(screen.getByText("已复用 0 个")).toBeVisible();
+    expect(screen.getByText("已阻断 0 个")).toBeVisible();
+
+    resolveBuild(completedBatch);
+
+    expect(await screen.findByText("已处理 5 个内容片段")).toBeVisible();
+    expect(screen.getByText("已向量化 4 个")).toBeVisible();
+    expect(screen.getByText("已复用 1 个")).toBeVisible();
+  });
+
+  it("构建失败时保留异常进度并提供重试入口", async () => {
+    const user = userEvent.setup();
+    knowledgeApi.beginEmbeddingProfileRebuild.mockRejectedValue(
+      new Error("远程服务暂时不可用"),
+    );
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "检查并估算" }));
+    await user.click(await screen.findByRole("button", { name: "构建并校验" }));
+
+    expect(
+      await screen.findByText("构建失败，可从当前检查点重试"),
+    ).toBeVisible();
+    expect(screen.getAllByText("远程服务暂时不可用").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "重新构建并校验" }),
+    ).toBeVisible();
+    expect(
+      document.querySelector(".ant-steps-item-process .ant-steps-item-title"),
+    ).toHaveTextContent("构建并校验");
+  });
+
+  it("停止构建后允许删除非活动副本方案", async () => {
+    const user = userEvent.setup();
+    const buildingProfile = {
+      ...profile,
+      id: 8,
+      name: "远程语义检索（副本）",
+      mode: "remote" as const,
+      status: "building",
+    };
+    const stoppedProfile = { ...buildingProfile, status: "failed" };
+    knowledgeApi.listEmbeddingProfiles
+      .mockResolvedValueOnce([buildingProfile])
+      .mockResolvedValue([stoppedProfile]);
+    knowledgeApi.cancelJob.mockResolvedValue({
+      jobKey: "knowledge-embedding-profile-8",
+      status: "running",
+      cancelRequested: true,
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "停止构建" }));
+
+    await waitFor(() =>
+      expect(knowledgeApi.cancelJob).toHaveBeenCalledWith(
+        "knowledge-embedding-profile-8",
+      ),
+    );
+    expect(
+      await screen.findByRole("button", { name: "删除" }),
+    ).toBeEnabled();
+  });
+
   it("不会要求用户重建当前正在使用的索引", async () => {
     const user = userEvent.setup();
     const activeProfile = { ...profile, isActive: true, status: "active" };
@@ -205,6 +321,42 @@ describe("ProjectEmbeddingPage", () => {
     expect(await screen.findByText("当前方案正在使用中")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "构建并校验" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "基于当前方案新建" }),
+    ).toBeVisible();
+  });
+
+  it("远程方案不因本机模型未就绪阻断检查流程", async () => {
+    const remoteProfile = {
+      ...profile,
+      name: "远程语义检索",
+      mode: "remote" as const,
+      providerKey: remoteProvider.key,
+      model: remoteProvider.embeddingModel,
+      status: "active",
+      isActive: true,
+    };
+    knowledgeApi.listEmbeddingProfiles.mockResolvedValue([remoteProfile]);
+    knowledgeApi.getLocalEmbeddingRuntimeStatus.mockResolvedValue({
+      runtime: "fastembed",
+      fastembedFeatureEnabled: true,
+      runtimeAvailable: false,
+      automaticDownloadEnabled: false,
+      cacheDir: "/tmp/knowledge-models",
+      cachedModels: [],
+      warnings: ["未发现已验证的本地向量化模型缓存"],
+    });
+    aiProviderApi.list.mockResolvedValue([remoteProvider]);
+    renderPage();
+
+    expect(await screen.findByText("远程方案")).toBeVisible();
+    expect(screen.getByText("不依赖本机模型")).toBeVisible();
+    expect(
+      screen.queryByText("本机向量运行环境尚未就绪"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("未发现已验证的本地向量化模型缓存"),
     ).not.toBeInTheDocument();
   });
 
@@ -371,24 +523,44 @@ describe("ProjectEmbeddingPage", () => {
     );
   });
 
-  it("复制已构建方案时拒绝未改变向量指纹的重复配置", async () => {
+  it("复制已构建方案时允许沿用相同向量配置并自动检查", async () => {
     const user = userEvent.setup();
     const activeProfile = { ...profile, status: "active", isActive: true };
+    const copiedProfile = {
+      ...activeProfile,
+      id: 8,
+      profileKey: "local-e5-copy",
+      name: "推荐本地方案（副本）",
+      status: "draft",
+      isActive: false,
+    };
     knowledgeApi.listEmbeddingProfiles.mockResolvedValue([activeProfile]);
     knowledgeApi.calculateEmbeddingFingerprint.mockResolvedValue(
       activeProfile.fingerprint,
     );
+    knowledgeApi.upsertEmbeddingProfile.mockResolvedValue(copiedProfile);
+    knowledgeApi.testLocalEmbeddingProfile.mockResolvedValue({
+      profile: copiedProfile,
+      dimension: 384,
+      probeText: "test",
+    });
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: "编辑" }));
     await user.click(screen.getByRole("button", { name: "保存并继续" }));
 
-    expect(
-      await screen.findByText(
-        "复制已构建方案时请至少修改模型、维度或前缀配置。",
+    await waitFor(() =>
+      expect(knowledgeApi.upsertEmbeddingProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fingerprint: activeProfile.fingerprint,
+          id: undefined,
+        }),
       ),
-    ).toBeVisible();
-    expect(knowledgeApi.upsertEmbeddingProfile).not.toHaveBeenCalled();
+    );
+    await waitFor(() =>
+      expect(knowledgeApi.testLocalEmbeddingProfile).toHaveBeenCalledWith(8),
+    );
+    expect(await screen.findByRole("button", { name: "构建并校验" })).toBeVisible();
   });
 
   it("删除非活动方案前要求确认并从列表移除", async () => {

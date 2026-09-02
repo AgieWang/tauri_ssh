@@ -348,4 +348,19 @@ describe("knowledgeApi", () => {
       method: "POST",
     });
   });
+
+  it("按任务键读取持久化进度，供事件漏失后的页面轮询恢复", async () => {
+    hasTauriRuntime.mockReturnValue(true);
+    invoke.mockResolvedValue({});
+    await knowledgeApi.getJob("backfill-001");
+    expect(invoke).toHaveBeenCalledWith("get_knowledge_job", {
+      jobKey: "backfill-001",
+    });
+
+    vi.clearAllMocks();
+    hasTauriRuntime.mockReturnValue(false);
+    devApiFetch.mockResolvedValue({});
+    await knowledgeApi.getJob("backfill-001");
+    expect(devApiFetch).toHaveBeenCalledWith("/knowledge/jobs/backfill-001");
+  });
 });

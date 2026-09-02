@@ -218,13 +218,12 @@ export default function ProjectSetupPage() {
           knowledgeCatalogApi.listRepositoryBindings(verifiedProjectId),
           knowledgeCatalogApi.listReleases(verifiedProjectId),
         ]);
-        if (releases.length) {
-          setExistingProjectError(
-            "这个项目已经登记版本，可在项目版本页继续管理",
-          );
-          return;
-        }
         setExistingProject(project);
+        if (releases.length) {
+          // 已有正式版本时是在登记下一版本，不能沿用首次创建时的名称，
+          // 否则会命中后端的幂等重试并只返回旧版本清单。
+          setInitialVersionName("");
+        }
         // 版本登记失败时，项目和仓库绑定可能已经成功保存。保留这些已确认的数据，
         // 让用户只完成剩余步骤，而不是重新选择并覆盖仓库设置。
         const workspaceKeys = bindings.map((binding) => binding.workspaceKey);
@@ -796,6 +795,7 @@ export default function ProjectSetupPage() {
                   </div>
                   <Form.Item label="版本名称" className="!mb-0">
                     <Input
+                      aria-label="版本名称"
                       value={initialVersionName}
                       maxLength={100}
                       onChange={(event) =>

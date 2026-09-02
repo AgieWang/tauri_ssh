@@ -1,6 +1,8 @@
 import { devApiFetch, hasTauriRuntime, invoke } from "../client";
 import { knowledgeApi } from "../knowledge";
+import type { KnowledgeJob } from "@/types";
 import type {
+  KnowledgeProjectVersionBackfillInput,
   KnowledgeProjectVersionManifestInput,
   KnowledgeProjectVersionCompleteness,
   KnowledgeProjectVersionManifestResult,
@@ -84,5 +86,14 @@ export const knowledgeCatalogApi = {
         )
       : devApiFetch<KnowledgeProjectVersionCompleteness>(
           `/knowledge/version-manifests/${releaseId}/completeness`,
+        ),
+  startProjectVersionBackfill: (input: KnowledgeProjectVersionBackfillInput) =>
+    hasTauriRuntime()
+      ? invoke<KnowledgeJob>("start_knowledge_project_version_backfill", {
+          input,
+        })
+      : devApiFetch<KnowledgeJob>(
+          `/knowledge/version-manifests/${input.releaseId}/backfill`,
+          { method: "POST" },
         ),
 };

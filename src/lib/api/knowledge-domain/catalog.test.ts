@@ -44,6 +44,7 @@ describe("knowledgeCatalogApi", () => {
     });
     await knowledgeCatalogApi.getProjectVersionManifest(21);
     await knowledgeCatalogApi.getProjectVersionCompleteness(21);
+    await knowledgeCatalogApi.startProjectVersionBackfill({ releaseId: 21 });
 
     expect(invoke).toHaveBeenNthCalledWith(
       1,
@@ -71,6 +72,11 @@ describe("knowledgeCatalogApi", () => {
       6,
       "get_knowledge_project_version_completeness",
       { releaseId: 21 },
+    );
+    expect(invoke).toHaveBeenNthCalledWith(
+      7,
+      "start_knowledge_project_version_backfill",
+      { input: { releaseId: 21 } },
     );
     expect(invoke).toHaveBeenNthCalledWith(
       3,
@@ -147,6 +153,12 @@ describe("knowledgeCatalogApi", () => {
     await knowledgeCatalogApi.getProjectVersionCompleteness(23);
     expect(devApiFetch).toHaveBeenLastCalledWith(
       "/knowledge/version-manifests/23/completeness",
+    );
+
+    await knowledgeCatalogApi.startProjectVersionBackfill({ releaseId: 23 });
+    expect(devApiFetch).toHaveBeenLastCalledWith(
+      "/knowledge/version-manifests/23/backfill",
+      { method: "POST" },
     );
   });
 });

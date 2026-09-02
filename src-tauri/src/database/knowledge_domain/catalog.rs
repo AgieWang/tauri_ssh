@@ -153,6 +153,30 @@ impl Database {
         .map_err(Into::into)
     }
 
+    /// 历史版本清单持有已解绑仓库的稳定 ID。该读取只用于验证冻结清单，不能将旧绑定
+    /// 重新暴露为当前项目的可编辑仓库。
+    pub(crate) fn get_knowledge_project_repository_binding_including_history(
+        &self,
+        id: i64,
+    ) -> Result<Option<KnowledgeRepositoryBinding>, AppError> {
+        if id <= 0 {
+            return Err(AppError::InvalidInput("仓库关联 ID 必须为正数".into()));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| AppError::Custom(error.to_string()))?;
+        conn.query_row(
+            "SELECT id, project_id, workspace_key, alias, repository_role, default_branch,
+                    version_strategy, enabled, deleted_at
+             FROM knowledge_project_repository_bindings WHERE id = ?1",
+            [id],
+            map_binding,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
     /// 解除关联只停用当前绑定；历史版本清单、文档绑定和审计仍持有原绑定 ID，不能物理删除。
     pub fn deactivate_knowledge_project_repository_binding(&self, id: i64) -> Result<(), AppError> {
         if id <= 0 {
@@ -410,7 +434,8 @@ impl Database {
                     SELECT 1 FROM knowledge_document_version_bindings version_binding
                     WHERE version_binding.document_version_id = version.id
                       AND version_binding.cross_version_scope = 'project_all_versions'
-             )) AND document.project_id = ?2 AND document.deleted_at IS NULL",
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''",
             params![release_id, release.1],
             |row| row.get(0),
         )?;
@@ -423,11 +448,12 @@ impl Database {
                     SELECT 1 FROM knowledge_document_version_bindings version_binding
                     WHERE version_binding.document_version_id = version.id
                       AND version_binding.cross_version_scope = 'project_all_versions'
-             )) AND document.project_id = ?2 AND document.deleted_at IS NULL",
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''",
             params![release_id, release.1],
             |row| row.get(0),
         )?;
-        let indexed_versions: i64 = conn.query_row(
+        let indexed_content_versions: i64 = conn.query_row(
             "SELECT COUNT(DISTINCT chunk.document_version_id)
              FROM knowledge_chunks chunk
              JOIN knowledge_document_versions version ON version.id = chunk.document_version_id
@@ -436,10 +462,55 @@ impl Database {
                     SELECT 1 FROM knowledge_document_version_bindings version_binding
                     WHERE version_binding.document_version_id = version.id
                       AND version_binding.cross_version_scope = 'project_all_versions'
-             )) AND document.project_id = ?2 AND document.deleted_at IS NULL",
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''",
             params![release_id, release.1],
             |row| row.get(0),
         )?;
+        // HTML 资源壳、空 SQL 文件等仍会保存“解析成功但没有可索引文本”的产物。
+        // 这类版本不能凭空生成全文分块，也不应让历史回填任务永久重复处理。它们属于
+        // 已完成的全文处理，但不计入后续向量化候选。
+        let skipped_non_indexable_versions: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT version.id)
+             FROM knowledge_document_versions version
+             JOIN knowledge_documents document ON document.id = version.document_id
+             WHERE (version.release_id = ?1 OR EXISTS (
+                    SELECT 1 FROM knowledge_document_version_bindings version_binding
+                    WHERE version_binding.document_version_id = version.id
+                      AND version_binding.cross_version_scope = 'project_all_versions'
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''
+               AND NOT EXISTS (
+                    SELECT 1 FROM knowledge_chunks chunk
+                    WHERE chunk.document_version_id = version.id
+               )
+               AND EXISTS (
+                    SELECT 1 FROM knowledge_document_parse_artifacts artifact
+                    WHERE artifact.document_version_id = version.id
+               )
+               AND NOT EXISTS (
+                    SELECT 1 FROM knowledge_document_parse_artifacts artifact
+                    WHERE artifact.document_version_id = version.id
+                      AND CASE
+                          WHEN json_valid(artifact.structure_json) = 0 THEN 0
+                          WHEN json_type(artifact.structure_json) = 'array'
+                              THEN CASE WHEN json_array_length(artifact.structure_json) = 0 THEN 1 ELSE 0 END
+                          WHEN json_type(artifact.structure_json) = 'object'
+                              THEN CASE
+                                  WHEN json_type(artifact.structure_json, '$.blocks') = 'array'
+                                   AND json_array_length(artifact.structure_json, '$.blocks') = 0
+                                  THEN 1
+                                  ELSE 0
+                              END
+                          ELSE 0
+                      END = 0
+               )",
+            params![release_id, release.1],
+            |row| row.get(0),
+        )?;
+        let completed_indexing_versions = indexed_content_versions
+            .checked_add(skipped_non_indexable_versions)
+            .ok_or_else(|| AppError::Custom("全文处理文档数量超出范围".to_string()))?;
         let vectorized_versions: i64 = conn.query_row(
             "SELECT COUNT(DISTINCT chunk.document_version_id)
              FROM knowledge_chunk_embeddings embedding
@@ -450,7 +521,8 @@ impl Database {
                     SELECT 1 FROM knowledge_document_version_bindings version_binding
                     WHERE version_binding.document_version_id = version.id
                       AND version_binding.cross_version_scope = 'project_all_versions'
-             )) AND document.project_id = ?2 AND document.deleted_at IS NULL",
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''",
             params![release_id, release.1],
             |row| row.get(0),
         )?;
@@ -466,6 +538,18 @@ impl Database {
             params![release.1, release_id],
             |row| row.get(0),
         )?;
+        let mut indexing_stage = version_stage(
+            "indexing",
+            "全文索引",
+            completed_indexing_versions,
+            document_versions,
+            "个文档版本已完成全文处理",
+        );
+        if skipped_non_indexable_versions > 0 {
+            indexing_stage.summary = format!(
+                "{completed_indexing_versions}/{document_versions} 个文档版本已完成全文处理，其中 {indexed_content_versions} 个已建立全文索引，{skipped_non_indexable_versions} 个无可索引文本已跳过",
+            );
+        }
         let stages = vec![
             version_stage(
                 "repository_capture",
@@ -488,13 +572,7 @@ impl Database {
                 document_versions,
                 "个文档版本已解析",
             ),
-            version_stage(
-                "indexing",
-                "全文索引",
-                indexed_versions,
-                document_versions,
-                "个文档版本已建立索引",
-            ),
+            indexing_stage,
             version_stage(
                 "analysis",
                 "代码分析",
@@ -507,7 +585,7 @@ impl Database {
                 "vector",
                 "向量化",
                 vectorized_versions,
-                indexed_versions,
+                indexed_content_versions,
                 "个文档版本已有本地向量",
             ),
         ];
@@ -523,6 +601,68 @@ impl Database {
             status: status.to_string(),
             stages,
         })
+    }
+
+    /// 返回当前版本范围内缺少解析产物或全文分块的冻结正文版本。项目级绑定仍按与
+    /// 完整度页面相同的范围计算，确保回填完成后统计口径不会不一致。
+    pub(crate) fn list_incomplete_knowledge_project_version_document_ids(
+        &self,
+        release_id: i64,
+    ) -> Result<Vec<i64>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| AppError::Custom(error.to_string()))?;
+        let project_id = conn
+            .query_row(
+                "SELECT project_id FROM knowledge_releases WHERE id = ?1 AND deleted_at IS NULL",
+                [release_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound(format!("知识版本不存在: {release_id}")))?;
+        let mut statement = conn.prepare(
+            "SELECT version.id
+             FROM knowledge_document_versions version
+             JOIN knowledge_documents document ON document.id = version.document_id
+             WHERE (version.release_id = ?1 OR EXISTS (
+                    SELECT 1 FROM knowledge_document_version_bindings version_binding
+                    WHERE version_binding.document_version_id = version.id
+                      AND version_binding.cross_version_scope = 'project_all_versions'
+             )) AND document.project_id = ?2 AND document.deleted_at IS NULL
+               AND version.valid = 1 AND version.content <> ''
+               AND (NOT EXISTS (
+                    SELECT 1 FROM knowledge_document_parse_artifacts artifact
+                    WHERE artifact.document_version_id = version.id
+               ) OR (
+                    NOT EXISTS (
+                        SELECT 1 FROM knowledge_chunks chunk
+                        WHERE chunk.document_version_id = version.id
+                    ) AND EXISTS (
+                        SELECT 1 FROM knowledge_document_parse_artifacts artifact
+                        WHERE artifact.document_version_id = version.id
+                          AND CASE
+                              WHEN json_valid(artifact.structure_json) = 0 THEN 1
+                              WHEN json_type(artifact.structure_json) = 'array'
+                                  THEN CASE WHEN json_array_length(artifact.structure_json) = 0 THEN 0 ELSE 1 END
+                              WHEN json_type(artifact.structure_json) = 'object'
+                                  THEN CASE
+                                      WHEN json_type(artifact.structure_json, '$.blocks') = 'array'
+                                       AND json_array_length(artifact.structure_json, '$.blocks') = 0
+                                      THEN 0
+                                      ELSE 1
+                                  END
+                              ELSE 1
+                          END = 1
+                    )
+               ))
+             ORDER BY version.id",
+        )?;
+        let ids = statement
+            .query_map(params![release_id, project_id], |row| row.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(ids)
     }
 }
 
@@ -637,7 +777,7 @@ fn map_release_manifest(
 mod tests {
     use std::sync::Mutex;
 
-    use rusqlite::Connection;
+    use rusqlite::{params, Connection};
 
     use super::Database;
     use crate::database::schema;
@@ -696,6 +836,12 @@ mod tests {
             |row| row.get(0),
         )?;
         assert_eq!(historical, 1);
+        drop(connection);
+        let preserved = database
+            .get_knowledge_project_repository_binding_including_history(first[0].id)?
+            .expect("历史版本仍需读取已解绑仓库绑定");
+        assert_eq!(preserved.workspace_key, "repo-a");
+        assert!(preserved.deleted_at.is_some());
         Ok(())
     }
 
@@ -772,6 +918,179 @@ mod tests {
             .expect("文档同步阶段必须存在");
         assert_eq!(document_sync.completed_count, 1);
         assert_eq!(document_sync.total_count, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn version_backfill_candidates_include_only_missing_derived_data(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let database = database()?;
+        let conn = database.conn.lock().map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT INTO knowledge_releases (project_id, version, tag_name, branch, commit_sha, description)
+             VALUES (1, 'v1.0.0', '', '', '', '')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_documents
+                (document_key, project_id, source_id, doc_type, title, logical_path, status,
+                 sensitivity, tags_json, allow_ai, allow_mcp)
+             VALUES ('backfill-doc', 1, NULL, 'markdown', '回填说明', 'docs/backfill.md', 'active',
+                     'internal', '[]', 1, 0)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_document_versions
+                (document_id, release_id, version_label, git_branch, commit_sha, source_path,
+                 mime_type, content, content_hash, parsed_meta_json, token_estimate, valid)
+             VALUES (1, 1, 'v1', '', '', 'docs/backfill.md', 'text/markdown', '需要回填',
+                     'backfill-hash', '{}', 1, 1)",
+            [],
+        )?;
+        drop(conn);
+
+        assert_eq!(
+            database.list_incomplete_knowledge_project_version_document_ids(1)?,
+            vec![1]
+        );
+
+        let conn = database.conn.lock().map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT INTO knowledge_chunks
+                (document_version_id, chunk_index, heading_path, content, content_hash, token_estimate, location_json)
+             VALUES (1, 0, '', '需要回填', 'chunk-backfill-hash', 1, '{}')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_document_parse_artifacts
+                (document_version_id, asset_id, parser_id, parser_version, quality_level,
+                 warning_json, normalized_hash, structure_json)
+             VALUES (1, NULL, 'markdown-parser-v1', 'v1', 'complete', '[]',
+                     'normalized-backfill-hash', '{}')",
+            [],
+        )?;
+        drop(conn);
+
+        assert!(database
+            .list_incomplete_knowledge_project_version_document_ids(1)?
+            .is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn version_completeness_marks_no_text_parse_artifacts_as_processed(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let database = database()?;
+        let conn = database.conn.lock().map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT INTO knowledge_releases (project_id, version, tag_name, branch, commit_sha, description)
+             VALUES (1, 'v1.0.0', '', '', '', '')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_documents
+                (document_key, project_id, source_id, doc_type, title, logical_path, status,
+                 sensitivity, tags_json, allow_ai, allow_mcp)
+             VALUES ('resource-shell', 1, NULL, 'html', '页面资源壳', 'docs/links/empty.html', 'active',
+                     'internal', '[]', 1, 0)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_document_versions
+                (document_id, release_id, version_label, git_branch, commit_sha, source_path,
+                 mime_type, content, content_hash, parsed_meta_json, token_estimate, valid)
+             VALUES (1, 1, 'v1', '', '', 'docs/links/empty.html', 'text/plain', '<html></html>',
+                     'resource-shell-hash', '{}', 1, 1)",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_document_parse_artifacts
+                (document_version_id, asset_id, parser_id, parser_version, quality_level,
+                 warning_json, normalized_hash, structure_json)
+             VALUES (1, NULL, 'html-parser-v1', 'v1', 'complete', '[]',
+                     'resource-shell-normalized-hash', '{\"blocks\":[]}')",
+            [],
+        )?;
+        drop(conn);
+
+        let completeness = database.get_knowledge_project_version_completeness(1)?;
+        let indexing = completeness
+            .stages
+            .iter()
+            .find(|stage| stage.stage == "indexing")
+            .expect("全文索引阶段必须存在");
+        assert_eq!(indexing.status, "ready");
+        assert_eq!(indexing.completed_count, 1);
+        assert_eq!(indexing.total_count, 1);
+        assert!(indexing.summary.contains("无可索引文本已跳过"));
+        assert!(database
+            .list_incomplete_knowledge_project_version_document_ids(1)?
+            .is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn version_backfill_retries_nonempty_or_invalid_parse_artifacts(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let database = database()?;
+        let conn = database.conn.lock().map_err(|error| error.to_string())?;
+        conn.execute(
+            "INSERT INTO knowledge_releases (project_id, version, tag_name, branch, commit_sha, description)
+             VALUES (1, 'v1.0.0', '', '', '', '')",
+            [],
+        )?;
+        for (key, path, hash) in [
+            ("nonempty-blocks", "docs/nonempty.html", "nonempty-hash"),
+            ("invalid-structure", "docs/invalid.html", "invalid-hash"),
+        ] {
+            conn.execute(
+                "INSERT INTO knowledge_documents
+                    (document_key, project_id, source_id, doc_type, title, logical_path, status,
+                     sensitivity, tags_json, allow_ai, allow_mcp)
+                 VALUES (?1, 1, NULL, 'html', '待回填文档', ?2, 'active',
+                         'internal', '[]', 1, 0)",
+                params![key, path],
+            )?;
+            conn.execute(
+                "INSERT INTO knowledge_document_versions
+                    (document_id, release_id, version_label, git_branch, commit_sha, source_path,
+                     mime_type, content, content_hash, parsed_meta_json, token_estimate, valid)
+                 VALUES (last_insert_rowid(), 1, 'v1', '', '', ?1, 'text/plain', '待索引正文',
+                         ?2, '{}', 1, 1)",
+                params![path, hash],
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO knowledge_document_parse_artifacts
+                (document_version_id, asset_id, parser_id, parser_version, quality_level,
+                 warning_json, normalized_hash, structure_json)
+             VALUES (1, NULL, 'html-parser-v1', 'v1', 'complete', '[]', 'nonempty-normalized',
+                     '{\"blocks\":[{\"content\":\"待索引正文\"}]}')",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_document_parse_artifacts
+                (document_version_id, asset_id, parser_id, parser_version, quality_level,
+                 warning_json, normalized_hash, structure_json)
+             VALUES (2, NULL, 'html-parser-v1', 'v1', 'complete', '[]', 'invalid-normalized',
+                     '{invalid json')",
+            [],
+        )?;
+        drop(conn);
+
+        assert_eq!(
+            database.list_incomplete_knowledge_project_version_document_ids(1)?,
+            vec![1, 2]
+        );
+        let completeness = database.get_knowledge_project_version_completeness(1)?;
+        let indexing = completeness
+            .stages
+            .iter()
+            .find(|stage| stage.stage == "indexing")
+            .expect("全文索引阶段必须存在");
+        assert_eq!(indexing.status, "pending");
+        assert_eq!(indexing.completed_count, 0);
+        assert_eq!(indexing.total_count, 2);
         Ok(())
     }
 }

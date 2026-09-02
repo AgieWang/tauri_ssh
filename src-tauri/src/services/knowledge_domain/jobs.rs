@@ -8,7 +8,8 @@ use crate::database::knowledge::{
     CompleteKnowledgeDocumentIndexJobInput, FailKnowledgeDocumentIndexJobInput,
 };
 use crate::database::knowledge_domain::documents::{
-    CompleteKnowledgeDocumentUploadImport, NewKnowledgeDocumentParseArtifact,
+    parse_artifact_from_result, CompleteKnowledgeDocumentUploadImport,
+    NewKnowledgeDocumentParseArtifact,
 };
 use crate::database::Database;
 use crate::error::AppError;
@@ -17,6 +18,7 @@ use crate::models::{
     KnowledgeParseInput,
 };
 use crate::services::ai_provider::AiProviderService;
+use crate::services::knowledge::emit_knowledge_job_progress;
 use crate::services::knowledge_domain::upload_validation::FILE_PARSE_TIMEOUT;
 use crate::services::knowledge_local_ocr::{KnowledgeLocalOcrService, LocalImageOcrOutcome};
 use crate::services::knowledge_parser::KnowledgeParserService;
@@ -37,6 +39,259 @@ enum DocumentIndexOutcome {
 }
 
 impl KnowledgeDocumentJobService {
+    /// 对已冻结的文本版本重新解析并保存全部派生数据。该入口不读取工作区，也不会
+    /// 改写原始正文、Git 引用或版本清单，适合历史数据回填。
+    pub(crate) fn parse_and_index_document_version(
+        db: &Database,
+        document_version_id: i64,
+        options: Option<crate::models::KnowledgeChunkOptions>,
+    ) -> Result<crate::models::KnowledgeParseAndChunkResult, AppError> {
+        let version = db
+            .get_knowledge_document_version_by_id(document_version_id)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("知识文档版本不存在: {document_version_id}"))
+            })?;
+        db.ensure_knowledge_fts()?;
+        let result = KnowledgeParserService::parse_and_chunk(KnowledgeParseAndChunkInput {
+            document: KnowledgeParseInput {
+                source_path: version.source_path,
+                mime_type: version.mime_type,
+                content: version.content,
+                binary_content: None,
+            },
+            options,
+        })?;
+        let token_estimate = result
+            .chunks
+            .iter()
+            .map(|chunk| chunk.token_estimate)
+            .sum::<i64>();
+        let parsed_meta = serde_json::json!({
+            "parserId": result.parsed.parser_id,
+            "normalizationVersion": result.parsed.normalization_version,
+            "chunkStrategyId": result.chunk_strategy_id,
+            "frontMatter": result.parsed.front_matter,
+            "warnings": result.parsed.warnings,
+        });
+        let parse_artifact = parse_artifact_from_result(document_version_id, None, &result)?;
+        db.replace_knowledge_document_chunks_with_parse_artifact(
+            document_version_id,
+            &parsed_meta,
+            token_estimate,
+            &result.chunks,
+            &parse_artifact,
+        )?;
+        Ok(result)
+    }
+
+    /// 在后台补齐一个版本的历史解析与全文索引。任务只处理当前完整度缺失的版本，
+    /// 可在取消或单文档失败后重新运行，已成功的版本会在下一次扫描中自动跳过。
+    pub(crate) fn start_project_version_backfill(
+        app: tauri::AppHandle,
+        release_id: i64,
+    ) -> Result<KnowledgeJob, AppError> {
+        if release_id <= 0 {
+            return Err(AppError::InvalidInput("版本 ID 必须为正数".to_string()));
+        }
+        let state = app.state::<AppState>();
+        KnowledgeRolloutService::require(&state.db, "catalog")?;
+        // 数据库查询同时验证版本存在，避免创建无法执行的空任务。
+        state
+            .db
+            .list_incomplete_knowledge_project_version_document_ids(release_id)?;
+        let job_key = format!("knowledge-project-version-backfill-{release_id}");
+        if let Some(existing) = state.db.get_knowledge_job(&job_key)? {
+            return match existing.status.as_str() {
+                "queued" | "running" | "completed" => Ok(existing),
+                "failed" | "cancelled" | "interrupted" => {
+                    Self::retry_project_version_backfill(app, existing)
+                }
+                _ => Err(AppError::InvalidInput("知识任务状态无效".to_string())),
+            };
+        }
+        let checkpoint = project_version_backfill_checkpoint(release_id, 0, 0, None);
+        let job = match state
+            .db
+            .create_knowledge_job(&crate::models::CreateKnowledgeJobInput {
+                job_key: job_key.clone(),
+                job_type: "project_version_backfill".to_string(),
+                source_id: None,
+                profile_id: None,
+                message: "项目版本历史处理回填已进入队列".to_string(),
+                checkpoint,
+            }) {
+            Ok(job) => job,
+            Err(error) => state.db.get_knowledge_job(&job_key)?.ok_or(error)?,
+        };
+        let task_app = app.clone();
+        emit_knowledge_job_progress(&app, &job);
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = Self::run_project_version_backfill(&task_app, job.id, release_id) {
+                log::warn!("项目版本历史处理回填异常 (job {}): {error}", job.id);
+                Self::finish_project_version_backfill_error(&task_app, job.id, release_id);
+            }
+        });
+        Ok(job)
+    }
+
+    pub(crate) fn retry_project_version_backfill(
+        app: tauri::AppHandle,
+        job: KnowledgeJob,
+    ) -> Result<KnowledgeJob, AppError> {
+        let release_id = job
+            .checkpoint
+            .get("releaseId")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| AppError::Custom("回填任务检查点缺少版本 ID".to_string()))?;
+        let state = app.state::<AppState>();
+        let restarted = state.db.restart_knowledge_job(job.id)?;
+        emit_knowledge_job_progress(&app, &restarted);
+        let task_app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = Self::run_project_version_backfill(&task_app, job.id, release_id) {
+                log::warn!("项目版本历史处理回填重试异常 (job {}): {error}", job.id);
+                Self::finish_project_version_backfill_error(&task_app, job.id, release_id);
+            }
+        });
+        Ok(restarted)
+    }
+
+    fn run_project_version_backfill(
+        app: &tauri::AppHandle,
+        job_id: i64,
+        release_id: i64,
+    ) -> Result<(), AppError> {
+        let state = app.state::<AppState>();
+        let document_version_ids = state
+            .db
+            .list_incomplete_knowledge_project_version_document_ids(release_id)?;
+        let total = i64::try_from(document_version_ids.len())
+            .map_err(|_| AppError::InvalidInput("待回填文档数量超出支持范围".to_string()))?;
+        let initial = project_version_backfill_checkpoint(release_id, 0, total, None);
+        let running = state.db.mark_knowledge_job_running(
+            job_id,
+            "backfill",
+            "正在补齐历史文档解析与全文索引",
+            &initial,
+        )?;
+        emit_knowledge_job_progress(app, &running);
+        for (offset, document_version_id) in document_version_ids.into_iter().enumerate() {
+            let processed = i64::try_from(offset)
+                .map_err(|_| AppError::InvalidInput("回填进度超出支持范围".to_string()))?;
+            if state.db.is_knowledge_job_cancel_requested(job_id)? {
+                let checkpoint = project_version_backfill_checkpoint(
+                    release_id,
+                    processed,
+                    total,
+                    Some(document_version_id),
+                );
+                let cancelled = state.db.finish_knowledge_job(
+                    job_id,
+                    "cancelled",
+                    "历史处理回填已取消",
+                    None,
+                    &checkpoint,
+                )?;
+                emit_knowledge_job_progress(app, &cancelled);
+                return Ok(());
+            }
+            if let Err(error) =
+                Self::parse_and_index_document_version(&state.db, document_version_id, None)
+            {
+                log::warn!(
+                    "项目版本历史处理回填解析失败 (job {job_id}, document version {document_version_id}): {error}"
+                );
+                let checkpoint = project_version_backfill_checkpoint(
+                    release_id,
+                    processed,
+                    total,
+                    Some(document_version_id),
+                );
+                let terminal = state.db.finish_knowledge_job_failed_or_cancel(
+                    job_id,
+                    "历史处理回填失败，可重试",
+                    "处理文档时发生错误，请在本机日志中查看详情",
+                    &checkpoint,
+                    "历史处理回填已取消",
+                    &checkpoint,
+                )?;
+                emit_knowledge_job_progress(app, &terminal);
+                return Ok(());
+            }
+            let completed = processed + 1;
+            let checkpoint = project_version_backfill_checkpoint(
+                release_id,
+                completed,
+                total,
+                Some(document_version_id),
+            );
+            let updated = state.db.update_knowledge_job_progress(
+                job_id,
+                completed,
+                total,
+                &format!("已补齐 {completed}/{total} 个文档版本"),
+                &checkpoint,
+            )?;
+            if updated && (completed == total || completed % 10 == 0) {
+                let job = state
+                    .db
+                    .get_knowledge_job_by_id(job_id)?
+                    .ok_or_else(|| AppError::NotFound(format!("知识任务不存在: {job_id}")))?;
+                emit_knowledge_job_progress(app, &job);
+            }
+        }
+        let checkpoint = project_version_backfill_checkpoint(release_id, total, total, None);
+        if state.db.is_knowledge_job_cancel_requested(job_id)? {
+            let cancelled = state.db.finish_knowledge_job(
+                job_id,
+                "cancelled",
+                "历史处理回填已取消",
+                None,
+                &checkpoint,
+            )?;
+            emit_knowledge_job_progress(app, &cancelled);
+            return Ok(());
+        }
+        match state.db.finish_knowledge_job(
+            job_id,
+            "completed",
+            "历史文档解析与全文索引已补齐",
+            None,
+            &checkpoint,
+        ) {
+            Ok(completed) => emit_knowledge_job_progress(app, &completed),
+            Err(_) if state.db.is_knowledge_job_cancel_requested(job_id)? => {
+                let cancelled = state.db.finish_knowledge_job(
+                    job_id,
+                    "cancelled",
+                    "历史处理回填已取消",
+                    None,
+                    &checkpoint,
+                )?;
+                emit_knowledge_job_progress(app, &cancelled);
+            }
+            Err(error) => return Err(error),
+        }
+        Ok(())
+    }
+
+    fn finish_project_version_backfill_error(app: &tauri::AppHandle, job_id: i64, release_id: i64) {
+        let state = app.state::<AppState>();
+        let checkpoint = project_version_backfill_checkpoint(release_id, 0, 0, None);
+        match state.db.finish_knowledge_job_failed_or_cancel(
+            job_id,
+            "历史处理回填失败，可重试",
+            "回填任务异常中断，请在本机日志中查看详情",
+            &checkpoint,
+            "历史处理回填已取消",
+            &checkpoint,
+        ) {
+            Ok(terminal) => emit_knowledge_job_progress(app, &terminal),
+            Err(error) => log::warn!("项目版本历史处理回填终态写入失败 (job {job_id}): {error}"),
+        }
+    }
+
     /// 文档提交事务只负责持久化“待索引”事实；事务提交后再异步调度，避免任务读到
     /// 半提交的版本。任务持久化状态允许应用重启后通过重试按钮恢复。
     pub(crate) fn spawn_document_index_job(
@@ -497,12 +752,14 @@ fn parse_and_store_document_chunks(
         "warnings": parsed.parsed.warnings,
         "parseTimeoutSeconds": FILE_PARSE_TIMEOUT.as_secs(),
     });
+    let parse_artifact = parse_artifact_from_result(document_version_id, None, &parsed)?;
     match db.replace_knowledge_document_chunks_and_finish_job(
         CompleteKnowledgeDocumentIndexJobInput {
             document_version_id,
             parsed_meta: &parsed_meta,
             token_estimate,
             chunks: &parsed.chunks,
+            parse_artifact: &parse_artifact,
             job_id,
             message: "文档索引已完成",
             checkpoint: &completed_checkpoint,
@@ -526,6 +783,21 @@ fn finish_cancelled(
         None,
         &document_index_checkpoint(document_version_id, "cancelled", 0, 1, None),
     )
+}
+
+fn project_version_backfill_checkpoint(
+    release_id: i64,
+    processed: i64,
+    total: i64,
+    last_document_version_id: Option<i64>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "releaseId": release_id,
+        "stage": "backfill",
+        "processed": processed,
+        "total": total,
+        "lastDocumentVersionId": last_document_version_id,
+    })
 }
 
 fn document_index_checkpoint(
@@ -638,6 +910,13 @@ mod tests {
         assert!(!database
             .list_knowledge_chunks(committed.document_version_id)?
             .is_empty());
+        let document = database
+            .get_knowledge_document_by_id(committed.document_id)?
+            .expect("提交后的文档必须存在");
+        assert!(database
+            .get_knowledge_document_processing_summary(&document)?
+            .parser
+            .is_some());
         let hits = database.search_knowledge_fts(&KnowledgeSearchInput {
             query: "退款需要审批".to_string(),
             project_ids: vec![project.id],

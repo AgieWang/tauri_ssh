@@ -6,8 +6,9 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
     CreateKnowledgeDocumentVersionInput, KnowledgeChunkWriteInput,
-    KnowledgeDocumentComparisonArtifact, KnowledgeJob,
+    KnowledgeDocumentComparisonArtifact, KnowledgeJob, KnowledgeParseAndChunkResult,
 };
+use sha2::{Digest, Sha256};
 
 pub(crate) const DOMAIN: &str = "documents";
 
@@ -1332,7 +1333,7 @@ fn validate_parse_artifact_fields(
     Ok(())
 }
 
-fn insert_knowledge_document_parse_artifact_in_transaction(
+pub(crate) fn insert_knowledge_document_parse_artifact_in_transaction(
     tx: &Transaction<'_>,
     document_version_id: i64,
     artifact: &NewKnowledgeDocumentParseArtifact,
@@ -1357,6 +1358,45 @@ fn insert_knowledge_document_parse_artifact_in_transaction(
         ],
     )?;
     Ok(())
+}
+
+/// 将解析器输出转换为可审计的持久化事实。Git/本地目录来源没有受控资产，故 asset_id
+/// 保持为空；上传来源才会提供对应的资产引用。
+pub(crate) fn parse_artifact_from_result(
+    document_version_id: i64,
+    asset_id: Option<i64>,
+    result: &KnowledgeParseAndChunkResult,
+) -> Result<NewKnowledgeDocumentParseArtifact, AppError> {
+    let parser_id = result.parsed.parser_id.clone();
+    Ok(NewKnowledgeDocumentParseArtifact {
+        document_version_id,
+        asset_id,
+        parser_version: parser_version(&parser_id),
+        parser_id,
+        quality_level: if result.parsed.warnings.is_empty() {
+            "complete".to_string()
+        } else {
+            "partial".to_string()
+        },
+        warning_json: serde_json::to_string(&result.parsed.warnings)?,
+        normalized_hash: format!(
+            "{:x}",
+            Sha256::digest(result.parsed.normalized_content.as_bytes())
+        ),
+        structure_json: serde_json::to_string(&serde_json::json!({
+            "normalizationVersion": result.parsed.normalization_version,
+            "frontMatter": result.parsed.front_matter,
+            "blocks": result.parsed.blocks,
+            "chunkStrategyId": result.chunk_strategy_id,
+        }))?,
+    })
+}
+
+fn parser_version(parser_id: &str) -> String {
+    parser_id
+        .rsplit_once("-v")
+        .map(|(_, version)| format!("v{version}"))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn validate_asset(asset: &NewKnowledgeAsset) -> Result<(), AppError> {

@@ -1,10 +1,11 @@
 use crate::error::CommandError;
 use crate::models::{
-    KnowledgeProjectVersionCompleteness, KnowledgeProjectVersionManifestInput,
-    KnowledgeProjectVersionManifestResult, KnowledgeRepositoryAvailability,
-    KnowledgeRepositoryBinding, KnowledgeRepositoryBindingInput,
+    KnowledgeJob, KnowledgeProjectVersionBackfillInput, KnowledgeProjectVersionCompleteness,
+    KnowledgeProjectVersionManifestInput, KnowledgeProjectVersionManifestResult,
+    KnowledgeRepositoryAvailability, KnowledgeRepositoryBinding, KnowledgeRepositoryBindingInput,
 };
 use crate::services::knowledge_domain::catalog::KnowledgeCatalogService;
+use crate::services::knowledge_domain::jobs::KnowledgeDocumentJobService;
 use crate::state::AppState;
 
 /// 读取项目当前有效的仓库关联。历史已解除关联不在默认列表中，仍由审计与版本清单保留。
@@ -69,5 +70,15 @@ pub fn get_knowledge_project_version_completeness(
     release_id: i64,
 ) -> Result<KnowledgeProjectVersionCompleteness, CommandError> {
     KnowledgeCatalogService::get_project_version_completeness(&state.db, release_id)
+        .map_err(Into::into)
+}
+
+/// 只从已经冻结的版本正文回填解析产物和全文索引，不重新读取 Git 工作区或改写版本。
+#[tauri::command]
+pub fn start_knowledge_project_version_backfill(
+    app: tauri::AppHandle,
+    input: KnowledgeProjectVersionBackfillInput,
+) -> Result<KnowledgeJob, CommandError> {
+    KnowledgeDocumentJobService::start_project_version_backfill(app, input.release_id)
         .map_err(Into::into)
 }

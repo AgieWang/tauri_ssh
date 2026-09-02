@@ -197,6 +197,12 @@ export const knowledgeApi = {
     hasTauriRuntime()
       ? invoke<KnowledgeJob[]>("list_knowledge_jobs", { limit })
       : devApiFetch<KnowledgeJob[]>(`/knowledge/jobs?limit=${limit}`),
+  getJob: (jobKey: string) =>
+    hasTauriRuntime()
+      ? invoke<KnowledgeJob>("get_knowledge_job", { jobKey })
+      : devApiFetch<KnowledgeJob>(
+          `/knowledge/jobs/${encodeURIComponent(jobKey)}`,
+        ),
   cancelJob: (jobKey: string) =>
     hasTauriRuntime()
       ? invoke<KnowledgeJob>("cancel_knowledge_job", { jobKey })

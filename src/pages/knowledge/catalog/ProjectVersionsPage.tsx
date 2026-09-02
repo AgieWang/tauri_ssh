@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   Alert,
   Button,
   Card,
   Empty,
   List,
+  Popconfirm,
   Progress,
   Select,
   Skeleton,
@@ -13,16 +15,57 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { ArrowLeft, GitBranch, RefreshCw, Settings2 } from "lucide-react";
-import { getErrorMessage } from "@/lib/api";
-import { knowledgeCatalogApi } from "@/lib/api/knowledge-domain";
-import type { KnowledgeProject, KnowledgeRelease } from "@/types";
+import {
+  ArrowLeft,
+  GitBranch,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  Wrench,
+} from "lucide-react";
+import { getErrorMessage, hasTauriRuntime } from "@/lib/api/client";
+import {
+  knowledgeCatalogApi,
+  knowledgeJobsApi,
+} from "@/lib/api/knowledge-domain";
+import type {
+  KnowledgeJob,
+  KnowledgeJobProgress,
+  KnowledgeProject,
+  KnowledgeRelease,
+} from "@/types";
 import type {
   KnowledgeProjectVersionCompleteness,
   KnowledgeProjectVersionManifestResult,
 } from "@/types/knowledge-domain/catalog";
 
 const { Paragraph, Text, Title } = Typography;
+
+function isTerminalJobStatus(status: string) {
+  return ["completed", "failed", "cancelled", "interrupted"].includes(status);
+}
+
+function toBackfillProgress(job: KnowledgeJob): KnowledgeJobProgress {
+  return {
+    jobKey: job.jobKey,
+    status: job.status,
+    stage: String(job.checkpoint.stage ?? job.status),
+    current: job.progressCurrent,
+    total: job.progressTotal,
+    message: job.message,
+    canCancel: job.status === "queued" || job.status === "running",
+    error: job.error
+      ? {
+          code: `KNOWLEDGE_JOB_${job.status.toUpperCase()}`,
+          message: job.error,
+          stage: String(job.checkpoint.stage ?? job.status),
+          sourceKey: "",
+          retryable: job.status === "failed" || job.status === "interrupted",
+          sanitizedDetails: {},
+        }
+      : null,
+  };
+}
 
 /**
  * 版本页按“选择版本 → 查看仓库清单 → 查看处理进度”组织。Commit SHA 与逐仓库规则属于
@@ -43,8 +86,19 @@ export default function ProjectVersionsPage() {
     useState<KnowledgeProjectVersionCompleteness | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillJob, setBackfillJob] = useState<KnowledgeJob | null>(null);
+  const [backfillProgress, setBackfillProgress] =
+    useState<KnowledgeJobProgress | null>(null);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
+  const hasDocumentProcessingGaps =
+    completeness?.stages.some(
+      (stage) =>
+        (stage.stage === "parsing" || stage.stage === "indexing") &&
+        stage.status !== "ready",
+    ) ?? false;
 
   const load = useCallback(async () => {
     const currentRequestId = ++requestId.current;
@@ -109,6 +163,24 @@ export default function ProjectVersionsPage() {
     }
   }, []);
 
+  const startBackfill = useCallback(async () => {
+    if (selectedReleaseId == null) return;
+    setBackfilling(true);
+    setBackfillError(null);
+    try {
+      const job = await knowledgeCatalogApi.startProjectVersionBackfill({
+        releaseId: selectedReleaseId,
+      });
+      setBackfillJob(job);
+      setBackfillProgress(toBackfillProgress(job));
+      await loadVersion(selectedReleaseId);
+    } catch (cause) {
+      setBackfillError(getErrorMessage(cause));
+    } finally {
+      setBackfilling(false);
+    }
+  }, [loadVersion, selectedReleaseId]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -116,6 +188,61 @@ export default function ProjectVersionsPage() {
   useEffect(() => {
     if (!loading) void loadVersion(selectedReleaseId);
   }, [loadVersion, loading, selectedReleaseId]);
+
+  useEffect(() => {
+    if (!backfillJob || !hasTauriRuntime()) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen<KnowledgeJobProgress>("knowledge-job-progress", (event) => {
+      if (disposed || event.payload.jobKey !== backfillJob.jobKey) return;
+      setBackfillProgress(event.payload);
+      if (isTerminalJobStatus(event.payload.status)) {
+        void loadVersion(selectedReleaseId);
+      }
+    })
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) setBackfillError(getErrorMessage(cause));
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [backfillJob, loadVersion, selectedReleaseId]);
+
+  useEffect(() => {
+    if (!backfillJob) return;
+    let disposed = false;
+    let polling = false;
+    let timer: number | undefined;
+    const refreshJob = async () => {
+      if (polling || disposed) return;
+      polling = true;
+      try {
+        const job = await knowledgeJobsApi.get(backfillJob.jobKey);
+        if (disposed) return;
+        setBackfillProgress(toBackfillProgress(job));
+        if (isTerminalJobStatus(job.status)) {
+          void loadVersion(selectedReleaseId);
+          if (timer != null) window.clearInterval(timer);
+          return;
+        }
+      } catch (cause) {
+        if (!disposed) setBackfillError(getErrorMessage(cause));
+      } finally {
+        polling = false;
+      }
+    };
+    void refreshJob();
+    timer = window.setInterval(() => void refreshJob(), 1000);
+    return () => {
+      disposed = true;
+      if (timer != null) window.clearInterval(timer);
+    };
+  }, [backfillJob, loadVersion, selectedReleaseId]);
 
   if (loading) return <Skeleton active className="mt-8 w-full px-6" />;
 
@@ -155,6 +282,27 @@ export default function ProjectVersionsPage() {
             刷新
           </Button>
           <Button
+            icon={<ShieldCheck size={16} />}
+            onClick={() =>
+              navigate(`/knowledge/projects/${project.id}/sources`)
+            }
+          >
+            管理来源授权
+          </Button>
+          {hasDocumentProcessingGaps && selectedReleaseId != null ? (
+            <Popconfirm
+              title="补齐历史文档处理"
+              description="将重新解析当前版本缺少解析产物或全文索引的冻结正文；不会读取 Git 工作区，也不会修改原文或版本清单。"
+              okText="开始回填"
+              cancelText="取消"
+              onConfirm={() => void startBackfill()}
+            >
+              <Button icon={<Wrench size={16} />} loading={backfilling}>
+                补齐历史处理
+              </Button>
+            </Popconfirm>
+          ) : null}
+          <Button
             type="primary"
             icon={<Settings2 size={16} />}
             onClick={() => navigate(`/knowledge/projects/${project.id}/setup`)}
@@ -175,6 +323,49 @@ export default function ProjectVersionsPage() {
             <Button onClick={() => void loadVersion(selectedReleaseId)}>
               重试
             </Button>
+          }
+        />
+      ) : null}
+
+      {backfillError ? (
+        <Alert
+          className="mb-4"
+          type="error"
+          showIcon
+          title="历史处理回填未启动"
+          description={backfillError}
+        />
+      ) : null}
+
+      {backfillJob ? (
+        <Alert
+          className="mb-4"
+          type={backfillProgress?.status === "failed" ? "error" : "info"}
+          showIcon
+          title={
+            backfillProgress?.status === "completed"
+              ? "历史处理回填已完成"
+              : backfillProgress?.status === "cancelled"
+                ? "历史处理回填已取消"
+                : backfillProgress?.status === "failed"
+                  ? "历史处理回填失败"
+                  : "历史处理回填执行中"
+          }
+          description={
+            <Space orientation="vertical" size={4} className="w-full">
+              <Text>{backfillProgress?.message ?? backfillJob.message}</Text>
+              <Progress
+                percent={progressPercent(
+                  backfillProgress?.current ?? backfillJob.progressCurrent,
+                  backfillProgress?.total ?? backfillJob.progressTotal,
+                )}
+                size="small"
+                showInfo
+              />
+              {backfillProgress?.error ? (
+                <Text type="danger">{backfillProgress.error.message}</Text>
+              ) : null}
+            </Space>
           }
         />
       ) : null}

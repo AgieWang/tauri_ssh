@@ -171,6 +171,38 @@ impl KnowledgePolicyService {
         Ok(())
     }
 
+    /// 远程 Embedding 与远程问答一致：来源与敏感级别仍须授权，但可遮蔽的凭据以
+    /// 占位符参与向量化，避免代码报告因密码字段示例而永久阻断整个构建。
+    pub fn sanitize_remote_embedding_content(
+        db: &Database,
+        document_id: i64,
+        content: &str,
+    ) -> Result<String, AppError> {
+        let document = db
+            .get_knowledge_document_by_id(document_id)?
+            .ok_or_else(|| AppError::NotFound(format!("知识文档不存在: {document_id}")))?;
+        if document.status != "active"
+            || !matches!(document.sensitivity.as_str(), "public" | "internal")
+        {
+            return Err(AppError::InvalidInput(
+                "该知识文档不能远程向量化".to_string(),
+            ));
+        }
+        let source_id = document.source_id.ok_or_else(|| {
+            AppError::InvalidInput("未关联知识源的文档不能远程向量化".to_string())
+        })?;
+        let source = db
+            .get_knowledge_source_by_id(source_id)?
+            .ok_or_else(|| AppError::NotFound(format!("知识源不存在: {source_id}")))?;
+        if !source.enabled || !source.allow_remote_embedding {
+            return Err(AppError::InvalidInput("知识源未授权远程向量化".to_string()));
+        }
+        if content.trim().is_empty() {
+            return Err(AppError::InvalidInput("远程向量化内容不能为空".to_string()));
+        }
+        Self::sanitize_remote_ai_context(content)
+    }
+
     /// 检查将 RAG 上下文发送给远程聊天 Provider 的元数据安全边界。可遮蔽的秘密由
     /// `sanitize_remote_ai_context` 在外发前替换；私钥和证书仍在该方法中硬性拒绝。
     pub fn authorize_remote_ai_context(

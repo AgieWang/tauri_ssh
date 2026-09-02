@@ -28,6 +28,13 @@ use crate::services::knowledge_rollout::KnowledgeRolloutService;
 
 pub struct KnowledgeEmbeddingService;
 
+/// 当前受控远程模型的单条输入上限为 512 token。中文和代码的 token 密度可能接近
+/// 每字符一个 token，因此按保守字符窗口切片；再合并为原始全文分块的一条向量，避免
+/// 为兼容远程模型而改写正在使用的蓝绿索引分块。
+const REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS: usize = 400;
+const REMOTE_EMBEDDING_SEGMENTS_PER_REQUEST: usize = 8;
+const REMOTE_EMBEDDING_MAX_PREFIX_CHARS: usize = 64;
+
 /// Profile 生命周期审计仅记录可公开的 Profile 状态与完整性计数；模型请求、文档
 /// 内容、远程端点和凭据均不得进入审计明细。
 fn audit_embedding_lifecycle(
@@ -91,6 +98,92 @@ fn with_embedding_prefix(prefix: &str, text: &str) -> String {
     } else {
         format!("{prefix}{text}")
     }
+}
+
+/// Profile 保存的维度来自短文本探测的实际响应，是后续响应校验条件而非请求参数。
+/// 很多 OpenAI-compatible Embedding 服务（包括固定 384 维的本地模型）不接受
+/// `dimensions` 字段；构建与问句检索必须沿用探测时的请求形状。
+fn remote_embedding_request(
+    profile: &KnowledgeEmbeddingProfile,
+    inputs: Vec<String>,
+) -> AiProviderEmbeddingInput {
+    AiProviderEmbeddingInput {
+        provider_key: profile.provider_key.clone(),
+        model: Some(profile.model.clone()),
+        inputs,
+        dimensions: None,
+    }
+}
+
+fn split_remote_embedding_segments(
+    document_prefix: &str,
+    content: &str,
+) -> Result<Vec<String>, AppError> {
+    let prefix_chars = document_prefix.chars().count();
+    if prefix_chars > REMOTE_EMBEDDING_MAX_PREFIX_CHARS
+        || prefix_chars >= REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS
+    {
+        return Err(AppError::InvalidInput(
+            "远程向量化文本前缀过长，无法满足模型输入限制".to_string(),
+        ));
+    }
+    let content_limit = REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS - prefix_chars;
+    let characters = content.chars().collect::<Vec<_>>();
+    let segments = characters
+        .chunks(content_limit)
+        .map(|segment| segment.iter().collect::<String>())
+        .filter(|segment| !segment.trim().is_empty())
+        .map(|segment| with_embedding_prefix(document_prefix, &segment))
+        .collect::<Vec<_>>();
+    Ok(segments)
+}
+
+fn ensure_remote_embedding_job_not_cancelled(db: &Database, job_id: i64) -> Result<(), AppError> {
+    if db.is_knowledge_job_cancel_requested(job_id)? {
+        return Err(AppError::InvalidInput("远程向量构建任务已取消".to_string()));
+    }
+    Ok(())
+}
+
+fn merge_remote_embedding_segments(
+    vectors: Vec<Vec<f32>>,
+    dimension: i64,
+) -> Result<Vec<f32>, AppError> {
+    let expected_dimension = usize::try_from(dimension)
+        .map_err(|_| AppError::InvalidInput("远程向量维度超出范围".to_string()))?;
+    if expected_dimension == 0
+        || vectors.is_empty()
+        || vectors
+            .iter()
+            .any(|vector| vector.len() != expected_dimension)
+    {
+        return Err(AppError::InvalidInput(
+            "远程向量化返回维度或数量与向量化方案不一致".to_string(),
+        ));
+    }
+    let mut merged = vec![0_f64; expected_dimension];
+    for vector in &vectors {
+        for (index, value) in vector.iter().enumerate() {
+            if !value.is_finite() {
+                return Err(AppError::InvalidInput("远程向量化返回非有限数".to_string()));
+            }
+            merged[index] += f64::from(*value);
+        }
+    }
+    let vector_count = vectors.len() as f64;
+    for value in &mut merged {
+        *value /= vector_count;
+    }
+    let norm = merged.iter().map(|value| value * value).sum::<f64>().sqrt();
+    if !norm.is_finite() || norm <= 0.0 {
+        return Err(AppError::InvalidInput(
+            "远程向量化合并结果为零向量".to_string(),
+        ));
+    }
+    Ok(merged
+        .into_iter()
+        .map(|value| (value / norm) as f32)
+        .collect())
 }
 
 #[derive(Serialize)]
@@ -177,12 +270,10 @@ impl KnowledgeEmbeddingService {
                 }
                 let response = AiProviderService::embed_with_preflight(
                     db,
-                    AiProviderEmbeddingInput {
-                        provider_key: profile.provider_key.clone(),
-                        model: Some(profile.model.clone()),
-                        inputs: vec![with_embedding_prefix(&query_prefix, question)],
-                        dimensions: Some(profile.dimension),
-                    },
+                    remote_embedding_request(
+                        &profile,
+                        vec![with_embedding_prefix(&query_prefix, question)],
+                    ),
                     || Ok(()),
                 )
                 .await?;
@@ -587,10 +678,18 @@ impl KnowledgeEmbeddingService {
                     &candidate.content_hash,
                     &vector,
                 ) {
+                    let status = if db
+                        .is_knowledge_job_cancel_requested(job.id)
+                        .unwrap_or(false)
+                    {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    };
                     finish_embedding_job_error(
                         db,
                         job.id,
-                        "failed",
+                        status,
                         &embedding_batch_checkpoint(
                             profile.id,
                             latest_chunk_id,
@@ -676,6 +775,65 @@ impl KnowledgeEmbeddingService {
         })
     }
 
+    async fn embed_remote_candidate_segments(
+        db: &Database,
+        job_id: i64,
+        profile: &KnowledgeEmbeddingProfile,
+        candidate: &KnowledgeEmbeddingRebuildCandidate,
+        document_prefix: &str,
+    ) -> Result<(Vec<f32>, i64, i64), AppError> {
+        let segments = split_remote_embedding_segments(document_prefix, &candidate.content)?;
+        if segments.is_empty() {
+            return Err(AppError::InvalidInput(
+                "远程向量化片段为空，无法构建索引".to_string(),
+            ));
+        }
+        let segment_count = i64::try_from(segments.len())
+            .map_err(|_| AppError::InvalidInput("远程向量化子段数量超出范围".to_string()))?;
+        let input_characters = segments.iter().try_fold(0_i64, |total, segment| {
+            let characters = i64::try_from(segment.chars().count())
+                .map_err(|_| AppError::InvalidInput("远程输入字符数超出范围".to_string()))?;
+            total
+                .checked_add(characters)
+                .ok_or_else(|| AppError::InvalidInput("远程输入字符数超出范围".to_string()))
+        })?;
+        let mut vectors = Vec::with_capacity(segments.len());
+        for segment_batch in segments.chunks(REMOTE_EMBEDDING_SEGMENTS_PER_REQUEST) {
+            ensure_remote_embedding_job_not_cancelled(db, job_id)?;
+            let result = AiProviderService::embed_with_preflight(
+                db,
+                remote_embedding_request(profile, segment_batch.to_vec()),
+                || {
+                    ensure_remote_embedding_job_not_cancelled(db, job_id)?;
+                    KnowledgePolicyService::sanitize_remote_embedding_content(
+                        db,
+                        candidate.document_id,
+                        &candidate.content,
+                    )
+                    .map(|_| ())
+                },
+            )
+            .await?;
+            if result.dimension != profile.dimension
+                || result.vectors.len() != segment_batch.len()
+                || result
+                    .vectors
+                    .iter()
+                    .any(|vector| i64::try_from(vector.len()).ok() != Some(profile.dimension))
+            {
+                return Err(AppError::InvalidInput(
+                    "远程向量化返回维度或数量与向量化方案不一致".to_string(),
+                ));
+            }
+            vectors.extend(result.vectors);
+        }
+        Ok((
+            merge_remote_embedding_segments(vectors, profile.dimension)?,
+            segment_count,
+            input_characters,
+        ))
+    }
+
     /// 远程批次必须逐片段经过 PolicyService 后才组成 Provider 请求。这里没有从本地
     /// 失败自动切换到远程的路径；只有调用方明确选择 remote Profile 才会进入本方法。
     /// Provider 返回的全部向量会先做数量和维度校验，再写入 SQLite，防止错误维度留下
@@ -713,7 +871,7 @@ impl KnowledgeEmbeddingService {
                 }
                 if job.status == "running" {
                     return Err(AppError::InvalidInput(
-                        "远程向量构建任务正在运行，请等待、取消或在恢复后重试".to_string(),
+                        "远程向量构建任务正在运行，请等待、停止构建或在恢复后重试".to_string(),
                     ));
                 }
                 let queued = if job.status == "queued" {
@@ -772,21 +930,21 @@ impl KnowledgeEmbeddingService {
             .get("lastChunkId")
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
-        let mut processed = job
-            .checkpoint
-            .get("processed")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0);
-        let mut embedded = job
-            .checkpoint
-            .get("embedded")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0);
-        let mut skipped = job
-            .checkpoint
-            .get("skipped")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0);
+        // 历史实现按 document_id 排序，却以 chunk_id 作检查点过滤；两种顺序并不
+        // 单调，恢复时会跳过尚未处理的片段。以持久化的 content_hash 为唯一完成事实，
+        // 每批重新扫描未匹配向量，既可安全续跑，也不会重复外发已完成内容。
+        let persisted_chunks = candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.existing_embedding_content_hash.as_deref()
+                    == Some(candidate.content_hash.as_str())
+            })
+            .count();
+        let persisted_chunks = i64::try_from(persisted_chunks)
+            .map_err(|_| AppError::InvalidInput("已完成向量数量超出范围".to_string()))?;
+        let mut processed = persisted_chunks;
+        let mut embedded = persisted_chunks;
+        let skipped = 0_i64;
         let blocked = job
             .checkpoint
             .get("blocked")
@@ -801,40 +959,50 @@ impl KnowledgeEmbeddingService {
             .to_string();
         let selected = candidates
             .into_iter()
-            .filter(|candidate| candidate.chunk_id > last_chunk_id)
+            .filter(|candidate| {
+                candidate.existing_embedding_content_hash.as_deref()
+                    != Some(candidate.content_hash.as_str())
+            })
             .take(batch_size)
             .collect::<Vec<_>>();
         let mut latest_chunk_id = last_chunk_id;
         let mut pending = Vec::new();
         let mut policy_blocked = false;
-        for candidate in selected {
-            if candidate.existing_embedding_content_hash.as_deref()
-                == Some(candidate.content_hash.as_str())
-            {
-                skipped += 1;
-                processed += 1;
-                latest_chunk_id = candidate.chunk_id;
-                continue;
-            }
-            if KnowledgePolicyService::authorize_remote_embedding(
+        for mut candidate in selected {
+            let sanitized = match KnowledgePolicyService::sanitize_remote_embedding_content(
                 db,
                 candidate.document_id,
                 &candidate.content,
-            )
-            .is_err()
-            {
-                // 远程正文未获授权时不能把片段计为已处理，否则任务会完成而完整性校验
-                // 永远失败。保留原检查点并终结任务，用户完成来源授权后可安全重试。
-                policy_blocked = true;
-                break;
-            }
+            ) {
+                Ok(value) => value,
+                Err(_) => {
+                    // 远程正文未获授权时不能把片段计为已处理，否则任务会完成而完整性校验
+                    // 永远失败。保留原检查点并终结任务，用户完成来源授权后可安全重试。
+                    policy_blocked = true;
+                    break;
+                }
+            };
+            candidate.content = sanitized;
             pending.push(candidate);
         }
         if policy_blocked {
             let error = AppError::InvalidInput(
                 "远程向量化存在未授权或不安全片段，请完成来源授权后重试".to_string(),
             );
-            finish_embedding_job_error(db, job.id, "failed", &job.checkpoint, &error);
+            finish_embedding_job_error(
+                db,
+                job.id,
+                "failed",
+                &embedding_batch_checkpoint(
+                    profile.id,
+                    latest_chunk_id,
+                    processed,
+                    embedded,
+                    skipped,
+                    blocked,
+                ),
+                &error,
+            );
             return Err(error);
         }
         if db.is_knowledge_job_cancel_requested(job.id)? {
@@ -856,37 +1024,15 @@ impl KnowledgeEmbeddingService {
             return Err(error);
         }
         if !pending.is_empty() {
-            let inputs = pending
-                .iter()
-                .map(|candidate| with_embedding_prefix(&document_prefix, &candidate.content))
-                .collect::<Vec<_>>();
-            let result = match AiProviderService::embed_with_preflight(
-                db,
-                AiProviderEmbeddingInput {
-                    provider_key: profile.provider_key.clone(),
-                    model: Some(profile.model.clone()),
-                    inputs,
-                    dimensions: Some(profile.dimension),
-                },
-                || {
-                    for candidate in &pending {
-                        KnowledgePolicyService::authorize_remote_embedding(
-                            db,
-                            candidate.document_id,
-                            &candidate.content,
-                        )?;
-                    }
-                    Ok(())
-                },
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(error) => {
+            let mut input_segments = 0_i64;
+            let mut input_characters = 0_i64;
+            for candidate in pending {
+                if db.is_knowledge_job_cancel_requested(job.id)? {
+                    let error = AppError::InvalidInput("远程向量构建任务已取消".to_string());
                     finish_embedding_job_error(
                         db,
                         job.id,
-                        "failed",
+                        "cancelled",
                         &embedding_batch_checkpoint(
                             profile.id,
                             latest_chunk_id,
@@ -899,62 +1045,61 @@ impl KnowledgeEmbeddingService {
                     );
                     return Err(error);
                 }
-            };
-            if result.vectors.len() != pending.len()
-                || result.dimension != profile.dimension
-                || result
-                    .vectors
-                    .iter()
-                    .any(|vector| i64::try_from(vector.len()).ok() != Some(profile.dimension))
-            {
-                let error = AppError::InvalidInput(
-                    "远程向量化返回维度或数量与向量化方案不一致".to_string(),
-                );
-                finish_embedding_job_error(
-                    db,
-                    job.id,
-                    "failed",
-                    &embedding_batch_checkpoint(
-                        profile.id,
-                        latest_chunk_id,
-                        processed,
-                        embedded,
-                        skipped,
-                        blocked,
-                    ),
-                    &error,
-                );
-                return Err(error);
-            }
-            if db.is_knowledge_job_cancel_requested(job.id)? {
-                let error = AppError::InvalidInput("远程向量构建任务已取消".to_string());
-                finish_embedding_job_error(
-                    db,
-                    job.id,
-                    "cancelled",
-                    &embedding_batch_checkpoint(
-                        profile.id,
-                        latest_chunk_id,
-                        processed,
-                        embedded,
-                        skipped,
-                        blocked,
-                    ),
-                    &error,
-                );
-                return Err(error);
-            }
-            for (candidate, vector) in pending.into_iter().zip(result.vectors) {
+                let (vector, segment_count, character_count) =
+                    match Self::embed_remote_candidate_segments(
+                        db,
+                        job.id,
+                        &profile,
+                        &candidate,
+                        &document_prefix,
+                    )
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(error) => {
+                            let status = if db
+                                .is_knowledge_job_cancel_requested(job.id)
+                                .unwrap_or(false)
+                            {
+                                "cancelled"
+                            } else {
+                                "failed"
+                            };
+                            finish_embedding_job_error(
+                                db,
+                                job.id,
+                                status,
+                                &embedding_batch_checkpoint(
+                                    profile.id,
+                                    latest_chunk_id,
+                                    processed,
+                                    embedded,
+                                    skipped,
+                                    blocked,
+                                ),
+                                &error,
+                            );
+                            return Err(error);
+                        }
+                    };
                 if let Err(error) = db.upsert_knowledge_chunk_embedding(
                     candidate.chunk_id,
                     profile.id,
                     &candidate.content_hash,
                     &vector,
                 ) {
+                    let status = if db
+                        .is_knowledge_job_cancel_requested(job.id)
+                        .unwrap_or(false)
+                    {
+                        "cancelled"
+                    } else {
+                        "failed"
+                    };
                     finish_embedding_job_error(
                         db,
                         job.id,
-                        "failed",
+                        status,
                         &embedding_batch_checkpoint(
                             profile.id,
                             latest_chunk_id,
@@ -970,12 +1115,14 @@ impl KnowledgeEmbeddingService {
                 embedded += 1;
                 processed += 1;
                 latest_chunk_id = candidate.chunk_id;
+                input_segments = input_segments.saturating_add(segment_count);
+                input_characters = input_characters.saturating_add(character_count);
             }
             let _ = AuditService::create(db, CreateAuditLogInput {
                 actor: "local-user".to_string(), source: "knowledge".to_string(), server_alias: String::new(),
                 action: "knowledge_remote_embedding_batch".to_string(), risk: "L2".to_string(), result: "成功".to_string(),
                 summary: "完成远程向量化批次".to_string(),
-                detail_json: Some(serde_json::json!({"profileId": profile.id, "providerKey": result.provider_key, "model": result.model, "inputCount": result.input_count, "inputCharacters": result.input_characters, "latencyMs": result.latency_ms, "attempts": result.attempts, "rateLimited": result.rate_limited}).to_string()),
+                detail_json: Some(serde_json::json!({"profileId": profile.id, "providerKey": profile.provider_key, "model": profile.model, "inputSegments": input_segments, "inputCharacters": input_characters}).to_string()),
                 request_id: None, approval_id: None,
             });
         }
@@ -1005,6 +1152,18 @@ impl KnowledgeEmbeddingService {
         )? {
             let error = AppError::InvalidInput("向量构建任务已取消或不再运行".to_string());
             finish_embedding_job_error(db, job.id, "failed", &checkpoint, &error);
+            return Err(error);
+        } else if !db.queue_knowledge_job_next_batch(job.id)? {
+            let error = AppError::InvalidInput("向量构建任务已取消或不再运行".to_string());
+            let status = if db
+                .is_knowledge_job_cancel_requested(job.id)
+                .unwrap_or(false)
+            {
+                "cancelled"
+            } else {
+                "failed"
+            };
+            finish_embedding_job_error(db, job.id, status, &checkpoint, &error);
             return Err(error);
         }
         Ok(KnowledgeEmbeddingBatchResult {
@@ -1051,12 +1210,10 @@ impl KnowledgeEmbeddingService {
             .to_string();
         let response = AiProviderService::embed_with_preflight(
             db,
-            AiProviderEmbeddingInput {
-                provider_key: profile.provider_key.clone(),
-                model: Some(profile.model.clone()),
-                inputs: vec![with_embedding_prefix(&query_prefix, &probe_text)],
-                dimensions: None,
-            },
+            remote_embedding_request(
+                &profile,
+                vec![with_embedding_prefix(&query_prefix, &probe_text)],
+            ),
             || Ok(()),
         )
         .await?;
@@ -1593,9 +1750,9 @@ fn finish_embedding_job_error(
         }
     }
     let message = if status == "cancelled" {
-        "本地向量构建已取消，已保存安全检查点"
+        "向量构建已取消，已保存安全检查点"
     } else {
-        "本地向量构建失败，已保存安全检查点"
+        "向量构建失败，已保存安全检查点"
     };
     if let Err(finish_error) = db.finish_knowledge_job(
         job_id,
@@ -1604,7 +1761,7 @@ fn finish_embedding_job_error(
         Some(&error.to_string()),
         checkpoint,
     ) {
-        log::error!("无法结束本地向量构建任务 {job_id}: {finish_error}");
+        log::error!("无法结束向量构建任务 {job_id}: {finish_error}");
     }
 }
 
@@ -1831,13 +1988,18 @@ fn normalized_embedding_job_key(value: Option<&str>, profile_id: i64) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{with_embedding_prefix, KnowledgeEmbeddingService};
+    use super::{
+        ensure_remote_embedding_job_not_cancelled, merge_remote_embedding_segments,
+        remote_embedding_request, split_remote_embedding_segments, with_embedding_prefix,
+        KnowledgeEmbeddingService, REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS,
+    };
     use crate::database::Database;
     use crate::models::{
         BuildKnowledgeEmbeddingBatchInput, CreateKnowledgeDocumentVersionInput,
-        EstimateKnowledgeEmbeddingRebuildInput, KnowledgeChunkWriteInput,
-        KnowledgeEmbeddingFingerprintInput, UpsertKnowledgeDocumentInput,
-        UpsertKnowledgeEmbeddingProfileInput, UpsertKnowledgeSourceInput,
+        CreateKnowledgeJobInput, EstimateKnowledgeEmbeddingRebuildInput, KnowledgeChunkWriteInput,
+        KnowledgeEmbeddingFingerprintInput, KnowledgeEmbeddingProfile,
+        UpsertKnowledgeDocumentInput, UpsertKnowledgeEmbeddingProfileInput,
+        UpsertKnowledgeSourceInput,
     };
 
     fn input() -> KnowledgeEmbeddingFingerprintInput {
@@ -1868,6 +2030,71 @@ mod tests {
             "passage: 已带前缀"
         );
         assert_eq!(with_embedding_prefix("", "原文"), "原文");
+    }
+
+    #[test]
+    fn remote_embedding_segments_are_token_limit_safe_and_merge_normalized() {
+        let prefix = "passage: ";
+        let segments = split_remote_embedding_segments(
+            prefix,
+            &"中".repeat(REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS * 2 + 1),
+        )
+        .expect("短前缀应能生成安全子段");
+        assert_eq!(segments.len(), 3);
+        assert!(segments.iter().all(|segment| {
+            segment.starts_with(prefix)
+                && segment.chars().count() <= REMOTE_EMBEDDING_SAFE_SEGMENT_CHARS
+        }));
+        assert!(split_remote_embedding_segments(&"x".repeat(65), "正文",).is_err());
+
+        let merged = merge_remote_embedding_segments(vec![vec![1.0, 0.0], vec![0.0, 1.0]], 2)
+            .expect("分段向量应能合并");
+        assert!((merged[0] - 0.707_106_77).abs() < 0.000_1);
+        assert!((merged[1] - 0.707_106_77).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn remote_embedding_stops_before_send_when_job_is_cancelled(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let database = Database::init(":memory:")?;
+        let job = database.create_knowledge_job(&CreateKnowledgeJobInput {
+            job_key: "remote-embedding-cancelled".to_string(),
+            job_type: "embedding_build".to_string(),
+            source_id: None,
+            profile_id: Some(1),
+            message: "排队".to_string(),
+            checkpoint: serde_json::json!({}),
+        })?;
+        database.request_knowledge_job_cancel(job.id)?;
+        assert!(ensure_remote_embedding_job_not_cancelled(&database, job.id).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn remote_embedding_request_uses_probe_compatible_payload() {
+        let profile = KnowledgeEmbeddingProfile {
+            id: 1,
+            profile_key: "remote-e5".to_string(),
+            name: "远程语义检索".to_string(),
+            mode: "remote".to_string(),
+            provider_key: "multilingual-e5-small-int8".to_string(),
+            model: "multilingual-e5-small-int8".to_string(),
+            model_revision: String::new(),
+            dimension: 384,
+            normalized: true,
+            config: serde_json::json!({}),
+            fingerprint: "remote-e5-fingerprint".to_string(),
+            status: "draft".to_string(),
+            is_active: false,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let request = remote_embedding_request(&profile, vec!["passage: 正文".to_string()]);
+        assert_eq!(request.provider_key, profile.provider_key);
+        assert_eq!(request.model.as_deref(), Some(profile.model.as_str()));
+        assert_eq!(request.inputs, vec!["passage: 正文"]);
+        assert_eq!(request.dimensions, None);
     }
 
     #[test]

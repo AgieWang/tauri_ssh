@@ -3,7 +3,7 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 50;
+pub const SCHEMA_VERSION: i32 = 51;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -101,6 +101,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             47 => migrate_v47_to_v48(conn)?,
             48 => migrate_v48_to_v49(conn)?,
             49 => migrate_v49_to_v50(conn)?,
+            50 => migrate_v50_to_v51(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -1795,6 +1796,54 @@ fn migrate_v49_to_v50(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+/// v50 -> v51: 允许同一向量兼容配置同时存在多个索引代次，以支持蓝绿重建。
+/// `fingerprint` 描述向量空间兼容性，不应作为索引实例的唯一标识；实例仍由
+/// `profile_key` 和主键区分，活动索引的唯一性继续由部分唯一索引保证。
+fn migrate_v50_to_v51(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v50 -> v51（允许同配置蓝绿向量索引）");
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
+        "
+        CREATE TABLE knowledge_embedding_profiles_v51 (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_key         TEXT NOT NULL UNIQUE,
+            name                TEXT NOT NULL,
+            mode                TEXT NOT NULL,
+            provider_key        TEXT NOT NULL DEFAULT '',
+            model               TEXT NOT NULL,
+            model_revision      TEXT NOT NULL DEFAULT '',
+            dimension           INTEGER NOT NULL DEFAULT 0,
+            normalized          INTEGER NOT NULL DEFAULT 1,
+            config_json         TEXT NOT NULL DEFAULT '{}',
+            fingerprint         TEXT NOT NULL,
+            status              TEXT NOT NULL DEFAULT 'draft',
+            is_active           INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        INSERT INTO knowledge_embedding_profiles_v51
+            (id, profile_key, name, mode, provider_key, model, model_revision, dimension,
+             normalized, config_json, fingerprint, status, is_active, created_at, updated_at)
+        SELECT id, profile_key, name, mode, provider_key, model, model_revision, dimension,
+               normalized, config_json, fingerprint, status, is_active, created_at, updated_at
+        FROM knowledge_embedding_profiles;
+
+        DROP TABLE knowledge_embedding_profiles;
+        ALTER TABLE knowledge_embedding_profiles_v51 RENAME TO knowledge_embedding_profiles;
+
+        CREATE INDEX idx_knowledge_embedding_profiles_active
+            ON knowledge_embedding_profiles(is_active, status);
+        CREATE UNIQUE INDEX ux_knowledge_embedding_profiles_one_active
+            ON knowledge_embedding_profiles(is_active)
+            WHERE is_active = 1;
+        ",
+    )?;
+    tx.pragma_update(None, "user_version", 51)?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn table_exists(conn: &Connection, table: &str) -> Result<bool, AppError> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -3462,6 +3511,73 @@ mod tests {
             ],
         );
         assert!(second_active.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn migrates_embedding_fingerprint_to_allow_blue_green_generations(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "
+            CREATE TABLE knowledge_embedding_profiles (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_key         TEXT NOT NULL UNIQUE,
+                name                TEXT NOT NULL,
+                mode                TEXT NOT NULL,
+                provider_key        TEXT NOT NULL DEFAULT '',
+                model               TEXT NOT NULL,
+                model_revision      TEXT NOT NULL DEFAULT '',
+                dimension           INTEGER NOT NULL DEFAULT 0,
+                normalized          INTEGER NOT NULL DEFAULT 1,
+                config_json         TEXT NOT NULL DEFAULT '{}',
+                fingerprint         TEXT NOT NULL UNIQUE,
+                status              TEXT NOT NULL DEFAULT 'draft',
+                is_active           INTEGER NOT NULL DEFAULT 0,
+                created_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+            CREATE INDEX idx_knowledge_embedding_profiles_active
+                ON knowledge_embedding_profiles(is_active, status);
+            CREATE UNIQUE INDEX ux_knowledge_embedding_profiles_one_active
+                ON knowledge_embedding_profiles(is_active)
+                WHERE is_active = 1;
+            PRAGMA user_version = 50;
+            ",
+        )?;
+        conn.execute(
+            "INSERT INTO knowledge_embedding_profiles
+             (profile_key, name, mode, model, fingerprint)
+             VALUES ('remote-v1', '远程索引 V1', 'remote', 'text-embedding', 'same-space')",
+            [],
+        )?;
+
+        migrate(&conn)?;
+
+        conn.execute(
+            "INSERT INTO knowledge_embedding_profiles
+             (profile_key, name, mode, model, fingerprint)
+             VALUES ('remote-v2', '远程索引 V2', 'remote', 'text-embedding', 'same-space')",
+            [],
+        )?;
+        let profile_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM knowledge_embedding_profiles WHERE fingerprint = 'same-space'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(profile_count, 2);
+        assert_eq!(get_version(&conn)?, SCHEMA_VERSION);
+
+        conn.execute(
+            "UPDATE knowledge_embedding_profiles SET is_active = 1 WHERE profile_key = 'remote-v1'",
+            [],
+        )?;
+        assert!(conn
+            .execute(
+                "UPDATE knowledge_embedding_profiles SET is_active = 1 WHERE profile_key = 'remote-v2'",
+                [],
+            )
+            .is_err());
         Ok(())
     }
 

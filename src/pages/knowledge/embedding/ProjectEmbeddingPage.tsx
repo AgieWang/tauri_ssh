@@ -61,7 +61,12 @@ const DEFAULT_REMOTE_DIMENSION = 1536;
 type EmbeddingMode = "local" | "remote";
 
 type WorkflowStage =
-  "checking" | "ready" | "building" | "activate" | "completed";
+  | "checking"
+  | "ready"
+  | "building"
+  | "failed"
+  | "activate"
+  | "completed";
 
 interface EmbeddingWorkflow {
   profile: KnowledgeEmbeddingProfile;
@@ -69,6 +74,7 @@ interface EmbeddingWorkflow {
   estimate: KnowledgeEmbeddingRebuildEstimate;
   testDimension: number;
   batch?: KnowledgeEmbeddingBatchResult;
+  error?: string;
 }
 
 interface ProfileFormValues {
@@ -93,6 +99,15 @@ function formatBytes(value: number) {
     return `${(value / 1024 / 1024).toFixed(1)} MB`;
   }
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function checkpointCount(
+  checkpoint: Record<string, unknown>,
+  key: string,
+  fallback: number,
+) {
+  const value = checkpoint[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function profileStatus(profile: KnowledgeEmbeddingProfile) {
@@ -256,6 +271,71 @@ export default function ProjectEmbeddingPage() {
     };
   }, [loadPage]);
 
+  useEffect(() => {
+    const jobKey = workflow?.batch?.jobKey;
+    const profileId = workflow?.profile.id;
+    if (workflow?.stage !== "building" || !jobKey || profileId == null) return;
+    const activeJobKey = jobKey;
+    const activeProfileId = profileId;
+
+    let disposed = false;
+    async function refreshBuildProgress() {
+      try {
+        const job = await knowledgeApi.getJob(activeJobKey);
+        if (disposed) return;
+        setWorkflow((current) => {
+          if (
+            !current ||
+            current.profile.id !== activeProfileId ||
+            current.batch?.jobKey !== activeJobKey
+          ) {
+            return current;
+          }
+          const currentBatch = current.batch;
+          if (!currentBatch) return current;
+          const batch = {
+            ...currentBatch,
+            totalChunks: job.progressTotal || currentBatch.totalChunks,
+            processedChunks: job.progressCurrent,
+            embeddedChunks: checkpointCount(
+              job.checkpoint,
+              "embedded",
+              currentBatch.embeddedChunks,
+            ),
+            skippedChunks: checkpointCount(
+              job.checkpoint,
+              "skipped",
+              currentBatch.skippedChunks,
+            ),
+            blockedChunks: checkpointCount(
+              job.checkpoint,
+              "blocked",
+              currentBatch.blockedChunks,
+            ),
+            completed: job.status === "completed",
+          };
+          if (["failed", "cancelled", "interrupted"].includes(job.status)) {
+            return {
+              ...current,
+              stage: "failed",
+              batch,
+              error: job.error || job.message,
+            };
+          }
+          return { ...current, batch };
+        });
+      } catch {
+        // 轮询失败不覆盖最后一次已知进度，下一轮会自动重试。
+      }
+    }
+    void refreshBuildProgress();
+    const timer = window.setInterval(() => void refreshBuildProgress(), 1000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [workflow?.batch?.jobKey, workflow?.profile.id, workflow?.stage]);
+
   function selectProfile(profile: KnowledgeEmbeddingProfile) {
     if (busy) return;
     setSelectedProfileId(profile.id);
@@ -329,6 +409,7 @@ export default function ProjectEmbeddingPage() {
   async function saveEmbeddingProfile() {
     try {
       const values = await profileForm.validateFields();
+      const shouldCheckCopiedProfile = editingProfile != null;
       const provider =
         values.mode === "remote"
           ? remoteEmbeddingProviders.find(
@@ -371,13 +452,6 @@ export default function ProjectEmbeddingPage() {
         chunkStrategyId: config.chunkStrategyId,
         normalizationVersion: config.normalizationVersion,
       });
-      if (
-        editingProfile &&
-        editingProfile.status !== "draft" &&
-        fingerprint === editingProfile.fingerprint
-      ) {
-        throw new Error("复制已构建方案时请至少修改模型、维度或前缀配置。");
-      }
       const profile = await knowledgeApi.upsertEmbeddingProfile({
         id: isEditingDraft ? editingProfile?.id : undefined,
         profileKey:
@@ -407,8 +481,17 @@ export default function ProjectEmbeddingPage() {
       setProfileDrawerOpen(false);
       setEditingProfile(null);
       messageApi.success(
-        `${isEditingDraft ? "方案配置已更新" : `${values.mode === "remote" ? "远程" : "本地"}方案已创建`}，下一步请启用索引。`,
+        isEditingDraft
+          ? "方案配置已更新，下一步请检查并估算。"
+          : shouldCheckCopiedProfile
+            ? `${values.mode === "remote" ? "远程" : "本地"}方案副本已创建，正在检查并估算。`
+            : `${values.mode === "remote" ? "远程" : "本地"}方案已创建，下一步请检查并估算。`,
       );
+      if (shouldCheckCopiedProfile) {
+        // 活动索引不可原地重建；保存其副本后自动进入检查与估算，避免用户误以为
+        // 远程方案还需要本机模型或无法进入后续步骤。
+        await checkAndEstimate(profile);
+      }
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       messageApi.error(getErrorMessage(error));
@@ -507,6 +590,28 @@ export default function ProjectEmbeddingPage() {
     }
   }
 
+  async function cancelEmbeddingProfile(profile: KnowledgeEmbeddingProfile) {
+    if (busy || profile.status !== "building") return;
+    setBusy(true);
+    try {
+      await knowledgeApi.cancelJob(`knowledge-embedding-profile-${profile.id}`);
+      setProfiles((current) =>
+        current.map((item) =>
+          item.id === profile.id ? { ...item, status: "failed" } : item,
+        ),
+      );
+      setWorkflow((current) =>
+        current?.profile.id === profile.id ? null : current,
+      );
+      messageApi.success("已停止构建。现在可以删除该副本方案。");
+      await loadPage();
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function buildAndValidate() {
     if (!workflow) return;
     const { profile, estimate, testDimension } = workflow;
@@ -516,21 +621,41 @@ export default function ProjectEmbeddingPage() {
     }
     setBusy(true);
     try {
+      // 先展示 0/总数，避免首个远程批次耗时较长时页面看起来没有任何反馈。
+      let batch: KnowledgeEmbeddingBatchResult = {
+        profileId: profile.id,
+        jobKey: "",
+        totalChunks: estimate.affectedChunks,
+        processedChunks: 0,
+        embeddedChunks: 0,
+        skippedChunks: 0,
+        blockedChunks: 0,
+        completed: false,
+        checkpoint: {},
+      };
+      setWorkflow({
+        profile,
+        stage: "building",
+        testDimension,
+        estimate,
+        batch,
+        error: undefined,
+      });
       await knowledgeApi.beginEmbeddingProfileRebuild(profile.id);
       const build =
         profile.mode === "remote"
           ? knowledgeApi.buildRemoteEmbeddingBatch
           : knowledgeApi.buildLocalEmbeddingBatch;
-      let batch: KnowledgeEmbeddingBatchResult | undefined;
-      let previousProcessedChunks: number | undefined;
+      let previousProcessedChunks = batch.processedChunks;
       do {
         const nextBatch = await build({
           profileId: profile.id,
-          jobKey: batch?.jobKey,
+          jobKey: batch.jobKey || undefined,
+          // 远程模型会把长片段拆成安全子段；逐个原始片段返回结果，进度条即可持续推进。
+          batchSize: profile.mode === "remote" ? 1 : undefined,
         });
         if (
           !nextBatch.completed &&
-          previousProcessedChunks !== undefined &&
           nextBatch.processedChunks <= previousProcessedChunks
         ) {
           throw new Error("向量构建未推进，请稍后重试或检查本机运行环境。");
@@ -543,6 +668,7 @@ export default function ProjectEmbeddingPage() {
           testDimension,
           estimate,
           batch,
+          error: undefined,
         });
       } while (!batch.completed);
 
@@ -581,11 +707,25 @@ export default function ProjectEmbeddingPage() {
       });
       messageApi.success("构建和校验已完成，可以启用新索引。");
     } catch (error) {
-      messageApi.error(getErrorMessage(error));
+      const errorMessage = getErrorMessage(error);
+      if (errorMessage.includes("远程向量构建任务正在运行")) {
+        // 同一任务仍由已有批次执行时，不能并发接管并重复外发正文；保留最后一次
+        // 已知进度为构建中，而不是误报为失败或已完成。
+        messageApi.info("构建任务仍在运行，正在等待下一次进度更新。");
+        // 以持久化状态覆盖已中断页面遗留的 failed 标记，避免卡片与真实 Job 相互矛盾。
+        void loadPage();
+        setWorkflow((current) =>
+          current && current.profile.id === profile.id
+            ? { ...current, stage: "building", error: undefined }
+            : current,
+        );
+        return;
+      }
+      messageApi.error(errorMessage);
       void loadPage();
       setWorkflow((current) =>
         current && current.profile.id === profile.id
-          ? { ...current, stage: "ready" }
+          ? { ...current, stage: "failed", error: errorMessage }
           : current,
       );
     } finally {
@@ -708,11 +848,14 @@ export default function ProjectEmbeddingPage() {
   const activeStep = workflow
     ? workflow.stage === "ready"
       ? 1
-      : workflow.stage === "building"
+      : workflow.stage === "building" || workflow.stage === "failed"
         ? 2
         : 3
     : 0;
-  const hasLocalRuntimeIssue = runtime != null && !runtime.runtimeAvailable;
+  const hasLocalRuntimeIssue =
+    selectedProfile?.mode === "local" &&
+    runtime != null &&
+    !runtime.runtimeAvailable;
 
   return (
     <main className="w-full px-4 py-6 sm:px-6">
@@ -837,13 +980,36 @@ export default function ProjectEmbeddingPage() {
                     </button>
                     <div className="flex flex-wrap items-center justify-end gap-1 border-t border-[var(--border)] px-3 py-2">
                       {!profile.isActive ? (
+                        profile.status === "building" ? (
+                          <Button
+                            type="link"
+                            size="small"
+                            danger
+                            disabled={busy}
+                            onClick={() => void cancelEmbeddingProfile(profile)}
+                          >
+                            停止构建
+                          </Button>
+                        ) : (
+                          <Button
+                            type="link"
+                            size="small"
+                            disabled={busy}
+                            onClick={() => enableProfile(profile)}
+                          >
+                            启用
+                          </Button>
+                        )
+                      ) : null}
+                      {profile.isActive ? (
                         <Button
                           type="link"
                           size="small"
-                          disabled={busy || profile.status === "building"}
-                          onClick={() => enableProfile(profile)}
+                          icon={<Play size={14} />}
+                          disabled={busy}
+                          onClick={() => openProfileDrawer(profile)}
                         >
-                          启用
+                          基于当前方案构建
                         </Button>
                       ) : null}
                       <Button
@@ -925,8 +1091,16 @@ export default function ProjectEmbeddingPage() {
             items={[
               {
                 key: "runtime",
-                label: "本机运行时",
-                children: runtime?.runtimeAvailable ? "已就绪" : "尚未就绪",
+                label:
+                  selectedProfile?.mode === "remote"
+                    ? "远程方案"
+                    : "本机运行时",
+                children:
+                  selectedProfile?.mode === "remote"
+                    ? "不依赖本机模型"
+                    : runtime?.runtimeAvailable
+                      ? "已就绪"
+                      : "尚未就绪",
               },
               {
                 key: "cache",
@@ -944,15 +1118,17 @@ export default function ProjectEmbeddingPage() {
               description="可先导入已准备好的离线模型，或从受控内部镜像下载。完成后刷新状态再继续。"
             />
           ) : null}
-          {runtime?.warnings.map((warning) => (
-            <Alert
-              key={warning}
-              className="mt-3"
-              type="warning"
-              showIcon
-              title={warning}
-            />
-          ))}
+          {selectedProfile?.mode === "local"
+            ? runtime?.warnings.map((warning) => (
+                <Alert
+                  key={warning}
+                  className="mt-3"
+                  type="warning"
+                  showIcon
+                  title={warning}
+                />
+              ))
+            : null}
           <Space className="mt-4" wrap>
             <Button
               type="primary"
@@ -1018,20 +1194,59 @@ export default function ProjectEmbeddingPage() {
               />
             ) : null}
             {workflow.batch ? (
-              <Progress
-                className="mt-5"
-                percent={
-                  workflow.batch.totalChunks
-                    ? Math.round(
-                        (workflow.batch.processedChunks /
-                          workflow.batch.totalChunks) *
-                          100,
-                      )
-                    : 100
-                }
-                status={workflow.stage === "building" ? "active" : "success"}
-                format={() =>
-                  `${workflow.batch?.processedChunks}/${workflow.batch?.totalChunks}`
+              <div className="mt-5">
+                <Progress
+                  percent={
+                    workflow.batch.totalChunks
+                      ? Math.round(
+                          (workflow.batch.processedChunks /
+                            workflow.batch.totalChunks) *
+                            100,
+                        )
+                      : 100
+                  }
+                  status={
+                    workflow.stage === "building"
+                      ? "active"
+                      : workflow.stage === "failed"
+                        ? "exception"
+                        : workflow.stage === "activate" ||
+                            workflow.stage === "completed"
+                          ? "success"
+                          : "normal"
+                  }
+                  format={() =>
+                    `${workflow.batch?.processedChunks}/${workflow.batch?.totalChunks}`
+                  }
+                />
+                <Space className="mt-2 text-xs" size="middle" wrap>
+                  <Text type="secondary">
+                    已处理 {workflow.batch.processedChunks} 个内容片段
+                  </Text>
+                  <Text type="secondary">
+                    已向量化 {workflow.batch.embeddedChunks} 个
+                  </Text>
+                  <Text type="secondary">
+                    已复用 {workflow.batch.skippedChunks} 个
+                  </Text>
+                  <Text
+                    type={
+                      workflow.batch.blockedChunks ? "warning" : "secondary"
+                    }
+                  >
+                    已阻断 {workflow.batch.blockedChunks} 个
+                  </Text>
+                </Space>
+              </div>
+            ) : null}
+            {workflow.stage === "failed" ? (
+              <Alert
+                className="mt-4"
+                type="error"
+                showIcon
+                title="构建失败，可从当前检查点重试"
+                description={
+                  workflow.error ?? "请检查远程服务和来源授权后重试。"
                 }
               />
             ) : null}
@@ -1041,12 +1256,16 @@ export default function ProjectEmbeddingPage() {
                 type="info"
                 showIcon
                 title="当前方案正在使用中"
-                description="它可以继续提供检索。若要更新模型或索引，请新建一个本地方案，再构建、校验并启用新索引。"
+                description="它可以继续提供检索。若要更新模型或索引，请基于当前方案创建副本；远程方案会继续使用远程服务，不依赖本机模型。"
                 action={
-                  <Button onClick={() => openProfileDrawer()}>新建方案</Button>
+                  <Button onClick={() => openProfileDrawer(workflow.profile)}>
+                    基于当前方案新建
+                  </Button>
                 }
               />
-            ) : workflow.stage === "ready" || workflow.stage === "building" ? (
+            ) : workflow.stage === "ready" ||
+              workflow.stage === "building" ||
+              workflow.stage === "failed" ? (
               <Button
                 className="mt-4"
                 type="primary"
@@ -1054,7 +1273,9 @@ export default function ProjectEmbeddingPage() {
                 loading={busy}
                 onClick={requestBuild}
               >
-                构建并校验
+                {workflow.stage === "failed"
+                  ? "重新构建并校验"
+                  : "构建并校验"}
               </Button>
             ) : null}
             {workflow.stage === "activate" || workflow.stage === "completed" ? (

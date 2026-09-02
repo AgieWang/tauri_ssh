@@ -179,6 +179,13 @@ pub struct KnowledgeProjectVersionCompleteness {
     pub stages: Vec<KnowledgeProjectVersionStageCompleteness>,
 }
 
+/// 只补齐当前版本已经冻结的正文派生数据；不读取 Git 工作区，也不会改写版本清单。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeProjectVersionBackfillInput {
+    pub release_id: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectVersionRepositoryRefInput {

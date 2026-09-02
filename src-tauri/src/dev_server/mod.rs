@@ -839,6 +839,10 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             get(get_knowledge_project_version_completeness),
         )
         .route(
+            "/dev-api/knowledge/version-manifests/:release_id/backfill",
+            post(start_knowledge_project_version_backfill),
+        )
+        .route(
             "/dev-api/knowledge/repository-bindings/:repository_binding_id/inspect",
             post(inspect_knowledge_project_repository_binding),
         )
@@ -883,6 +887,7 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
             "/dev-api/knowledge/jobs/:job_key/retry",
             post(retry_knowledge_job),
         )
+        .route("/dev-api/knowledge/jobs/:job_key", get(get_knowledge_job))
         .route(
             "/dev-api/knowledge/documents/:document_id",
             get(get_knowledge_document_detail).delete(soft_delete_knowledge_document),
@@ -1535,6 +1540,19 @@ async fn get_knowledge_project_version_completeness(
     ))
 }
 
+/// 与桌面 Command 共用历史回填任务，浏览器验收不会绕开真实 SQLite 数据与任务状态。
+async fn start_knowledge_project_version_backfill(
+    State(ctx): State<DevApiState>,
+    Path(release_id): Path<i64>,
+) -> DevApiResult<crate::models::KnowledgeJob> {
+    Ok(Json(
+        crate::services::knowledge_domain::jobs::KnowledgeDocumentJobService::start_project_version_backfill(
+            ctx.app_handle.clone(),
+            release_id,
+        )?,
+    ))
+}
+
 async fn inspect_knowledge_project_repository_binding(
     State(ctx): State<DevApiState>,
     Path(repository_binding_id): Path<i64>,
@@ -1743,6 +1761,14 @@ async fn list_knowledge_jobs(
         .get("limit")
         .and_then(|value| value.parse::<i64>().ok());
     Ok(Json(KnowledgeService::list_jobs(&state.db, limit)?))
+}
+
+async fn get_knowledge_job(
+    State(ctx): State<DevApiState>,
+    Path(job_key): Path<String>,
+) -> DevApiResult<crate::models::KnowledgeJob> {
+    let state = app_state(&ctx);
+    Ok(Json(KnowledgeService::get_job(&state.db, &job_key)?))
 }
 
 async fn cancel_knowledge_job(
