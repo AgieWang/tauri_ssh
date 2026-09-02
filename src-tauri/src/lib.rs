@@ -444,6 +444,7 @@ pub fn run() {
             commands::database_ops::execute_database_readonly_query,
             commands::database_ops::list_database_names,
             commands::database_ops::list_database_schema,
+            commands::database_ops::get_database_table_detail,
             commands::database_ops::execute_database_sql,
             commands::database_ops::execute_database_sql_batch,
             commands::database_ops::update_database_query_result_cell,

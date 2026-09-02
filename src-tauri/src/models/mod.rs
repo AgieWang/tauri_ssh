@@ -1923,15 +1923,43 @@ pub struct DatabaseSchemaInput {
     pub database_name: Option<String>,
 }
 
+/// 指定数据表的只读详情请求。表名和 schema 会再次与远端已读取的对象清单校验。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTableDetailInput {
+    pub connection_key: String,
+    pub database_name: Option<String>,
+    pub table_name: String,
+    pub schema_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseTableSchema {
     pub name: String,
     pub schema_name: Option<String>,
     pub object_type: String,
+    /// 表统计信息统一以字符串传输，避免大表行数和字节数超过 JavaScript 安全整数。
+    pub row_count: Option<String>,
+    pub data_length: Option<String>,
+    pub engine: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub collation: Option<String>,
+    pub comment: Option<String>,
     pub columns: Vec<String>,
     pub column_details: Vec<DatabaseColumnSchema>,
     pub indexes: Vec<DatabaseIndexSchema>,
+}
+
+/// 单击数据表后返回的结构与建表 DDL。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTableDetail {
+    pub table: DatabaseTableSchema,
+    pub create_sql: String,
+    /// `raw` 表示数据库返回的原始 DDL，`simplified` 表示仅供查看的简化结构 SQL。
+    pub ddl_source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1942,6 +1970,7 @@ pub struct DatabaseColumnSchema {
     pub column_type: String,
     pub nullable: bool,
     pub default_value: Option<String>,
+    pub comment: Option<String>,
     pub extra: String,
     pub ordinal_position: i64,
 }

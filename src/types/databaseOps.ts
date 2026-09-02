@@ -128,13 +128,33 @@ export interface DatabaseSchemaInput {
   databaseName?: string | null;
 }
 
+export interface DatabaseTableDetailInput {
+  connectionKey: string;
+  databaseName?: string | null;
+  tableName: string;
+  schemaName?: string | null;
+}
+
 export interface DatabaseTableSchema {
   name: string;
   schemaName?: string | null;
   objectType: string;
+  rowCount?: string | null;
+  dataLength?: string | null;
+  engine?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  collation?: string | null;
+  comment?: string | null;
   columns: string[];
   columnDetails: DatabaseColumnSchema[];
   indexes: DatabaseIndexSchema[];
+}
+
+export interface DatabaseTableDetail {
+  table: DatabaseTableSchema;
+  createSql: string;
+  ddlSource: "raw" | "simplified";
 }
 
 export interface DatabaseColumnSchema {
@@ -143,6 +163,7 @@ export interface DatabaseColumnSchema {
   columnType: string;
   nullable: boolean;
   defaultValue?: string | null;
+  comment?: string | null;
   extra: string;
   ordinalPosition: number;
 }

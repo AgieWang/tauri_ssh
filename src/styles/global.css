@@ -111,6 +111,16 @@ a:hover {
   overflow: auto;
 }
 
+.prototype-database-selected-row > td {
+  background: var(--color-primary-bg, rgba(22, 119, 255, 0.08)) !important;
+}
+
+.prototype-database-ddl-editor {
+  overflow: auto;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
 .prototype-audit-filter-card .ant-card-body {
   padding: 22px 28px 24px;
 }

@@ -63,6 +63,7 @@ import type {
   DatabaseNameListResult,
   DatabaseQueryResult,
   DatabaseSchemaResult,
+  DatabaseTableDetail,
   DatabaseSecurityMode,
   DatabaseTableSchema,
   DatabaseType,
@@ -88,13 +89,6 @@ interface RedisTreeNode {
   count: number;
   leafKeys: string[];
   children?: RedisTreeNode[];
-}
-
-interface DatabaseObjectTreeNode {
-  key: string;
-  title: ReactNode;
-  object?: DatabaseTableSchema;
-  children?: DatabaseObjectTreeNode[];
 }
 
 interface AddColumnFormValues {
@@ -164,6 +158,39 @@ function objectTypeMeta(objectType?: string) {
     return { text: "视图", color: "purple" };
   }
   return { text: "表", color: "blue" };
+}
+
+function databaseObjectKey(
+  object: DatabaseTableSchema,
+  databaseName?: string | null,
+) {
+  return `${object.schemaName ?? databaseName ?? "default"}.${object.name}`;
+}
+
+function formatCount(value?: string | null) {
+  if (!value || !/^\d+$/.test(value)) return "-";
+  try {
+    return BigInt(value).toLocaleString("zh-CN");
+  } catch {
+    return value;
+  }
+}
+
+function formatDataLength(value?: string | null) {
+  if (!value || !/^\d+$/.test(value)) return "-";
+  try {
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let amount = BigInt(value);
+    const base = 1024n;
+    let unitIndex = 0;
+    while (amount >= base && unitIndex < units.length - 1) {
+      amount /= base;
+      unitIndex += 1;
+    }
+    return `${amount.toLocaleString("zh-CN")} ${units[unitIndex]}`;
+  } catch {
+    return value;
+  }
 }
 
 function quoteIdentifier(value: string, dbType?: DatabaseType) {
@@ -571,6 +598,8 @@ const SqlCodeEditor = lazy(async () => {
       dark: boolean;
       schema: Record<string, readonly string[]>;
       columns: SqlColumnCompletion[];
+      readOnly?: boolean;
+      height?: string;
       onChange: (value: string) => void;
       onRun: () => void;
     }) {
@@ -660,7 +689,7 @@ const SqlCodeEditor = lazy(async () => {
       return (
         <div
           onKeyDownCapture={(event) => {
-            if (event.key !== "Enter" || !event.shiftKey) {
+            if (props.readOnly || event.key !== "Enter" || !event.shiftKey) {
               return;
             }
             // 在 React 捕获阶段抢先处理，避免 CodeMirror 将 Shift+Enter 当成换行。
@@ -671,7 +700,8 @@ const SqlCodeEditor = lazy(async () => {
         >
           <CodeMirror
             value={props.value}
-            height="190px"
+            height={props.height ?? "190px"}
+            editable={!props.readOnly}
             theme={
               props.dark
                 ? githubThemeModule.githubDark
@@ -737,7 +767,11 @@ const SqlCodeEditor = lazy(async () => {
               completionKeymap: true,
               lintKeymap: true,
             }}
-            onChange={(value) => props.onChange(value)}
+            onChange={(value) => {
+              if (!props.readOnly) {
+                props.onChange(value);
+              }
+            }}
           />
         </div>
       );
@@ -917,6 +951,11 @@ export default function DatabasePage() {
   );
   const [objectLoading, setObjectLoading] = useState(false);
   const [selectedObjectKey, setSelectedObjectKey] = useState<string>();
+  const [selectedObjectDetail, setSelectedObjectDetail] =
+    useState<DatabaseTableDetail | null>(null);
+  const [objectDetailLoading, setObjectDetailLoading] = useState(false);
+  const objectDetailRequestIdRef = useRef(0);
+  const objectClickTimerRef = useRef<number | null>(null);
   const [createTableDrawerOpen, setCreateTableDrawerOpen] = useState(false);
   const [structureDrawerOpen, setStructureDrawerOpen] = useState(false);
   const [structureSubmitting, setStructureSubmitting] = useState(false);
@@ -1135,39 +1174,19 @@ export default function DatabasePage() {
 
   const selectedObject = useMemo(
     () =>
-      objectSchema?.tables.find((item) => {
-        const key = `${item.schemaName ?? objectSchema.databaseName ?? "default"}.${item.name}`;
-        return key === selectedObjectKey;
-      }),
-    [objectSchema, selectedObjectKey],
+      selectedObjectDetail?.table ??
+      objectSchema?.tables.find(
+        (item) =>
+          databaseObjectKey(item, objectSchema.databaseName) ===
+          selectedObjectKey,
+      ),
+    [objectSchema, selectedObjectDetail, selectedObjectKey],
   );
 
-  const objectTreeData = useMemo<DatabaseObjectTreeNode[]>(() => {
-    const tables = objectSchema?.tables ?? [];
-    const grouped = new Map<string, DatabaseTableSchema[]>();
-    for (const table of tables) {
-      const group =
-        table.schemaName ?? objectSchema?.databaseName ?? "当前数据库";
-      grouped.set(group, [...(grouped.get(group) ?? []), table]);
-    }
-    return [...grouped.entries()].map(([group, items]) => ({
-      key: `group:${group}`,
-      title: `${group}（${items.length}）`,
-      children: items.map((item) => {
-        const meta = objectTypeMeta(item.objectType);
-        const key = `${item.schemaName ?? objectSchema?.databaseName ?? "default"}.${item.name}`;
-        return {
-          key,
-          object: item,
-          title: (
-            <Space size={6}>
-              <span>{item.name}</span>
-              <Tag color={meta.color}>{meta.text}</Tag>
-            </Space>
-          ),
-        };
-      }),
-    }));
+  const objectTables = useMemo(() => {
+    return (objectSchema?.tables ?? []).filter(
+      (table) => !table.objectType.toUpperCase().includes("VIEW"),
+    );
   }, [objectSchema]);
 
   const selectedObjectColumnOptions = useMemo(
@@ -1261,9 +1280,12 @@ export default function DatabasePage() {
   }
 
   async function loadObjectDatabaseNames(connectionKey: string) {
+    cancelDeferredObjectSelection();
     setObjectLoading(true);
     setObjectSchema(null);
     setSelectedObjectKey(undefined);
+    setSelectedObjectDetail(null);
+    objectDetailRequestIdRef.current += 1;
     try {
       const result = await databaseOpsApi.listDatabaseNames({ connectionKey });
       setObjectDatabaseNames(result.databases);
@@ -1285,8 +1307,11 @@ export default function DatabasePage() {
     connectionKey: string,
     databaseName?: string,
   ) {
+    cancelDeferredObjectSelection();
     setObjectLoading(true);
     setSelectedObjectKey(undefined);
+    setSelectedObjectDetail(null);
+    objectDetailRequestIdRef.current += 1;
     try {
       const result = await databaseOpsApi.listDatabaseSchema({
         connectionKey,
@@ -1298,6 +1323,50 @@ export default function DatabasePage() {
       message.error(getErrorMessage(error));
     } finally {
       setObjectLoading(false);
+    }
+  }
+
+  async function selectObject(object: DatabaseTableSchema) {
+    if (!objectConnectionKey || !objectDatabaseName) return;
+    const requestId = ++objectDetailRequestIdRef.current;
+    setSelectedObjectKey(databaseObjectKey(object, objectSchema?.databaseName));
+    setSelectedObjectDetail(null);
+    setObjectDetailLoading(true);
+    try {
+      const detail = await databaseOpsApi.getDatabaseTableDetail({
+        connectionKey: objectConnectionKey,
+        databaseName: objectDatabaseName,
+        tableName: object.name,
+        schemaName: object.schemaName,
+      });
+      if (requestId === objectDetailRequestIdRef.current) {
+        setSelectedObjectDetail(detail);
+      }
+    } catch (error) {
+      if (requestId === objectDetailRequestIdRef.current) {
+        message.error(getErrorMessage(error));
+      }
+    } finally {
+      if (requestId === objectDetailRequestIdRef.current) {
+        setObjectDetailLoading(false);
+      }
+    }
+  }
+
+  function deferObjectSelection(object: DatabaseTableSchema) {
+    if (objectClickTimerRef.current !== null) {
+      window.clearTimeout(objectClickTimerRef.current);
+    }
+    objectClickTimerRef.current = window.setTimeout(() => {
+      objectClickTimerRef.current = null;
+      void selectObject(object);
+    }, 180);
+  }
+
+  function cancelDeferredObjectSelection() {
+    if (objectClickTimerRef.current !== null) {
+      window.clearTimeout(objectClickTimerRef.current);
+      objectClickTimerRef.current = null;
     }
   }
 
@@ -1459,10 +1528,13 @@ export default function DatabasePage() {
 
   useEffect(() => {
     if (!objectConnectionKey) {
+      cancelDeferredObjectSelection();
       setObjectDatabaseNames([]);
       setObjectDatabaseName(undefined);
       setObjectSchema(null);
       setSelectedObjectKey(undefined);
+      setSelectedObjectDetail(null);
+      objectDetailRequestIdRef.current += 1;
       return;
     }
     void loadObjectDatabaseNames(objectConnectionKey);
@@ -1470,8 +1542,11 @@ export default function DatabasePage() {
 
   useEffect(() => {
     if (!objectConnectionKey || !objectDatabaseName) {
+      cancelDeferredObjectSelection();
       setObjectSchema(null);
       setSelectedObjectKey(undefined);
+      setSelectedObjectDetail(null);
+      objectDetailRequestIdRef.current += 1;
       return;
     }
     void loadObjectSchema(objectConnectionKey, objectDatabaseName);
@@ -2797,37 +2872,120 @@ export default function DatabasePage() {
                   <div
                     className="prototype-database-object-layout"
                     style={{
-                      display: "grid",
+                      display: "flex",
+                      flexDirection: "column",
                       gap: 16,
-                      gridTemplateColumns: "320px minmax(0, 1fr)",
                       alignItems: "stretch",
                     }}
                   >
                     <Card
-                      className="prototype-database-object-tree-card"
                       size="small"
-                      title={`对象树${objectSchema ? `（${objectSchema.tables.length}）` : ""}`}
+                      title={`数据表${objectSchema ? `（${objectTables.length}）` : ""}`}
                       loading={objectLoading}
                     >
-                      {objectTreeData.length > 0 ? (
-                        <Tree<DatabaseObjectTreeNode>
-                          blockNode
-                          showLine
-                          defaultExpandAll
-                          treeData={objectTreeData}
-                          selectedKeys={
-                            selectedObjectKey ? [selectedObjectKey] : []
+                      {objectTables.length > 0 ? (
+                        <Table<DatabaseTableSchema>
+                          rowKey={(record) =>
+                            databaseObjectKey(
+                              record,
+                              objectSchema?.databaseName,
+                            )
                           }
-                          onSelect={(_, info) => {
-                            const node = info.node as DatabaseObjectTreeNode;
-                            if (node.object) {
-                              setSelectedObjectKey(node.key);
-                            }
+                          size="small"
+                          pagination={{
+                            pageSize: 50,
+                            showSizeChanger: true,
+                            showTotal: (total) => `共 ${total} 张表`,
                           }}
+                          scroll={{ x: 1600, y: 520 }}
+                          rowClassName={(record) =>
+                            databaseObjectKey(
+                              record,
+                              objectSchema?.databaseName,
+                            ) === selectedObjectKey
+                              ? "prototype-database-selected-row"
+                              : ""
+                          }
+                          onRow={(record) => ({
+                            onClick: () => deferObjectSelection(record),
+                            onDoubleClick: () => {
+                              cancelDeferredObjectSelection();
+                              openObjectInSql(record);
+                            },
+                            style: { cursor: "pointer" },
+                          })}
+                          columns={[
+                            {
+                              title: "表名",
+                              dataIndex: "name",
+                              width: 280,
+                              ellipsis: true,
+                              render: (name: string, record) => (
+                                <Space size={6}>
+                                  <span>{name}</span>
+                                  {record.schemaName ? (
+                                    <Text type="secondary">
+                                      {record.schemaName}
+                                    </Text>
+                                  ) : null}
+                                </Space>
+                              ),
+                            },
+                            {
+                              title: "行数",
+                              dataIndex: "rowCount",
+                              width: 120,
+                              align: "right",
+                              render: formatCount,
+                            },
+                            {
+                              title: "数据长度",
+                              dataIndex: "dataLength",
+                              width: 120,
+                              align: "right",
+                              render: formatDataLength,
+                            },
+                            {
+                              title: "引擎",
+                              dataIndex: "engine",
+                              width: 120,
+                              ellipsis: true,
+                              render: (value?: string | null) => value || "-",
+                            },
+                            {
+                              title: "创建时间",
+                              dataIndex: "createdAt",
+                              width: 180,
+                              ellipsis: true,
+                              render: (value?: string | null) => value || "-",
+                            },
+                            {
+                              title: "修改时间",
+                              dataIndex: "updatedAt",
+                              width: 180,
+                              ellipsis: true,
+                              render: (value?: string | null) => value || "-",
+                            },
+                            {
+                              title: "排序规则",
+                              dataIndex: "collation",
+                              width: 180,
+                              ellipsis: true,
+                              render: (value?: string | null) => value || "-",
+                            },
+                            {
+                              title: "表注释",
+                              dataIndex: "comment",
+                              width: 260,
+                              ellipsis: true,
+                              render: (value?: string | null) => value || "-",
+                            },
+                          ]}
+                          dataSource={objectTables}
                         />
                       ) : (
                         <Text type="secondary">
-                          选择连接和数据库后加载对象。
+                          选择连接和数据库后加载数据表。
                         </Text>
                       )}
                     </Card>
@@ -2838,6 +2996,7 @@ export default function DatabasePage() {
                     >
                       <Card
                         size="small"
+                        loading={objectDetailLoading}
                         title={
                           selectedObject
                             ? `${selectedObject.schemaName ? `${selectedObject.schemaName}.` : ""}${selectedObject.name}`
@@ -2939,6 +3098,14 @@ export default function DatabasePage() {
                                     value ?? "NULL",
                                 },
                                 {
+                                  title: "字段注释",
+                                  dataIndex: "comment",
+                                  width: 220,
+                                  ellipsis: true,
+                                  render: (value?: string | null) =>
+                                    value || "-",
+                                },
+                                {
                                   title: "额外",
                                   ellipsis: true,
                                   render: (_, record) => {
@@ -3011,7 +3178,85 @@ export default function DatabasePage() {
                           </Space>
                         ) : (
                           <Text type="secondary">
-                            从左侧对象树选择表或视图后查看字段和索引。
+                            单击上方数据表查看表结构与建表
+                            DDL；双击可查看表数据。
+                          </Text>
+                        )}
+                      </Card>
+                      <Card
+                        size="small"
+                        title={
+                          selectedObjectDetail?.ddlSource === "simplified"
+                            ? "简化结构 SQL"
+                            : "建表 DDL"
+                        }
+                        extra={
+                          selectedObjectDetail ? (
+                            <Tag
+                              color={
+                                selectedObjectDetail.ddlSource === "raw"
+                                  ? "green"
+                                  : "gold"
+                              }
+                            >
+                              {selectedObjectDetail.ddlSource === "raw"
+                                ? "数据库原始 DDL"
+                                : "简化结构 SQL"}
+                            </Tag>
+                          ) : null
+                        }
+                      >
+                        {selectedObjectDetail ? (
+                          <Space
+                            direction="vertical"
+                            size="small"
+                            style={{ width: "100%" }}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <Text type="secondary">
+                                只读展示，支持选择、搜索和复制。
+                              </Text>
+                              <Text
+                                copyable={{
+                                  text: selectedObjectDetail.createSql,
+                                  tooltips: ["复制 SQL", "已复制"],
+                                }}
+                              >
+                                复制 SQL
+                              </Text>
+                            </div>
+                            <div className="prototype-database-ddl-editor">
+                              <Suspense
+                                fallback={
+                                  <Input.TextArea
+                                    rows={14}
+                                    value={selectedObjectDetail.createSql}
+                                    readOnly
+                                  />
+                                }
+                              >
+                                <SqlCodeEditor
+                                  value={selectedObjectDetail.createSql}
+                                  dialect={
+                                    selectedObjectConnection?.dbType ===
+                                    "postgresql"
+                                      ? "postgresql"
+                                      : "mysql"
+                                  }
+                                  dark={theme === "dark"}
+                                  schema={{}}
+                                  columns={[]}
+                                  readOnly
+                                  height="420px"
+                                  onChange={() => undefined}
+                                  onRun={() => undefined}
+                                />
+                              </Suspense>
+                            </div>
+                          </Space>
+                        ) : (
+                          <Text type="secondary">
+                            单击数据表后加载建表 DDL。
                           </Text>
                         )}
                       </Card>

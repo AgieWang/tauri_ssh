@@ -3,9 +3,10 @@ use crate::models::{
     DatabaseCellUpdateInput, DatabaseCellUpdateResult, DatabaseConnection,
     DatabaseConnectionTestResult, DatabaseExportInput, DatabaseExportResult, DatabaseNameListInput,
     DatabaseNameListResult, DatabaseQueryInput, DatabaseQueryResult, DatabaseSchemaInput,
-    DatabaseSchemaResult, RedisDatabaseListInput, RedisDatabaseListResult, RedisDescribeKeysInput,
-    RedisKeyTreeInput, RedisKeyTreeResult, RedisScanInput, RedisScanResult, RedisValuePreview,
-    RedisValuePreviewInput, UpsertDatabaseConnectionInput,
+    DatabaseSchemaResult, DatabaseTableDetail, DatabaseTableDetailInput, RedisDatabaseListInput,
+    RedisDatabaseListResult, RedisDescribeKeysInput, RedisKeyTreeInput, RedisKeyTreeResult,
+    RedisScanInput, RedisScanResult, RedisValuePreview, RedisValuePreviewInput,
+    UpsertDatabaseConnectionInput,
 };
 use crate::services::database_ops::DatabaseOpsService;
 use crate::state::AppState;
@@ -69,6 +70,16 @@ pub async fn list_database_schema(
     input: DatabaseSchemaInput,
 ) -> Result<DatabaseSchemaResult, CommandError> {
     DatabaseOpsService::list_database_schema(&state.db, input)
+        .await
+        .map_err(|e| e.into())
+}
+
+#[tauri::command]
+pub async fn get_database_table_detail(
+    state: tauri::State<'_, AppState>,
+    input: DatabaseTableDetailInput,
+) -> Result<DatabaseTableDetail, CommandError> {
+    DatabaseOpsService::get_database_table_detail(&state.db, input)
         .await
         .map_err(|e| e.into())
 }

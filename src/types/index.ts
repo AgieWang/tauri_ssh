@@ -284,6 +284,8 @@ export type {
   DatabaseSchemaInput,
   DatabaseSchemaResult,
   DatabaseSecurityMode,
+  DatabaseTableDetail,
+  DatabaseTableDetailInput,
   DatabaseTableSchema,
   DatabaseType,
   RedisDatabaseInfo,

@@ -19,9 +19,10 @@ use crate::models::{
     DatabaseConnectionTestResult, DatabaseEditableQueryMeta, DatabaseExportInput,
     DatabaseExportResult, DatabaseIndexSchema, DatabaseNameListInput, DatabaseNameListResult,
     DatabaseQueryInput, DatabaseQueryResult, DatabaseSchemaInput, DatabaseSchemaResult,
-    DatabaseTableSchema, RedisDatabaseInfo, RedisDatabaseListInput, RedisDatabaseListResult,
-    RedisDescribeKeysInput, RedisKeyEntry, RedisKeyTreeInput, RedisKeyTreeResult, RedisScanInput,
-    RedisScanResult, RedisValuePreview, RedisValuePreviewInput, UpsertDatabaseConnectionInput,
+    DatabaseTableDetail, DatabaseTableDetailInput, DatabaseTableSchema, RedisDatabaseInfo,
+    RedisDatabaseListInput, RedisDatabaseListResult, RedisDescribeKeysInput, RedisKeyEntry,
+    RedisKeyTreeInput, RedisKeyTreeResult, RedisScanInput, RedisScanResult, RedisValuePreview,
+    RedisValuePreviewInput, UpsertDatabaseConnectionInput,
 };
 use crate::services::credential_vault::CredentialVaultService;
 use crate::services::system_settings::SystemSettingsService;
@@ -182,11 +183,11 @@ impl DatabaseOpsService {
                     return Err(AppError::InvalidInput("请先选择数据库".into()));
                 }
                 let url = Self::mysql_url(&connection_info, password.as_deref());
-                Self::list_mysql_schema(&url, database_name).await?
+                Self::list_mysql_schema(&url, database_name, None).await?
             }
             "postgresql" => {
                 let url = Self::postgres_url(&connection_info, password.as_deref());
-                Self::list_postgres_schema(&url).await?
+                Self::list_postgres_schema(&url, None, None).await?
             }
             _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
         };
@@ -198,6 +199,96 @@ impl DatabaseOpsService {
                 Some(connection_info.database_name)
             },
             tables,
+        })
+    }
+
+    /// 读取一个已存在对象的字段、索引和建表 DDL。对象名不会直接信任 IPC 输入，
+    /// 而是先与同一连接、同一数据库的只读对象清单精确匹配。
+    pub async fn get_database_table_detail(
+        db: &Database,
+        input: DatabaseTableDetailInput,
+    ) -> Result<DatabaseTableDetail, AppError> {
+        if input.table_name.trim().is_empty() {
+            return Err(AppError::InvalidInput("数据表名不能为空".into()));
+        }
+        let connection = db
+            .get_database_connection_secret_row(&input.connection_key)?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("数据库连接 '{}' 不存在", input.connection_key))
+            })?;
+        let mut connection_info = connection.connection;
+        if connection_info.db_type == "redis" {
+            return Err(AppError::InvalidInput("Redis 不支持数据表详情".into()));
+        }
+        if connection_info.connection_mode != "direct" {
+            return Err(AppError::InvalidInput(
+                "SSH 隧道数据表详情会在隧道模块接入后启用".into(),
+            ));
+        }
+        if let Some(database_name) = input
+            .database_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            connection_info.database_name = database_name.to_string();
+        }
+        let password = Self::resolve_connection_password(
+            db,
+            &connection_info,
+            connection.password_nonce.as_deref(),
+            connection.password_ciphertext.as_deref(),
+        )?;
+        let tables = match connection_info.db_type.as_str() {
+            "mysql" => {
+                let database_name = connection_info.database_name.trim();
+                if database_name.is_empty() {
+                    return Err(AppError::InvalidInput("请先选择数据库".into()));
+                }
+                let url = Self::mysql_url(&connection_info, password.as_deref());
+                Self::list_mysql_schema(&url, database_name, Some(input.table_name.trim())).await?
+            }
+            "postgresql" => {
+                let schema_name = input
+                    .schema_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        AppError::InvalidInput("PostgreSQL 数据表详情必须指定 schema".into())
+                    })?;
+                let url = Self::postgres_url(&connection_info, password.as_deref());
+                Self::list_postgres_schema(&url, Some(schema_name), Some(input.table_name.trim()))
+                    .await?
+            }
+            _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
+        };
+        let table = Self::find_table_schema(
+            &tables,
+            input
+                .schema_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            input.table_name.trim(),
+        )
+        .cloned()
+        .ok_or_else(|| AppError::NotFound(format!("数据表 '{}' 不存在", input.table_name)))?;
+        let (create_sql, ddl_source) = match connection_info.db_type.as_str() {
+            "mysql" => (
+                Self::read_mysql_create_sql(&connection_info, password.as_deref(), &table).await?,
+                "raw".to_string(),
+            ),
+            "postgresql" => (
+                Self::build_postgres_create_sql(&table),
+                "simplified".to_string(),
+            ),
+            _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
+        };
+        Ok(DatabaseTableDetail {
+            table,
+            create_sql,
+            ddl_source,
         })
     }
 
@@ -1254,11 +1345,11 @@ impl DatabaseOpsService {
                     return Err(AppError::InvalidInput("请先选择数据库".into()));
                 }
                 let url = Self::mysql_url(connection, password);
-                Self::list_mysql_schema(&url, database_name).await
+                Self::list_mysql_schema(&url, database_name, None).await
             }
             "postgresql" => {
                 let url = Self::postgres_url(connection, password);
-                Self::list_postgres_schema(&url).await
+                Self::list_postgres_schema(&url, None, None).await
             }
             _ => Err(AppError::InvalidInput("数据库类型无效".into())),
         }
@@ -1512,21 +1603,7 @@ impl DatabaseOpsService {
         table: &DatabaseTableSchema,
     ) -> Result<String, AppError> {
         if connection.db_type == "mysql" {
-            let sql = format!(
-                "SHOW CREATE TABLE {}",
-                Self::export_table_name(&table.name, "mysql")
-            );
-            let (_, _, rows) = Self::query_by_connection(connection, password, &sql).await?;
-            let create_sql = rows
-                .first()
-                .and_then(|row| row.as_object())
-                .and_then(|object| {
-                    object
-                        .get("Create Table")
-                        .or_else(|| object.get("Create View"))
-                })
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| AppError::Custom(format!("读取 {} 的建表语句失败", table.name)))?;
+            let create_sql = Self::read_mysql_create_sql(connection, password, table).await?;
             return Ok(format!(
                 "DROP TABLE IF EXISTS {};\n{};\n\n",
                 Self::export_table_name(&table.name, "mysql"),
@@ -1534,6 +1611,42 @@ impl DatabaseOpsService {
             ));
         }
 
+        Ok(format!(
+            "DROP TABLE IF EXISTS {};\n{}\n\n",
+            Self::export_table_name(&table.name, "postgresql"),
+            Self::build_postgres_create_sql(table)
+        ))
+    }
+
+    /// MySQL / MariaDB 原样返回 SHOW CREATE 的 DDL；标识符来自已读取的 schema，
+    /// 再经转义后才进入固定的 SHOW CREATE 语句。
+    async fn read_mysql_create_sql(
+        connection: &DatabaseConnection,
+        password: Option<&str>,
+        table: &DatabaseTableSchema,
+    ) -> Result<String, AppError> {
+        let is_view = table.object_type.to_ascii_uppercase().contains("VIEW");
+        let sql = format!(
+            "SHOW CREATE {} {}",
+            if is_view { "VIEW" } else { "TABLE" },
+            Self::export_table_name(&table.name, "mysql")
+        );
+        let (_, _, rows) = Self::query_by_connection(connection, password, &sql).await?;
+        rows.first()
+            .and_then(|row| row.as_object())
+            .and_then(|object| {
+                object
+                    .get("Create Table")
+                    .or_else(|| object.get("Create View"))
+            })
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string)
+            .ok_or_else(|| AppError::Custom(format!("读取 {} 的建表语句失败", table.name)))
+    }
+
+    /// PostgreSQL 没有 SHOW CREATE TABLE；这里仅生成字段与主键的简化结构 SQL，
+    /// 不将其作为可完整复建原表的 DDL 对外承诺。
+    fn build_postgres_create_sql(table: &DatabaseTableSchema) -> String {
         let columns = table
             .column_details
             .iter()
@@ -1572,13 +1685,12 @@ impl DatabaseOpsService {
                 )
             })
             .unwrap_or_default();
-        Ok(format!(
-            "DROP TABLE IF EXISTS {};\nCREATE TABLE {} (\n  {}{}\n);\n\n",
-            Self::export_table_name(&table.name, "postgresql"),
-            Self::export_table_name(&table.name, "postgresql"),
+        format!(
+            "CREATE TABLE {} (\n  {}{}\n);",
+            Self::qualified_table_name(table.schema_name.as_deref(), &table.name, "postgresql"),
             columns.join(",\n  "),
             primary
-        ))
+        )
     }
 
     fn insert_backup_sql(
@@ -2059,6 +2171,7 @@ impl DatabaseOpsService {
     async fn list_mysql_schema(
         url: &str,
         database_name: &str,
+        table_name: Option<&str>,
     ) -> Result<Vec<DatabaseTableSchema>, AppError> {
         use sqlx::{mysql::MySqlPoolOptions, Row};
         use std::collections::BTreeMap;
@@ -2070,43 +2183,66 @@ impl DatabaseOpsService {
             .await
             .map_err(|error| AppError::Custom(format!("连接 MySQL 失败: {}", error)))?;
         let table_rows = sqlx::query(
-            "SELECT CAST(TABLE_NAME AS CHAR) AS table_name, CAST(TABLE_TYPE AS CHAR) AS table_type
+            "SELECT CAST(TABLE_NAME AS CHAR) AS table_name, CAST(TABLE_TYPE AS CHAR) AS table_type,
+                    CAST(TABLE_ROWS AS CHAR) AS table_rows, CAST(DATA_LENGTH AS CHAR) AS data_length,
+                    CAST(ENGINE AS CHAR) AS engine, CAST(CREATE_TIME AS CHAR) AS created_at,
+                    CAST(UPDATE_TIME AS CHAR) AS updated_at, CAST(TABLE_COLLATION AS CHAR) AS collation,
+                    CAST(TABLE_COMMENT AS CHAR) AS table_comment
              FROM information_schema.TABLES
-             WHERE TABLE_SCHEMA = ?
+             WHERE TABLE_SCHEMA = ? AND (? IS NULL OR TABLE_NAME = ?)
              ORDER BY TABLE_NAME",
         )
         .bind(database_name)
-        .fetch_all(&pool)
-        .await
-        .map_err(|error| AppError::Custom(format!("读取 MySQL 对象失败: {}", error)))?;
+        .bind(table_name)
+        .bind(table_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(|error| AppError::Custom(format!("读取 MySQL 对象失败: {}", error)))?;
         let column_rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS table_name, CAST(COLUMN_NAME AS CHAR) AS column_name,
                     CAST(DATA_TYPE AS CHAR) AS data_type, CAST(COLUMN_TYPE AS CHAR) AS column_type,
                     CAST(IS_NULLABLE AS CHAR) AS is_nullable, CAST(COLUMN_DEFAULT AS CHAR) AS column_default,
-                    CAST(EXTRA AS CHAR) AS extra, CAST(ORDINAL_POSITION AS SIGNED) AS ordinal_position
+                    CAST(EXTRA AS CHAR) AS extra, CAST(ORDINAL_POSITION AS SIGNED) AS ordinal_position,
+                    CAST(COLUMN_COMMENT AS CHAR) AS column_comment
              FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = ?
+             WHERE TABLE_SCHEMA = ? AND (? IS NULL OR TABLE_NAME = ?)
              ORDER BY TABLE_NAME, ORDINAL_POSITION",
         )
         .bind(database_name)
-        .fetch_all(&pool)
-        .await
-        .map_err(|error| AppError::Custom(format!("读取 MySQL 字段失败: {}", error)))?;
+        .bind(table_name)
+        .bind(table_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(|error| AppError::Custom(format!("读取 MySQL 字段失败: {}", error)))?;
         let index_rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS table_name, CAST(INDEX_NAME AS CHAR) AS index_name,
                     CAST(COLUMN_NAME AS CHAR) AS column_name, CAST(NON_UNIQUE AS SIGNED) AS non_unique,
                     CAST(SEQ_IN_INDEX AS SIGNED) AS seq_in_index
              FROM information_schema.STATISTICS
-             WHERE TABLE_SCHEMA = ?
+             WHERE TABLE_SCHEMA = ? AND (? IS NULL OR TABLE_NAME = ?)
              ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
         )
         .bind(database_name)
-        .fetch_all(&pool)
-        .await
-        .map_err(|error| AppError::Custom(format!("读取 MySQL 索引失败: {}", error)))?;
+        .bind(table_name)
+        .bind(table_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(|error| AppError::Custom(format!("读取 MySQL 索引失败: {}", error)))?;
 
         let mut table_map: BTreeMap<String, Vec<DatabaseColumnSchema>> = BTreeMap::new();
         let mut type_map: BTreeMap<String, String> = BTreeMap::new();
+        let mut metadata_map: BTreeMap<
+            String,
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        > = BTreeMap::new();
         let mut index_map: BTreeMap<String, BTreeMap<String, DatabaseIndexSchema>> =
             BTreeMap::new();
         for row in table_rows {
@@ -2114,6 +2250,18 @@ impl DatabaseOpsService {
             let table_type: String = row.try_get(1).unwrap_or_default();
             if !table_name.is_empty() {
                 type_map.insert(table_name.clone(), table_type);
+                metadata_map.insert(
+                    table_name.clone(),
+                    (
+                        row.try_get(2).ok(),
+                        row.try_get(3).ok(),
+                        row.try_get(4).ok(),
+                        row.try_get(5).ok(),
+                        row.try_get(6).ok(),
+                        row.try_get(7).ok(),
+                        row.try_get(8).ok(),
+                    ),
+                );
                 table_map.entry(table_name).or_default();
             }
         }
@@ -2126,6 +2274,7 @@ impl DatabaseOpsService {
             let default_value: Option<String> = row.try_get(5).ok();
             let extra: String = row.try_get(6).unwrap_or_default();
             let ordinal_position: i64 = row.try_get(7).unwrap_or(0);
+            let comment: Option<String> = row.try_get(8).ok();
             if !table_name.is_empty() && !column_name.is_empty() {
                 table_map
                     .entry(table_name)
@@ -2136,6 +2285,7 @@ impl DatabaseOpsService {
                         column_type,
                         nullable: is_nullable.eq_ignore_ascii_case("YES"),
                         default_value,
+                        comment,
                         extra,
                         ordinal_position,
                     });
@@ -2163,6 +2313,8 @@ impl DatabaseOpsService {
         Ok(table_map
             .into_iter()
             .map(|(name, column_details)| {
+                let (row_count, data_length, engine, created_at, updated_at, collation, comment) =
+                    metadata_map.remove(&name).unwrap_or_default();
                 let columns = column_details
                     .iter()
                     .map(|column| column.name.clone())
@@ -2178,6 +2330,13 @@ impl DatabaseOpsService {
                         .unwrap_or_default(),
                     schema_name: None,
                     name,
+                    row_count,
+                    data_length,
+                    engine,
+                    created_at,
+                    updated_at,
+                    collation,
+                    comment,
                     columns,
                     column_details,
                 }
@@ -2271,7 +2430,11 @@ impl DatabaseOpsService {
             .collect())
     }
 
-    async fn list_postgres_schema(url: &str) -> Result<Vec<DatabaseTableSchema>, AppError> {
+    async fn list_postgres_schema(
+        url: &str,
+        schema_name: Option<&str>,
+        table_name: Option<&str>,
+    ) -> Result<Vec<DatabaseTableSchema>, AppError> {
         use sqlx::{postgres::PgPoolOptions, Row};
         use std::collections::BTreeMap;
 
@@ -2282,21 +2445,44 @@ impl DatabaseOpsService {
             .await
             .map_err(|error| AppError::Custom(format!("连接 PostgreSQL 失败: {}", error)))?;
         let table_rows = sqlx::query(
-            "SELECT table_schema, table_name, table_type
-             FROM information_schema.tables
-             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-             ORDER BY table_schema, table_name",
+            "SELECT table_schema, table_name, table_type,
+                    CASE WHEN table_type = 'BASE TABLE' THEN COALESCE(stat.n_live_tup, class.reltuples)::bigint::text END AS table_rows,
+                    CASE WHEN table_type = 'BASE TABLE' THEN pg_total_relation_size(class.oid)::text END AS data_length,
+                    'PostgreSQL'::text AS engine, NULL::text AS created_at, NULL::text AS updated_at,
+                    COALESCE(coll.collname, current_setting('lc_collate')) AS collation,
+                    COALESCE(obj_description(class.oid, 'pg_class'), '') AS table_comment
+             FROM information_schema.tables table_info
+             JOIN pg_namespace namespace ON namespace.nspname = table_info.table_schema
+             JOIN pg_class class ON class.relnamespace = namespace.oid AND class.relname = table_info.table_name
+             LEFT JOIN pg_stat_user_tables stat ON stat.relid = class.oid
+             LEFT JOIN pg_collation coll ON coll.oid = class.relcollation
+             WHERE table_info.table_schema NOT IN ('pg_catalog', 'information_schema')
+               AND ($1::text IS NULL OR table_info.table_schema = $1)
+               AND ($2::text IS NULL OR table_info.table_name = $2)
+             ORDER BY table_info.table_schema, table_info.table_name",
         )
+        .bind(schema_name)
+        .bind(table_name)
         .fetch_all(&pool)
         .await
         .map_err(|error| AppError::Custom(format!("读取 PostgreSQL 对象失败: {}", error)))?;
         let column_rows = sqlx::query(
-            "SELECT table_schema, table_name, column_name, data_type, udt_name,
-                    is_nullable, column_default, ordinal_position
-             FROM information_schema.columns
-             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-             ORDER BY table_schema, table_name, ordinal_position",
+            "SELECT column_info.table_schema, column_info.table_name, column_info.column_name,
+                    column_info.data_type, column_info.udt_name, column_info.is_nullable,
+                    column_info.column_default, column_info.ordinal_position,
+                    COALESCE(col_description(class.oid, attribute.attnum), '') AS column_comment
+             FROM information_schema.columns column_info
+             JOIN pg_namespace namespace ON namespace.nspname = column_info.table_schema
+             JOIN pg_class class ON class.relnamespace = namespace.oid AND class.relname = column_info.table_name
+             JOIN pg_attribute attribute ON attribute.attrelid = class.oid
+                 AND attribute.attname = column_info.column_name AND NOT attribute.attisdropped
+             WHERE column_info.table_schema NOT IN ('pg_catalog', 'information_schema')
+               AND ($1::text IS NULL OR column_info.table_schema = $1)
+               AND ($2::text IS NULL OR column_info.table_name = $2)
+             ORDER BY column_info.table_schema, column_info.table_name, column_info.ordinal_position",
         )
+        .bind(schema_name)
+        .bind(table_name)
         .fetch_all(&pool)
         .await
         .map_err(|error| AppError::Custom(format!("读取 PostgreSQL 字段失败: {}", error)))?;
@@ -2304,14 +2490,30 @@ impl DatabaseOpsService {
             "SELECT schemaname, tablename, indexname, indexdef
              FROM pg_indexes
              WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+               AND ($1::text IS NULL OR schemaname = $1)
+               AND ($2::text IS NULL OR tablename = $2)
              ORDER BY schemaname, tablename, indexname",
         )
+        .bind(schema_name)
+        .bind(table_name)
         .fetch_all(&pool)
         .await
         .map_err(|error| AppError::Custom(format!("读取 PostgreSQL 索引失败: {}", error)))?;
 
         let mut table_map: BTreeMap<(String, String), Vec<DatabaseColumnSchema>> = BTreeMap::new();
         let mut type_map: BTreeMap<(String, String), String> = BTreeMap::new();
+        let mut metadata_map: BTreeMap<
+            (String, String),
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+        > = BTreeMap::new();
         let mut index_map: BTreeMap<(String, String), Vec<DatabaseIndexSchema>> = BTreeMap::new();
         for row in table_rows {
             let schema_name: String = row.try_get("table_schema").unwrap_or_default();
@@ -2320,6 +2522,18 @@ impl DatabaseOpsService {
             if !schema_name.is_empty() && !table_name.is_empty() {
                 let key = (schema_name, table_name);
                 type_map.insert(key.clone(), table_type);
+                metadata_map.insert(
+                    key.clone(),
+                    (
+                        row.try_get("table_rows").ok(),
+                        row.try_get("data_length").ok(),
+                        row.try_get("engine").ok(),
+                        row.try_get("created_at").ok(),
+                        row.try_get("updated_at").ok(),
+                        row.try_get("collation").ok(),
+                        row.try_get("table_comment").ok(),
+                    ),
+                );
                 table_map.entry(key).or_default();
             }
         }
@@ -2334,6 +2548,7 @@ impl DatabaseOpsService {
             let is_nullable: String = row.try_get("is_nullable").unwrap_or_default();
             let default_value: Option<String> = row.try_get("column_default").ok();
             let ordinal_position: i64 = row.try_get("ordinal_position").unwrap_or(0);
+            let comment: Option<String> = row.try_get("column_comment").ok();
             if !schema_name.is_empty() && !table_name.is_empty() && !column_name.is_empty() {
                 table_map
                     .entry((schema_name, table_name))
@@ -2348,6 +2563,7 @@ impl DatabaseOpsService {
                         },
                         nullable: is_nullable.eq_ignore_ascii_case("YES"),
                         default_value,
+                        comment,
                         extra: String::new(),
                         ordinal_position,
                     });
@@ -2376,6 +2592,10 @@ impl DatabaseOpsService {
         Ok(table_map
             .into_iter()
             .map(|((schema_name, name), column_details)| {
+                let (row_count, data_length, engine, created_at, updated_at, collation, comment) =
+                    metadata_map
+                        .remove(&(schema_name.clone(), name.clone()))
+                        .unwrap_or_default();
                 let columns = column_details
                     .iter()
                     .map(|column| column.name.clone())
@@ -2390,6 +2610,13 @@ impl DatabaseOpsService {
                         .unwrap_or_default(),
                     schema_name: Some(schema_name),
                     name,
+                    row_count,
+                    data_length,
+                    engine,
+                    created_at,
+                    updated_at,
+                    collation,
+                    comment,
                     columns,
                     column_details,
                 }

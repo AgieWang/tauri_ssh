@@ -12,6 +12,8 @@ import type {
   DatabaseQueryResult,
   DatabaseSchemaInput,
   DatabaseSchemaResult,
+  DatabaseTableDetail,
+  DatabaseTableDetailInput,
   RedisDatabaseListInput,
   RedisDatabaseListResult,
   RedisDescribeKeysInput,
@@ -71,6 +73,13 @@ export const databaseOpsApi = {
     hasTauriRuntime()
       ? invoke<DatabaseSchemaResult>("list_database_schema", { input })
       : devApiFetch<DatabaseSchemaResult>("/database/schema", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+  getDatabaseTableDetail: (input: DatabaseTableDetailInput) =>
+    hasTauriRuntime()
+      ? invoke<DatabaseTableDetail>("get_database_table_detail", { input })
+      : devApiFetch<DatabaseTableDetail>("/database/table-detail", {
           method: "POST",
           body: JSON.stringify(input),
         }),

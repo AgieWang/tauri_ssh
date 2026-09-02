@@ -513,6 +513,10 @@ async fn serve(app_handle: tauri::AppHandle) -> Result<(), String> {
         )
         .route("/dev-api/database/names", post(list_database_names))
         .route("/dev-api/database/schema", post(list_database_schema))
+        .route(
+            "/dev-api/database/table-detail",
+            post(get_database_table_detail),
+        )
         .route("/dev-api/database/sql", post(execute_database_sql))
         .route(
             "/dev-api/database/sql/batch",
@@ -9578,6 +9582,16 @@ async fn list_database_schema(
     let state = app_state(&ctx);
     Ok(Json(
         DatabaseOpsService::list_database_schema(&state.db, input).await?,
+    ))
+}
+
+async fn get_database_table_detail(
+    State(ctx): State<DevApiState>,
+    Json(input): Json<crate::models::DatabaseTableDetailInput>,
+) -> DevApiResult<crate::models::DatabaseTableDetail> {
+    let state = app_state(&ctx);
+    Ok(Json(
+        DatabaseOpsService::get_database_table_detail(&state.db, input).await?,
     ))
 }
 
