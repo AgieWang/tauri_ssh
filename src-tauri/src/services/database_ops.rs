@@ -505,14 +505,18 @@ impl DatabaseOpsService {
             connection.password_nonce.as_deref(),
             connection.password_ciphertext.as_deref(),
         )?;
-        let tables = Self::list_schema_by_connection(&connection_info, password.as_deref()).await?;
-        let table =
-            Self::find_table_schema(&tables, input.table_schema.as_deref(), &input.table_name)
-                .ok_or_else(|| AppError::InvalidInput("目标表不存在或不可编辑".into()))?;
+        // 保存时仍以服务端实时元数据校验表和字段，但只读取目标表，避免每次单元格更新扫描整库。
+        let table = Self::get_table_schema_by_connection(
+            &connection_info,
+            password.as_deref(),
+            input.table_schema.as_deref(),
+            &input.table_name,
+        )
+        .await?;
         if table.object_type.to_ascii_uppercase().contains("VIEW") {
             return Err(AppError::InvalidInput("视图结果暂不支持直接编辑".into()));
         }
-        let primary_key_columns = Self::primary_key_columns(table)
+        let primary_key_columns = Self::primary_key_columns(&table)
             .ok_or_else(|| AppError::InvalidInput("目标表缺少主键或唯一键，无法安全更新".into()))?;
         let column = table
             .column_details
@@ -539,11 +543,11 @@ impl DatabaseOpsService {
         let rows_affected = match connection_info.db_type.as_str() {
             "mysql" => {
                 let url = Self::mysql_url(&connection_info, password.as_deref());
-                Self::update_mysql_cell(&url, table, &primary_key_columns, &input, column).await?
+                Self::update_mysql_cell(&url, &table, &primary_key_columns, &input, column).await?
             }
             "postgresql" => {
                 let url = Self::postgres_url(&connection_info, password.as_deref());
-                Self::update_postgres_cell(&url, table, &primary_key_columns, &input, column)
+                Self::update_postgres_cell(&url, &table, &primary_key_columns, &input, column)
                     .await?
             }
             _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
@@ -1353,6 +1357,41 @@ impl DatabaseOpsService {
             }
             _ => Err(AppError::InvalidInput("数据库类型无效".into())),
         }
+    }
+
+    /// 直接编辑只需要验证一个目标表；全库 schema 仅用于对象浏览和 SQL 补全。
+    async fn get_table_schema_by_connection(
+        connection: &DatabaseConnection,
+        password: Option<&str>,
+        schema_name: Option<&str>,
+        table_name: &str,
+    ) -> Result<DatabaseTableSchema, AppError> {
+        let table_name = table_name.trim();
+        if table_name.is_empty() {
+            return Err(AppError::InvalidInput("目标表名不能为空".into()));
+        }
+        let normalized_schema = schema_name.map(str::trim).filter(|value| !value.is_empty());
+        let tables = match connection.db_type.as_str() {
+            "mysql" => {
+                let database_name = connection.database_name.trim();
+                if database_name.is_empty() {
+                    return Err(AppError::InvalidInput("请先选择数据库".into()));
+                }
+                let url = Self::mysql_url(connection, password);
+                Self::list_mysql_schema(&url, database_name, Some(table_name)).await?
+            }
+            "postgresql" => {
+                let schema_name = normalized_schema.ok_or_else(|| {
+                    AppError::InvalidInput("PostgreSQL 单元格更新必须指定 schema".into())
+                })?;
+                let url = Self::postgres_url(connection, password);
+                Self::list_postgres_schema(&url, Some(schema_name), Some(table_name)).await?
+            }
+            _ => return Err(AppError::InvalidInput("数据库类型无效".into())),
+        };
+        Self::find_table_schema(&tables, normalized_schema, table_name)
+            .cloned()
+            .ok_or_else(|| AppError::InvalidInput("目标表不存在或不可编辑".into()))
     }
 
     async fn build_editable_query_meta(

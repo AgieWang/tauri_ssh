@@ -19,12 +19,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .codex/hooks/skill-forced-eval.cjs",
-            "statusMessage": "路由并评估技能",
-            "timeout": 10
-          }
-        ]
+        "command": "node .codex/hooks/skill-forced-eval.cjs",
+        "statusMessage": "路由并评估技能",
+        "timeout": 10
       }
+    ]
+  },
+  {
+    "hooks": [
+      {
+        "type": "command",
+        "command": "node /Users/bin/.codex/hooks/auto-title.cjs",
+        "timeout": 10,
+        "statusMessage": "按创建日期生成会话标题"
+      }
+    ]
+  }
     ],
     "PreToolUse": [
       {

@@ -1,6 +1,8 @@
 import {
   lazy,
+  memo,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -115,8 +117,122 @@ interface EditingSqlCell {
   tableSchema?: string | null;
   primaryKey: Record<string, unknown>;
   oldValue: unknown;
-  draftValue: string;
 }
+
+function formatSqlCellDraft(value: unknown) {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+}
+
+/**
+ * 编辑草稿只属于当前输入框。不能把每个按键同步到数据库页根状态，
+ * 否则会让结果表和 SQL 编辑器在输入期间一起重渲染。
+ */
+export const SqlCellEditor = memo(function SqlCellEditor({
+  cell,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  cell: EditingSqlCell;
+  saving: boolean;
+  onSave: (draftValue: string) => boolean;
+  onCancel: () => void;
+}) {
+  const [draftValue, setDraftValue] = useState(() =>
+    formatSqlCellDraft(cell.oldValue),
+  );
+  const submittedRef = useRef(false);
+  const isMultiline =
+    typeof cell.oldValue === "object" && cell.oldValue !== null;
+
+  useEffect(() => {
+    if (!saving) submittedRef.current = false;
+  }, [saving]);
+
+  function submit() {
+    if (saving || submittedRef.current) return;
+    submittedRef.current = onSave(draftValue);
+  }
+
+  const inputStyle = {
+    minWidth: 120,
+    width: "100%",
+    padding: "0 6px",
+    lineHeight: "24px",
+  };
+  const savingSpinner = saving ? (
+    <Spin
+      size="small"
+      style={{
+        position: "absolute",
+        right: -28,
+        top: "50%",
+        transform: "translateY(-50%)",
+        pointerEvents: "none",
+        zIndex: 2,
+      }}
+    />
+  ) : null;
+
+  if (isMultiline) {
+    return (
+      <span style={{ position: "relative", display: "block", width: "100%" }}>
+        <Input.TextArea
+          aria-label={`编辑 ${cell.columnName}`}
+          autoFocus={!saving}
+          rows={4}
+          size="small"
+          value={draftValue}
+          disabled={saving}
+          style={{
+            ...inputStyle,
+            minWidth: 260,
+            paddingRight: saving ? 24 : 6,
+          }}
+          onChange={(event) => setDraftValue(event.target.value)}
+          onBlur={submit}
+          onKeyDown={(event) => {
+            if (!saving && event.key === "Escape") {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+        />
+        {savingSpinner}
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ position: "relative", display: "block", width: "100%" }}>
+      <Input
+        aria-label={`编辑 ${cell.columnName}`}
+        autoFocus={!saving}
+        size="small"
+        value={draftValue}
+        disabled={saving}
+        style={{ ...inputStyle, paddingRight: saving ? 24 : 6 }}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={submit}
+        onPressEnter={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        onKeyDown={(event) => {
+          if (!saving && event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+      {savingSpinner}
+    </span>
+  );
+});
 
 interface PendingSqlAutoExecute {
   connectionKey: string;
@@ -499,6 +615,29 @@ function buildRedisTree(keys: string[]): RedisTreeNode[] {
   return [root];
 }
 
+const sqlEditorBasicSetup = {
+  lineNumbers: true,
+  highlightActiveLineGutter: true,
+  highlightSpecialChars: true,
+  foldGutter: true,
+  drawSelection: true,
+  dropCursor: true,
+  allowMultipleSelections: true,
+  indentOnInput: true,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: false,
+  rectangularSelection: true,
+  crosshairCursor: true,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  closeBracketsKeymap: true,
+  searchKeymap: true,
+  foldKeymap: true,
+  completionKeymap: true,
+  lintKeymap: true,
+};
+
 const SqlCodeEditor = lazy(async () => {
   const [
     codeMirrorModule,
@@ -592,7 +731,7 @@ const SqlCodeEditor = lazy(async () => {
   }
 
   return {
-    default: function LazySqlCodeEditor(props: {
+    default: memo(function LazySqlCodeEditor(props: {
       value: string;
       dialect: SqlDialectKey;
       dark: boolean;
@@ -604,87 +743,139 @@ const SqlCodeEditor = lazy(async () => {
       onRun: () => void;
     }) {
       const dialect = dialectMap[props.dialect] ?? sqlModule.StandardSQL;
-      const sqlConfig = {
-        dialect,
-        schema: props.schema,
-        upperCaseKeywords: true,
-      };
+      const sqlConfig = useMemo(
+        () => ({ dialect, schema: props.schema, upperCaseKeywords: true }),
+        [dialect, props.schema],
+      );
 
-      function columnCompletionSource(context: unknown) {
-        const completionContext = context as {
-          pos: number;
-          explicit: boolean;
-          state: { doc: { sliceString: (from: number, to: number) => string } };
-          matchBefore: (
-            regexp: RegExp,
-          ) => { from: number; to: number; text: string } | null;
-        };
-        const beforeCursor = completionContext.state.doc.sliceString(
-          0,
-          completionContext.pos,
-        );
-        if (isInsideSqlString(beforeCursor)) {
-          return null;
-        }
+      const columnCompletionSource = useCallback(
+        (context: unknown) => {
+          const completionContext = context as {
+            pos: number;
+            explicit: boolean;
+            state: {
+              doc: { sliceString: (from: number, to: number) => string };
+            };
+            matchBefore: (
+              regexp: RegExp,
+            ) => { from: number; to: number; text: string } | null;
+          };
+          const beforeCursor = completionContext.state.doc.sliceString(
+            0,
+            completionContext.pos,
+          );
+          if (isInsideSqlString(beforeCursor)) {
+            return null;
+          }
 
-        const word = completionContext.matchBefore(/[\w$]*/);
-        if (!word || (!word.text && !completionContext.explicit)) {
-          return null;
-        }
+          const word = completionContext.matchBefore(/[\w$]*/);
+          if (!word || (!word.text && !completionContext.explicit)) {
+            return null;
+          }
 
-        const dotMatch = beforeCursor.match(
-          /([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)\.[\w$]*$/,
-        );
-        const statement = statementBeforeCursor(beforeCursor);
-        const { tables, aliases } = referencedTables(statement);
-        const qualifier = dotMatch ? normalizeSqlIdentifier(dotMatch[1]) : "";
-        const qualifierTable = qualifier
-          ? (aliases.get(qualifier) ?? qualifier)
-          : "";
-        const activeColumns = props.columns
-          .filter((column) => {
-            if (qualifierTable) {
-              return tableMatchesColumn(column, qualifierTable);
-            }
-            if (tables.size === 0) {
+          const dotMatch = beforeCursor.match(
+            /([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)\.[\w$]*$/,
+          );
+          const statement = statementBeforeCursor(beforeCursor);
+          const { tables, aliases } = referencedTables(statement);
+          const qualifier = dotMatch ? normalizeSqlIdentifier(dotMatch[1]) : "";
+          const qualifierTable = qualifier
+            ? (aliases.get(qualifier) ?? qualifier)
+            : "";
+          const activeColumns = props.columns
+            .filter((column) => {
+              if (qualifierTable) {
+                return tableMatchesColumn(column, qualifierTable);
+              }
+              if (tables.size === 0) {
+                return true;
+              }
+              return Array.from(tables).some((tableKey) =>
+                tableMatchesColumn(column, tableKey),
+              );
+            })
+            .slice(0, 300);
+
+          if (activeColumns.length === 0) {
+            return null;
+          }
+
+          const seen = new Set<string>();
+          const options = activeColumns
+            .filter((column) => {
+              const scopedKey = qualifierTable
+                ? column.label
+                : `${column.schemaName ?? ""}.${column.tableName}.${column.label}`;
+              if (seen.has(scopedKey)) {
+                return false;
+              }
+              seen.add(scopedKey);
               return true;
-            }
-            return Array.from(tables).some((tableKey) =>
-              tableMatchesColumn(column, tableKey),
-            );
-          })
-          .slice(0, 300);
+            })
+            .map((column) => ({
+              label: column.label,
+              type: "property",
+              detail: `${column.schemaName ? `${column.schemaName}.` : ""}${column.tableName}`,
+              info: column.columnType || column.dataType || column.objectType,
+              boost: tables.size > 0 || qualifierTable ? 90 : 10,
+            }));
 
-        if (activeColumns.length === 0) {
-          return null;
-        }
+          return {
+            from: word.from,
+            options,
+            validFor: /^[\w$]*$/,
+          };
+        },
+        [props.columns],
+      );
 
-        const seen = new Set<string>();
-        const options = activeColumns
-          .filter((column) => {
-            const scopedKey = qualifierTable
-              ? column.label
-              : `${column.schemaName ?? ""}.${column.tableName}.${column.label}`;
-            if (seen.has(scopedKey)) {
-              return false;
-            }
-            seen.add(scopedKey);
-            return true;
-          })
-          .map((column) => ({
-            label: column.label,
-            type: "property",
-            detail: `${column.schemaName ? `${column.schemaName}.` : ""}${column.tableName}`,
-            info: column.columnType || column.dataType || column.objectType,
-            boost: tables.size > 0 || qualifierTable ? 90 : 10,
-          }));
-
-        return {
-          from: word.from,
-          options,
-          validFor: /^[\w$]*$/,
-        };
-      }
+      const extensions = useMemo(
+        () => [
+          languageModule.indentUnit.of("  "),
+          viewModule.EditorView.domEventHandlers({
+            keydown: (event: KeyboardEvent) => {
+              if (event.key !== "Enter" || !event.shiftKey) {
+                return false;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              props.onRun();
+              return true;
+            },
+          }),
+          viewModule.keymap.of([
+            {
+              key: "Shift-Enter",
+              run: () => {
+                props.onRun();
+                return true;
+              },
+            },
+            commandsModule.indentWithTab,
+          ]),
+          viewModule.EditorView.lineWrapping,
+          sqlModule.sql({
+            dialect,
+            schema: props.schema,
+            upperCaseKeywords: true,
+          }),
+          autocompleteModule.autocompletion({
+            override: [
+              columnCompletionSource,
+              sqlModule.schemaCompletionSource(sqlConfig),
+              sqlModule.keywordCompletionSource(dialect, true),
+            ],
+            maxRenderedOptions: 80,
+          }),
+        ],
+        [columnCompletionSource, dialect, props.onRun, props.schema, sqlConfig],
+      );
+      const handleChange = useCallback(
+        (value: string) => {
+          if (!props.readOnly) props.onChange(value);
+        },
+        [props.onChange, props.readOnly],
+      );
 
       return (
         <div
@@ -707,75 +898,13 @@ const SqlCodeEditor = lazy(async () => {
                 ? githubThemeModule.githubDark
                 : githubThemeModule.githubLight
             }
-            extensions={[
-              languageModule.indentUnit.of("  "),
-              viewModule.EditorView.domEventHandlers({
-                keydown: (event: KeyboardEvent) => {
-                  if (event.key !== "Enter" || !event.shiftKey) {
-                    return false;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.onRun();
-                  return true;
-                },
-              }),
-              viewModule.keymap.of([
-                {
-                  key: "Shift-Enter",
-                  run: () => {
-                    props.onRun();
-                    return true;
-                  },
-                },
-                commandsModule.indentWithTab,
-              ]),
-              viewModule.EditorView.lineWrapping,
-              sqlModule.sql({
-                dialect,
-                schema: props.schema,
-                upperCaseKeywords: true,
-              }),
-              autocompleteModule.autocompletion({
-                override: [
-                  columnCompletionSource,
-                  sqlModule.schemaCompletionSource(sqlConfig),
-                  sqlModule.keywordCompletionSource(dialect, true),
-                ],
-                maxRenderedOptions: 80,
-              }),
-            ]}
-            basicSetup={{
-              lineNumbers: true,
-              highlightActiveLineGutter: true,
-              highlightSpecialChars: true,
-              foldGutter: true,
-              drawSelection: true,
-              dropCursor: true,
-              allowMultipleSelections: true,
-              indentOnInput: true,
-              bracketMatching: true,
-              closeBrackets: true,
-              autocompletion: false,
-              rectangularSelection: true,
-              crosshairCursor: true,
-              highlightActiveLine: true,
-              highlightSelectionMatches: true,
-              closeBracketsKeymap: true,
-              searchKeymap: true,
-              foldKeymap: true,
-              completionKeymap: true,
-              lintKeymap: true,
-            }}
-            onChange={(value) => {
-              if (!props.readOnly) {
-                props.onChange(value);
-              }
-            }}
+            extensions={extensions}
+            basicSetup={sqlEditorBasicSetup}
+            onChange={handleChange}
           />
         </div>
       );
-    },
+    }),
   };
 });
 
@@ -1912,60 +2041,63 @@ export default function DatabasePage() {
     }
   }
 
-  async function executeQuery(input?: PendingSqlAutoExecute) {
-    const connectionKey = input?.connectionKey ?? queryConnectionKey;
-    const databaseName = input ? input.databaseName : queryDatabaseName;
-    const sql = input?.sql ?? querySql;
-    if (!connectionKey) {
-      message.warning("请先选择数据库连接");
-      return;
-    }
-    setQueryResults([]);
-    setActiveQueryResultKey("0");
-    setQueryLoading(true);
-    setSqlExecutionStatus("running");
-    setSqlExecutionMessage("SQL 执行中...");
-    try {
-      const results = await databaseOpsApi.executeSqlBatch({
-        connectionKey,
-        databaseName,
-        sql,
-        page: 1,
-        pageSize: 500,
-      });
-      const errorCount = results.filter(
-        (item) => item.status === "error",
-      ).length;
-      const successCount = results.length - errorCount;
-      setQueryResults(results);
-      setActiveQueryResultKey(
-        String(
-          Math.max(
-            0,
-            results.findIndex((item) => item.status === "error"),
-          ),
-        ),
-      );
-      setSqlExecutionStatus(errorCount > 0 ? "error" : "success");
-      setSqlExecutionMessage(
-        errorCount > 0
-          ? `已执行 ${successCount}/${results.length} 条，${errorCount} 条失败`
-          : `已成功执行 ${results.length} 条 SQL`,
-      );
-      if (errorCount > 0) {
-        message.error("存在 SQL 执行失败，请查看结果 Tab");
-      } else {
-        message.success(`已成功执行 ${results.length} 条 SQL`);
+  const executeQuery = useCallback(
+    async (input?: PendingSqlAutoExecute) => {
+      const connectionKey = input?.connectionKey ?? queryConnectionKey;
+      const databaseName = input ? input.databaseName : queryDatabaseName;
+      const sql = input?.sql ?? querySql;
+      if (!connectionKey) {
+        message.warning("请先选择数据库连接");
+        return;
       }
-    } catch (error) {
-      const messageText = getErrorMessage(error);
-      setSqlExecutionStatus("error");
-      setSqlExecutionMessage(messageText);
-      message.error(messageText);
-    } finally {
-      setQueryLoading(false);
-    }
-  }
+      setQueryResults([]);
+      setActiveQueryResultKey("0");
+      setQueryLoading(true);
+      setSqlExecutionStatus("running");
+      setSqlExecutionMessage("SQL 执行中...");
+      try {
+        const results = await databaseOpsApi.executeSqlBatch({
+          connectionKey,
+          databaseName,
+          sql,
+          page: 1,
+          pageSize: 500,
+        });
+        const errorCount = results.filter(
+          (item) => item.status === "error",
+        ).length;
+        const successCount = results.length - errorCount;
+        setQueryResults(results);
+        setActiveQueryResultKey(
+          String(
+            Math.max(
+              0,
+              results.findIndex((item) => item.status === "error"),
+            ),
+          ),
+        );
+        setSqlExecutionStatus(errorCount > 0 ? "error" : "success");
+        setSqlExecutionMessage(
+          errorCount > 0
+            ? `已执行 ${successCount}/${results.length} 条，${errorCount} 条失败`
+            : `已成功执行 ${results.length} 条 SQL`,
+        );
+        if (errorCount > 0) {
+          message.error("存在 SQL 执行失败，请查看结果 Tab");
+        } else {
+          message.success(`已成功执行 ${results.length} 条 SQL`);
+        }
+      } catch (error) {
+        const messageText = getErrorMessage(error);
+        setSqlExecutionStatus("error");
+        setSqlExecutionMessage(messageText);
+        message.error(messageText);
+      } finally {
+        setQueryLoading(false);
+      }
+    },
+    [queryConnectionKey, queryDatabaseName, querySql],
+  );
 
   useEffect(() => {
     const pending = pendingSqlAutoExecuteRef.current;
@@ -1988,6 +2120,7 @@ export default function DatabasePage() {
     queryDatabaseName,
     queryLoading,
     querySql,
+    executeQuery,
   ]);
 
   async function runDatabaseExport() {
@@ -2386,7 +2519,6 @@ export default function DatabasePage() {
       tableSchema: editable.tableSchema,
       primaryKey,
       oldValue,
-      draftValue: formatSqlCellDraft(oldValue),
     });
   }
 
@@ -2394,26 +2526,37 @@ export default function DatabasePage() {
     return `${cell.resultIndex}:${cell.rowIndex}:${cell.columnName}`;
   }
 
-  async function saveSqlCellEdit(cell: EditingSqlCell) {
-    if (!queryConnectionKey) return;
+  function saveSqlCellEdit(cell: EditingSqlCell, draftValue: string) {
+    const connectionKey = queryConnectionKey;
+    if (!connectionKey) return false;
     const cellKey = editingSqlCellKey(cell);
-    if (cell.draftValue === formatSqlCellDraft(cell.oldValue)) {
+    if (draftValue === formatSqlCellDraft(cell.oldValue)) {
       setEditingSqlCell((current) =>
         current && editingSqlCellKey(current) === cellKey ? null : current,
       );
-      return;
+      return true;
     }
     let newValue: unknown = null;
     try {
-      newValue = parseSqlCellDraft(cell.draftValue, cell.columnType);
+      newValue = parseSqlCellDraft(draftValue, cell.columnType);
     } catch (error) {
       message.error(getErrorMessage(error));
-      return;
+      return false;
     }
     setSavingSqlCells((current) => ({ ...current, [cellKey]: cell }));
+    void persistSqlCellEdit(cell, cellKey, connectionKey, newValue);
+    return true;
+  }
+
+  async function persistSqlCellEdit(
+    cell: EditingSqlCell,
+    cellKey: string,
+    connectionKey: string,
+    newValue: unknown,
+  ) {
     try {
       const result = await databaseOpsApi.updateQueryResultCell({
-        connectionKey: queryConnectionKey,
+        connectionKey,
         databaseName: queryDatabaseName,
         tableName: cell.tableName,
         tableSchema: cell.tableSchema,
@@ -2479,96 +2622,15 @@ export default function DatabasePage() {
       const savingCell = savingSqlCells[cellKey] ?? null;
       const activeCell = editingCell ?? savingCell;
       if (activeCell) {
-        const isMultiline =
-          typeof activeCell.oldValue === "object" &&
-          activeCell.oldValue !== null;
         const isSaving = Boolean(savingCell);
-        const inputStyle = {
-          minWidth: 120,
-          width: "100%",
-          padding: "0 6px",
-          lineHeight: "24px",
-        };
-        const savingSpinner = isSaving ? (
-          <Spin
-            size="small"
-            style={{
-              position: "absolute",
-              right: -28,
-              top: "50%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-              zIndex: 2,
-            }}
-          />
-        ) : null;
-        const updateDraft = (draftValue: string) =>
-          setEditingSqlCell((current) =>
-            current &&
-            editingSqlCellKey(current) === editingSqlCellKey(activeCell)
-              ? { ...current, draftValue }
-              : current,
-          );
-        if (isMultiline) {
-          return (
-            <span
-              style={{ position: "relative", display: "block", width: "100%" }}
-            >
-              <Input.TextArea
-                autoFocus={!isSaving}
-                rows={4}
-                size="small"
-                value={activeCell.draftValue}
-                disabled={isSaving}
-                style={{
-                  ...inputStyle,
-                  minWidth: 260,
-                  paddingRight: isSaving ? 24 : 6,
-                }}
-                onChange={(event) => updateDraft(event.target.value)}
-                onBlur={() => {
-                  if (!isSaving) void saveSqlCellEdit(activeCell);
-                }}
-                onKeyDown={(event) => {
-                  if (isSaving) return;
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setEditingSqlCell(null);
-                  }
-                }}
-              />
-              {savingSpinner}
-            </span>
-          );
-        }
         return (
-          <span
-            style={{ position: "relative", display: "block", width: "100%" }}
-          >
-            <Input
-              autoFocus={!isSaving}
-              size="small"
-              value={activeCell.draftValue}
-              disabled={isSaving}
-              style={{ ...inputStyle, paddingRight: isSaving ? 24 : 6 }}
-              onChange={(event) => updateDraft(event.target.value)}
-              onBlur={() => {
-                if (!isSaving) void saveSqlCellEdit(activeCell);
-              }}
-              onPressEnter={(event) => {
-                event.preventDefault();
-                if (!isSaving) void saveSqlCellEdit(activeCell);
-              }}
-              onKeyDown={(event) => {
-                if (isSaving) return;
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setEditingSqlCell(null);
-                }
-              }}
-            />
-            {savingSpinner}
-          </span>
+          <SqlCellEditor
+            key={cellKey}
+            cell={activeCell}
+            saving={isSaving}
+            onSave={(draftValue) => saveSqlCellEdit(activeCell, draftValue)}
+            onCancel={() => setEditingSqlCell(null)}
+          />
         );
       }
       const content =
